@@ -1,0 +1,2076 @@
+================================================================================
+FIRESTORE USAGE AUDIT — COMPLETE SOURCE CODE DUMP
+Generated: 2026-09-01T06:22:18.481Z
+================================================================================
+
+================================================================================
+FILE: src/services/cloudSyncManager.ts
+PATH: C:\Users\USER\.gemini\antigravity\scratch\Gofamint_hof-sunday-school-app\src\services\cloudSyncManager.ts
+================================================================================
+
+import {
+  cloudGetClassProfile,
+  cloudGetAllClasses,
+  cloudSaveClassProfile,
+  cloudDeleteClass,
+  cloudGetAllMembers,
+  cloudGetMember,
+  cloudSaveMember,
+  cloudSaveBulkMembers,
+  cloudDeleteMember,
+  cloudGetAllGrades,
+  cloudSaveGrade,
+  cloudSaveBulkGrades,
+  cloudDeleteGrade,
+  cloudGetAllOfferings,
+  cloudSaveOffering,
+  cloudSaveBulkOfferings,
+  cloudDeleteOffering,
+  cloudGetAllAbsenceLogs,
+  cloudSaveAbsenceLog,
+  cloudDeleteAbsenceLog,
+  cloudGetAllReferrals,
+  cloudSaveReferral,
+  cloudDeleteReferral,
+  cloudGetAllWorkers,
+  cloudSaveWorker,
+  cloudSaveBulkWorkers,
+  cloudDeleteWorker,
+  cloudGetAllWorkerAttendance,
+  cloudSaveWorkerAttendance,
+  cloudSaveBulkWorkerAttendance,
+  cloudDeleteWorkerAttendance,
+  cloudGetAllWorkerPrepAttendance,
+  cloudSaveWorkerPrepAttendance,
+  cloudSaveBulkWorkerPrepAttendance,
+  cloudGetAllAdminProfiles,
+  cloudSaveAdminProfile,
+  cloudDeleteAdminProfile,
+  cloudGetAllAdminComments,
+  cloudSaveAdminComment,
+  cloudDeleteAdminComment,
+  cloudGetAllTreasuryExpenditures,
+  cloudSaveTreasuryExpenditure,
+  cloudDeleteTreasuryExpenditure,
+  cloudGetSundaySchoolYear,
+  cloudSaveSundaySchoolYear,
+  cloudGetAllDepartments,
+  cloudSaveDepartment,
+  cloudDeleteDepartment,
+  cloudGetClockInConfig,
+  cloudSaveClockInConfig,
+  cloudGetAllWorkerCategories,
+  cloudSaveWorkerCategory,
+  cloudDeleteWorkerCategory,
+  cloudGetAllSpecialEvents,
+  cloudSaveSpecialEvent,
+  cloudDeleteSpecialEvent,
+  cloudGetAllSpecialEventAttendance,
+  cloudSaveSpecialEventAttendance,
+  cloudDeleteSpecialEventAttendance,
+  cloudGetAllLessons,
+  cloudSaveLesson,
+  subscribeToCollection
+} from './firestoreDatabase';
+import {
+  getAllFromStore,
+  putInStore,
+  deleteFromStore,
+  getDB,
+  replaceStoreContents,
+  retryFailedCloudPushes,
+  getPendingCloudSyncFailures,
+  FIRESTORE_STORE_MAP
+} from '../db/indexedDB';
+import { fetchCollection } from './firestoreDatabase';
+import {
+  ClassProfile,
+  Member,
+  WeeklyGradeRecord,
+  WeeklyOfferingRecord,
+  AbsenceLogRecord,
+  EvangelismReferralRecord,
+  AdminProfile,
+  SundaySchoolYear,
+  WorkerProfile,
+  WorkerAttendanceRecord,
+  WorkerPrepAttendanceRecord,
+  ClockInConfig,
+  WorkerCategoryDef,
+  SpecialWorkersEvent,
+  SpecialEventAttendanceRecord,
+  AdminComment,
+  TreasuryExpenditure,
+  LessonInfo,
+  QuarterNumber
+} from '../types';
+
+/**
+ * SEAMLESS CLOUD HYDRATION & BIDIRECTIONAL SYNC
+ * Ensures data is securely mirrored between permanent Cloud Firestore and local runtime cache.
+ * When online, Cloud Firestore is the definitive source of truth.
+ */
+
+let isSyncingToCloud = false;
+
+// Auto-seed existing local database data to Cloud Firestore if Firestore is uninitialized
+export async function seedCloudFromLocalIfEmpty(): Promise<void> {
+  // SECURITY FIX: Never push local legacy data to the cloud automatically.
+  // The cloud is the absolute single source of truth. If the cloud is empty 
+  // (e.g. after a factory reset), it must REMAIN empty until new data is explicitly created.
+  // Pushing local IndexedDB data back up here caused the "Stale Data Protection" vulnerability.
+  return;
+}
+
+// -------------------------------------------------------------------------
+// CLOUD -> LOCAL HYDRATION (the actual cross-device sync fix)
+// -------------------------------------------------------------------------
+// Previously the app only ever pushed local IndexedDB writes up to Firestore
+// (fire-and-forget) and read exclusively from local IndexedDB on every screen.
+// Nothing ever pulled Firestore's contents back down into IndexedDB, so a
+// second device's local cache never learned about changes made on a first
+// device. Firestore was being used as a one-way backup, not as the shared
+// source of truth every device reads from.
+//
+// hydrateLocalFromCloud() closes that loop: it fetches every collection from
+// the central Firestore database and replaces the matching local IndexedDB
+// store's contents with it, so the next read (loadAppData / loadClassQuarterData
+// in App.tsx) reflects whatever the current authoritative state is — including
+// records created, edited, or deleted from ANY device.
+//
+// Stores that map 1:1 onto a Firestore collection are fully replaced (this also
+// correctly propagates deletions made elsewhere). `classProfile` (the single
+// "currently open" class on this device) and `departments` (stored as a
+// differently-shaped local record) need small adapters, handled below.
+let isHydrating = false;
+let lastHydrationError: string | null = null;
+
+const DIRECT_REPLACE_STORES = Object.keys(FIRESTORE_STORE_MAP).filter(
+  (storeName) => !['classProfile', 'allClasses', 'departments'].includes(storeName)
+);
+
+export function getLastHydrationError(): string | null {
+  return lastHydrationError;
+}
+
+export async function hydrateLocalFromCloud(): Promise<{ ok: boolean; error?: string }> {
+  if (isHydrating) return { ok: true };
+  isHydrating = true;
+  try {
+    // Straightforward collections: members, grades, offerings, absenceLogs,
+    // referrals, adminProfiles, sundaySchoolYear, workers, workerAttendance,
+    // workerPrepAttendance, clockInConfig, workerCategories, specialEvents,
+    // specialEventAttendance, adminComments, treasuryExpenditures, lessons.
+    for (const storeName of DIRECT_REPLACE_STORES) {
+      const collectionName = FIRESTORE_STORE_MAP[storeName];
+      const cloudItems = await fetchCollection<any>(collectionName);
+      await replaceStoreContents(storeName, cloudItems);
+    }
+
+    // Classes: hydrate the full directory, then refresh whichever class is
+    // currently open on this device (without changing the selection itself —
+    // "which class is open on this device" is local UI state, not business data).
+    const cloudClasses = await fetchCollection<any>('classes');
+    await replaceStoreContents('allClasses', cloudClasses);
+    const existingProfiles = await getAllFromStore<any>('classProfile');
+    const currentId = existingProfiles[0]?.id;
+    if (currentId) {
+      const matching = cloudClasses.find((c) => c.id === currentId);
+      if (matching) {
+        await replaceStoreContents('classProfile', [matching]);
+      }
+      // If the currently-open class was deleted from another device, we
+      // deliberately leave the local copy in place rather than silently
+      // clearing the screen — the existing UI's delete/switch-class flows
+      // handle that case explicitly.
+    }
+
+    // Departments: Firestore stores {id, name} docs; the local store's keyPath
+    // is `name`.
+    const cloudDepartments = await fetchCollection<{ id: string; name: string }>('departments');
+    await replaceStoreContents(
+      'departments',
+      cloudDepartments.map((d) => ({ name: d.name || d.id }))
+    );
+
+    // After successful hydration, clear the scratch mode flag to prevent
+    // initializeDatabase from re-running resetToFreshCleanSystem on next load
+    localStorage.removeItem('gofamint_scratch_mode');
+
+    lastHydrationError = null;
+    return { ok: true };
+  } catch (err: any) {
+    const message = err?.message || 'Unknown cloud sync error';
+    console.error('[cloud hydration] failed:', err);
+    lastHydrationError = message;
+    return { ok: false, error: message };
+  } finally {
+    isHydrating = false;
+  }
+}
+
+// One full sync cycle: retry anything that failed to push earlier, seed the
+// cloud on very first run, then pull the latest cloud state down locally.
+// Safe to call repeatedly (on load, on window focus, on an interval, after
+// every mutating action) — every step is idempotent / a no-op when there's
+// nothing to do.
+export async function runFullCloudSyncCycle(): Promise<{ ok: boolean; error?: string; pendingRetries: number }> {
+  await retryFailedCloudPushes().catch((err) => console.warn('[cloud sync] retry pass failed:', err));
+  await seedCloudFromLocalIfEmpty();
+  const result = await hydrateLocalFromCloud();
+  const pending = await getPendingCloudSyncFailures().catch(() => []);
+  return { ...result, pendingRetries: pending.length };
+}
+
+// -------------------------------------------------------------------------
+// REAL-TIME FIRESTORE EVENT STREAMING (MULTI-DEVICE INSTANT SYNC)
+// -------------------------------------------------------------------------
+let activeUnsubscribes: (() => void)[] = [];
+let syncDebounceTimer: number | null = null;
+
+export function stopRealtimeCloudSync(): void {
+  activeUnsubscribes.forEach((unsub) => {
+    try {
+      unsub();
+    } catch (e) {
+      console.warn('[RealtimeSync] Error unsubscribing:', e);
+    }
+  });
+  activeUnsubscribes = [];
+}
+
+/**
+ * Starts real-time Firestore listeners across all operational collections.
+ * Whenever changes occur on ANY connected client/device, the snapshot event
+ * immediately updates IndexedDB and triggers the reactive React state callback.
+ */
+export function startRealtimeCloudSync(onSyncCallback: () => void): () => void {
+  stopRealtimeCloudSync();
+
+  const notifyChange = () => {
+    if (syncDebounceTimer) {
+      window.clearTimeout(syncDebounceTimer);
+    }
+    syncDebounceTimer = window.setTimeout(() => {
+      onSyncCallback();
+    }, 80);
+  };
+
+  // Direct 1:1 mapped collections
+  for (const storeName of DIRECT_REPLACE_STORES) {
+    const collectionName = FIRESTORE_STORE_MAP[storeName];
+    try {
+      const unsub = subscribeToCollection<any>(collectionName, async (cloudItems) => {
+        try {
+          await replaceStoreContents(storeName, cloudItems);
+          notifyChange();
+        } catch (err) {
+          console.error(`[RealtimeSync] Failed to store ${storeName}:`, err);
+        }
+      });
+      activeUnsubscribes.push(unsub);
+    } catch (err) {
+      console.error(`[RealtimeSync] Failed to subscribe to ${collectionName}:`, err);
+    }
+  }
+
+  // Classes collection listener
+  try {
+    const unsubClasses = subscribeToCollection<any>('classes', async (cloudClasses) => {
+      try {
+        await replaceStoreContents('allClasses', cloudClasses);
+        const existingProfiles = await getAllFromStore<any>('classProfile');
+        const currentId = existingProfiles[0]?.id;
+        if (currentId) {
+          const matching = cloudClasses.find((c) => c.id === currentId);
+          if (matching) {
+            await replaceStoreContents('classProfile', [matching]);
+          }
+        }
+        notifyChange();
+      } catch (err) {
+        console.error('[RealtimeSync] Failed to store classes:', err);
+      }
+    });
+    activeUnsubscribes.push(unsubClasses);
+  } catch (err) {
+    console.error('[RealtimeSync] Failed to subscribe to classes:', err);
+  }
+
+  // Departments collection listener
+  try {
+    const unsubDepts = subscribeToCollection<{ id: string; name: string }>('departments', async (cloudDepts) => {
+      try {
+        await replaceStoreContents(
+          'departments',
+          cloudDepts.map((d) => ({ name: d.name || d.id }))
+        );
+        notifyChange();
+      } catch (err) {
+        console.error('[RealtimeSync] Failed to store departments:', err);
+      }
+    });
+    activeUnsubscribes.push(unsubDepts);
+  } catch (err) {
+    console.error('[RealtimeSync] Failed to subscribe to departments:', err);
+  }
+
+  return stopRealtimeCloudSync;
+}
+
+
+================================================================================
+FILE: src/App.tsx
+PATH: C:\Users\USER\.gemini\antigravity\scratch\Gofamint_hof-sunday-school-app\src\App.tsx
+================================================================================
+
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  ActiveTab,
+  ClassProfile,
+  Member,
+  WeeklyGradeRecord,
+  WeeklyOfferingRecord,
+  AbsenceLogRecord,
+  SyncQueueItem,
+  SyncPayload,
+  LessonInfo,
+  AdminComment,
+  SundaySchoolYear,
+  QuarterNumber,
+  QuarterStatus
+} from './types';
+import {
+  initDB,
+  getClassProfile,
+  saveClassProfile,
+  getAllMembers,
+  getMembersByClass,
+  saveMemberToDB,
+  saveBulkMembersToDB,
+  deleteMemberFromDB,
+  getAllGrades,
+  getGradesByClassAndQuarter,
+  saveGradeToDB,
+  getAllOfferings,
+  getOfferingsByClassAndQuarter,
+  saveOfferingToDB,
+  getAllAbsenceLogs,
+  getAbsenceLogsByClassAndQuarter,
+  saveAbsenceLogToDB,
+  getSyncQueue,
+  addToSyncQueue,
+  clearSyncQueue,
+  getAllLessons,
+  saveLessonTopic,
+  clearAllDatabaseData,
+  getAllAdminComments,
+  saveAdminComment,
+  deleteAdminComment,
+  performLocalFactoryReset,
+  getSundaySchoolYear,
+  archiveQuarterForRegister
+} from './db/indexedDB';
+import { getSystemStatus } from './services/adminUserApi';
+import { GOFAMINT_HOF_12_LESSONS } from './data/mockQuarterLessons';
+import { pushSyncToServer, pullSyncFromServer } from './services/api';
+import { getConsecutiveAbsences, getConsecutiveVisits } from './utils/calculations';
+import { runFullCloudSyncCycle, getLastHydrationError, startRealtimeCloudSync, stopRealtimeCloudSync } from './services/cloudSyncManager';
+import { subscribeToClassGrades, subscribeToClassMembers } from './services/firestoreDatabase';
+
+// Subcomponents
+import { Header } from './components/Header';
+import { Navigation } from './components/Navigation';
+import { AuthModal } from './components/AuthModal';
+import { OpeningFlowView } from './components/OpeningFlowView';
+import { QuarterSelectorBar } from './components/QuarterSelectorBar';
+import { GradingMatrixView } from './components/GradingMatrixView';
+import { RosterManagementView } from './components/RosterManagementView';
+import { WelfareFollowUpView } from './components/WelfareFollowUpView';
+import { AbsenceCareView } from './components/AbsenceCareView';
+import { QuarterAnalysisView } from './components/QuarterAnalysisView';
+import { Week12AnalyticsView } from './components/Week12AnalyticsView';
+import { ClassDiscussionView } from './components/ClassDiscussionView';
+import { QRPortalView } from './components/QRPortalView';
+import { AIAssistantView } from './components/AIAssistantView';
+import { SyncSettingsView } from './components/SyncSettingsView';
+import { AdminPortalRoot } from './components/AdminPortal/AdminPortalRoot';
+import { WorkersModuleView } from './components/WorkersModule/WorkersModuleView';
+import { QuarterTransitionModal } from './components/QuarterTransitionModal';
+import { CloudLoginGate } from './components/CloudLoginGate';
+import { LockScreen } from './components/LockScreen';
+import { OversightBanner } from './components/OversightBanner';
+import { watchAuthState, signOutUser } from './services/authService';
+import { logOversightAccess } from './services/adminUserApi';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from './services/firebase';
+import type { User } from 'firebase/auth';
+
+export default function App() {
+  // Cloud Auth Gate — nothing below renders until a real Firebase user is signed in
+  const [cloudUser, setCloudUser] = useState<User | null>(null);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [currentUserProfile, setCurrentUserProfile] = useState<{
+    roleType?: string;
+    classId?: string;
+    displayName?: string;
+    isApproved?: boolean;
+  } | null>(null);
+
+  // Profile Lock State (survives page refresh via sessionStorage, preserves Firebase session)
+  const [isProfileLocked, setIsProfileLocked] = useState<boolean>(() => {
+    return sessionStorage.getItem('gofamint_profile_locked') === 'true';
+  });
+
+  // General Superintendent Oversight State
+  const [oversightTarget, setOversightTarget] = useState<{
+    label: string;
+    classId?: string;
+    type: 'CLASS' | 'WORKERS';
+  } | null>(null);
+
+  useEffect(() => {
+    const unsubscribe = watchAuthState(async (user) => {
+      setCloudUser(user);
+      setIsCheckingAuth(false);
+      if (user) {
+        try {
+          const userDoc = await getDoc(doc(db, 'users', user.uid));
+          if (userDoc.exists()) {
+            const data = userDoc.data();
+            const profile = {
+              roleType: data?.roleType,
+              classId: data?.classId,
+              displayName: data?.displayName || user.displayName || user.email || 'Officer',
+              isApproved: data?.isApproved !== false,
+            };
+            setCurrentUserProfile(profile);
+
+            // Automatic Role-Based Routing
+            const role = profile.roleType;
+            if (['GENERAL_SUPERINTENDENT', 'GENERAL_SECRETARY', 'TREASURER', 'RECORD_OFFICER', 'ENROLLMENT_OFFICER', 'SUPER_ADMIN'].includes(role || '')) {
+              setShowAdminPortal(true);
+              setShowWorkersModule(false);
+              setShowOpeningPage(false);
+            } else if (['ASST_GENERAL_SECRETARY', 'WORKER'].includes(role || '')) {
+              setShowWorkersModule(true);
+              setShowAdminPortal(false);
+              setShowOpeningPage(false);
+            } else if (['TEACHER', 'CLASS_SECRETARY', 'TEACHER / CLASS_SECRETARY'].includes(role || '')) {
+              setShowAdminPortal(false);
+              setShowWorkersModule(false);
+              setShowOpeningPage(false);
+              setIsUnlocked(true);
+              if (profile.classId) {
+                sessionStorage.setItem('gofamint_unlocked', 'true');
+                sessionStorage.setItem('gofamint_unlocked_class_id', profile.classId);
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('Could not load user profile on auth:', err);
+        }
+      } else {
+        setCurrentUserProfile(null);
+      }
+    });
+    return unsubscribe;
+  }, []);
+
+  // Global App States
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [isSystemInitialized, setIsSystemInitialized] = useState<boolean | null>(null);
+  const [showOpeningPage, setShowOpeningPage] = useState(false);
+  const [showAdminPortal, setShowAdminPortal] = useState(false);
+  const [showWorkersModule, setShowWorkersModule] = useState(false);
+  const [isUnlocked, setIsUnlocked] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isRegisteringNew, setIsRegisteringNew] = useState(false);
+  const [isQuarterTransitionOpen, setIsQuarterTransitionOpen] = useState(false);
+
+  const [activeTab, setActiveTab] = useState<ActiveTab>('GRADING_MATRIX');
+  const [selectedWeek, setSelectedWeek] = useState(1);
+  const [selectedQuarter, setSelectedQuarter] = useState<QuarterNumber>(1);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStatusText, setSyncStatusText] = useState('Local DB Ready');
+
+  // Database Data States
+  const [classProfile, setClassProfile] = useState<ClassProfile | null>(null);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [grades, setGrades] = useState<WeeklyGradeRecord[]>([]);
+  const [offerings, setOfferings] = useState<WeeklyOfferingRecord[]>([]);
+  const [absenceLogs, setAbsenceLogs] = useState<AbsenceLogRecord[]>([]);
+  const [syncQueue, setSyncQueue] = useState<SyncQueueItem[]>([]);
+  const [lessons, setLessons] = useState<LessonInfo[]>(GOFAMINT_HOF_12_LESSONS);
+  const [comments, setComments] = useState<AdminComment[]>([]);
+  const [sundaySchoolYear, setSundaySchoolYear] = useState<SundaySchoolYear | null>(null);
+
+  // Modal / Transition Props
+  const [preSelectedSponsorId, setPreSelectedSponsorId] = useState<string | null>(null);
+  const [aiInitialPrompt, setAiInitialPrompt] = useState<string | undefined>(undefined);
+
+  // Online / Offline Network Listeners
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // Central isolated data loader for a specific class and quarter
+  const loadClassQuarterData = async (targetClassId?: string, targetQuarterNum?: QuarterNumber) => {
+    const currentId = targetClassId || classProfile?.id;
+    const currentQ = targetQuarterNum || selectedQuarter;
+    if (!currentId) {
+      setMembers([]);
+      setGrades([]);
+      setOfferings([]);
+      setAbsenceLogs([]);
+      return;
+    }
+
+    try {
+      const [classMems, classGrds, classOffs, classLogs] = await Promise.all([
+        getMembersByClass(currentId, currentQ),
+        getGradesByClassAndQuarter(currentId, currentQ),
+        getOfferingsByClassAndQuarter(currentId, currentQ),
+        getAbsenceLogsByClassAndQuarter(currentId, currentQ)
+      ]);
+
+      setMembers(classMems);
+      setGrades(classGrds);
+      setOfferings(classOffs);
+      setAbsenceLogs(classLogs);
+    } catch (e) {
+      console.error('Error loading class quarter data:', e);
+    }
+  };
+
+  // Re-reads every top-level data slice from local IndexedDB into React state.
+  // Used both on first load and after pulling fresh data down from Cloud
+  // Firestore (see syncWithCloud below), so the screen reflects whatever is
+  // currently the authoritative state — including changes made on other devices.
+  const refreshStateFromLocalDB = async () => {
+    const profile = await getClassProfile();
+    const loadedQueue = await getSyncQueue();
+    const loadedLessons = await getAllLessons();
+    const loadedComments = await getAllAdminComments();
+    const loadedYear = await getSundaySchoolYear();
+
+    setClassProfile(profile);
+    setSyncQueue(loadedQueue);
+    setLessons(loadedLessons);
+    setComments(loadedComments);
+    setSundaySchoolYear(loadedYear);
+
+    const activeQ = loadedYear?.activeQuarterNumber || profile?.quarter || 1;
+    setSelectedQuarter(activeQ);
+
+    if (profile) {
+      await loadClassQuarterData(profile.id, activeQ);
+    } else {
+      setMembers([]);
+      setGrades([]);
+      setOfferings([]);
+      setAbsenceLogs([]);
+    }
+
+    return profile;
+  };
+
+  // Initialize IndexedDB and load whatever is in the local cache immediately
+  // (works instantly, even offline, even before Firebase Auth has resolved).
+  const loadAppData = async () => {
+    // Check system initialization status from server
+    try {
+      const status = await getSystemStatus();
+      setIsSystemInitialized(status.initialized);
+    } catch {
+      setIsSystemInitialized(false);
+    }
+
+    try {
+      await initDB();
+      const profile = await refreshStateFromLocalDB();
+
+      // Check unlock status in session
+      const sessionUnlocked = sessionStorage.getItem('gofamint_unlocked');
+      const sessionClassId = sessionStorage.getItem('gofamint_unlocked_class_id');
+      if (sessionUnlocked === 'true' && profile && sessionClassId === profile.id) {
+        setIsUnlocked(true);
+        setShowOpeningPage(false);
+      } else {
+        setShowOpeningPage(true);
+      }
+    } catch (err) {
+      console.error('Failed to load application data:', err);
+    } finally {
+      setIsInitializing(false);
+    }
+  };
+
+  useEffect(() => {
+    loadAppData();
+  }, []);
+
+  // THE CROSS-DEVICE SYNC FIX: pulls the latest data down from the central
+  // Cloud Firestore database and refreshes the screen with it. Firestore's
+  // security rules require an authenticated user, so this only runs once
+  // Firebase Auth has confirmed a signed-in user (cloudUser).
+  const syncWithCloud = async (silent = true) => {
+    if (!cloudUser) return;
+    if (!silent) {
+      setIsSyncing(true);
+      setSyncStatusText('Syncing with central database…');
+    }
+    try {
+      const result = await runFullCloudSyncCycle();
+      await refreshStateFromLocalDB();
+      if (result.ok) {
+        setSyncStatusText(
+          result.pendingRetries > 0
+            ? `Synced — ${result.pendingRetries} change(s) still waiting to reach the cloud`
+            : 'Synced with central database'
+        );
+      } else {
+        setSyncStatusText(`Cloud sync issue: ${result.error || getLastHydrationError() || 'unknown error'}`);
+      }
+    } catch (err: any) {
+      console.error('Cloud sync cycle failed:', err);
+      setSyncStatusText(`Cloud sync issue: ${err?.message || 'unknown error'}`);
+    } finally {
+      if (!silent) setIsSyncing(false);
+    }
+  };
+
+  // REAL-TIME MULTI-DEVICE CLOUD SYNC
+  // As soon as a user signs in, attach real-time Firestore listeners.
+  // When ANY client writes data to Firestore, the snapshot event immediately
+  // updates local storage and reactively re-renders all screens without a page reload.
+  useEffect(() => {
+    if (!cloudUser) {
+      stopRealtimeCloudSync();
+      return;
+    }
+
+    // Initial hydration pass
+    syncWithCloud(true);
+
+    // Start live Firestore listeners
+    const unsubscribeRealtime = startRealtimeCloudSync(async () => {
+      try {
+        const freshProfile = await refreshStateFromLocalDB();
+        const activeClassId = freshProfile?.id || classProfile?.id;
+        const currentQ = selectedQuarter;
+        if (activeClassId) {
+          await loadClassQuarterData(activeClassId, currentQ);
+        }
+        setSyncStatusText('Synced (Real-time Live)');
+      } catch (err) {
+        console.error('Error handling realtime update:', err);
+      }
+    });
+
+    const handleFocus = () => syncWithCloud(true);
+    const handleOnlineReconnect = () => syncWithCloud(true);
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('online', handleOnlineReconnect);
+
+    return () => {
+      unsubscribeRealtime();
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('online', handleOnlineReconnect);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cloudUser, selectedQuarter]);
+
+  // Compute status for selected quarter
+  const selectedQuarterStatus: QuarterStatus = useMemo(() => {
+    if (!sundaySchoolYear) return 'ACTIVE';
+    const qData = sundaySchoolYear.quarters.find(q => q.quarterNumber === selectedQuarter);
+    return qData?.status || (selectedQuarter === sundaySchoolYear.activeQuarterNumber ? 'ACTIVE' : 'UPCOMING');
+  }, [sundaySchoolYear, selectedQuarter]);
+
+  // Lessons for current active quarter
+  const currentQuarterLessons: LessonInfo[] = useMemo(() => {
+    const qData = sundaySchoolYear?.quarters.find(q => q.quarterNumber === selectedQuarter);
+    if (qData && qData.lessons && qData.lessons.length > 0) {
+      return qData.lessons.map(l => ({
+        weekNumber: l.weekNumber,
+        topic: l.topic,
+        scriptureReading: l.scriptureReading || 'Scripture reading as assigned',
+        memoryVerse: l.memoryVerse || '',
+        memoryVerseRef: l.memoryVerseRef || '',
+        aim: l.aim || (l.isSharingAdmonitionWeek ? 'Sharing & Admonition Week' : 'Lesson spiritual objective')
+      }));
+    }
+    return lessons;
+  }, [sundaySchoolYear, selectedQuarter, lessons]);
+
+  // Quarter Switching Handler
+  const handleQuarterChange = async (qNum: QuarterNumber) => {
+    setSelectedQuarter(qNum);
+    if (classProfile) {
+      await loadClassQuarterData(classProfile.id, qNum);
+    }
+  };
+
+  // Archive Quarter Handler
+  const handleArchiveQuarter = async (qNum: QuarterNumber) => {
+    const updatedYear = await archiveQuarterForRegister(qNum);
+    setSundaySchoolYear(updatedYear);
+    if (classProfile) {
+      await loadClassQuarterData(classProfile.id, selectedQuarter);
+    }
+  };
+
+  const handleSaveComment = async (comment: AdminComment) => {
+    await saveAdminComment(comment);
+    const updated = await getAllAdminComments();
+    setComments(updated);
+  };
+
+  const handleDeleteComment = async (commentId: string) => {
+    await deleteAdminComment(commentId);
+    const updated = await getAllAdminComments();
+    setComments(updated);
+  };
+
+  // Opening Page & Auth Navigation Handlers
+  const handleEnterClassFromWelcome = async (selectedProfile?: ClassProfile) => {
+    const target = selectedProfile || classProfile;
+    if (selectedProfile) {
+      await saveClassProfile(selectedProfile);
+      setClassProfile(selectedProfile);
+    }
+    if (!target) {
+      setIsRegisteringNew(true);
+      setIsAuthModalOpen(true);
+    } else if (target.approvalStatus === 'PENDING_APPROVAL') {
+      alert(`Class "${target.className}" is pending approval from the General Superintendent or General Secretary. Once approved in the Admin Portal, access will be granted.`);
+    } else {
+      const currentUnlockedId = sessionStorage.getItem('gofamint_unlocked_class_id');
+      if (isUnlocked && currentUnlockedId === target.id) {
+        setShowOpeningPage(false);
+        setActiveTab('GRADING_MATRIX');
+        setSelectedWeek(1);
+        await loadClassQuarterData(target.id, selectedQuarter);
+      } else {
+        setIsUnlocked(false);
+        sessionStorage.removeItem('gofamint_unlocked');
+        setIsRegisteringNew(false);
+        setIsAuthModalOpen(true);
+      }
+    }
+  };
+
+  const handleRegisterNewClassSubmit = async (newProfile: ClassProfile) => {
+    await saveClassProfile(newProfile);
+    setClassProfile(newProfile);
+
+    // Clean data isolation: fresh class has zero members
+    setMembers([]);
+    setGrades([]);
+    setOfferings([]);
+    setAbsenceLogs([]);
+
+    setIsUnlocked(false);
+    sessionStorage.removeItem('gofamint_unlocked');
+    sessionStorage.removeItem('gofamint_unlocked_class_id');
+
+    await addToSyncQueue({
+      id: `sync_profile_${Date.now()}`,
+      action: 'UPDATE',
+      entity: 'CLASS_PROFILE',
+      data: newProfile,
+      createdAt: new Date().toISOString()
+    });
+    setSyncQueue(await getSyncQueue());
+
+    if (newProfile.approvalStatus === 'APPROVED') {
+      setIsRegisteringNew(false);
+      setIsAuthModalOpen(true);
+    } else {
+      setShowOpeningPage(true);
+    }
+  };
+
+  const handleClearDataAndStartScratch = async () => {
+    await clearAllDatabaseData(true);
+    await performLocalFactoryReset();
+    setClassProfile(null);
+    setMembers([]);
+    setGrades([]);
+    setOfferings([]);
+    setAbsenceLogs([]);
+    setSyncQueue([]);
+    setIsUnlocked(false);
+    sessionStorage.removeItem('gofamint_unlocked');
+    sessionStorage.removeItem('gofamint_unlocked_class_id');
+    setShowOpeningPage(true);
+  };
+
+  // Auth / Unlock Handlers
+  const handleCompleteFirstRunSetup = async (newProfile: ClassProfile) => {
+    await saveClassProfile(newProfile);
+    setClassProfile(newProfile);
+    
+    // Clean data isolation
+    setMembers([]);
+    setGrades([]);
+    setOfferings([]);
+    setAbsenceLogs([]);
+
+    setIsUnlocked(false);
+    sessionStorage.removeItem('gofamint_unlocked');
+    sessionStorage.removeItem('gofamint_unlocked_class_id');
+
+    if (newProfile.approvalStatus === 'APPROVED') {
+      setIsRegisteringNew(false);
+      setIsAuthModalOpen(true);
+    } else {
+      setIsAuthModalOpen(false);
+      setShowOpeningPage(true);
+      alert(`Class "${newProfile.className}" is registered and pending approval by the General Superintendent or General Secretary.`);
+    }
+
+    await addToSyncQueue({
+      id: `sync_profile_${Date.now()}`,
+      action: 'UPDATE',
+      entity: 'CLASS_PROFILE',
+      data: newProfile,
+      createdAt: new Date().toISOString()
+    });
+    setSyncQueue(await getSyncQueue());
+  };
+
+  const handleUnlockConsole = (inputPassword: string): boolean => {
+    if (classProfile?.approvalStatus === 'PENDING_APPROVAL') {
+      alert(`Class "${classProfile.className}" is pending authorization from the General Superintendent or General Secretary. Please have an administrator approve it in the Admin Portal first.`);
+      return false;
+    }
+
+    setIsUnlocked(true);
+    sessionStorage.setItem('gofamint_unlocked', 'true');
+    if (classProfile) {
+      sessionStorage.setItem('gofamint_unlocked_class_id', classProfile.id);
+      loadClassQuarterData(classProfile.id, selectedQuarter);
+    }
+    setIsAuthModalOpen(false);
+    setShowOpeningPage(false);
+    setActiveTab('GRADING_MATRIX');
+    setSelectedWeek(1);
+    return true;
+  };
+
+  const handleLockConsole = () => {
+    setIsUnlocked(false);
+    sessionStorage.removeItem('gofamint_unlocked');
+    sessionStorage.removeItem('gofamint_unlocked_class_id');
+    setShowOpeningPage(true);
+  };
+
+  // Lesson Topic Handlers
+  const handleUpdateLessonTopic = async (weekNumber: number, topic: string) => {
+    const updatedLessons = await saveLessonTopic(weekNumber, topic);
+    setLessons(updatedLessons);
+  };
+
+  // Quick Add Member from Grading Matrix
+  const handleQuickAddMember = async (fullName: string, phone: string, memberType: 'STUDENT' | 'VISITOR') => {
+    if (!classProfile) return;
+
+    const newMember: Member = {
+      id: `mem_${Date.now()}`,
+      classId: classProfile.id,
+      fullName,
+      phone,
+      address: '',
+      occupation: memberType === 'STUDENT' ? 'Student' : 'Visitor',
+      memberType,
+      status: 'ACTIVE',
+      prayerRequests: '',
+      notes: '',
+      firstLessonWeek: selectedWeek,
+      evangelismReferralCount: 0,
+      quarterEnrollments: {
+        [selectedQuarter]: {
+          quarterNumber: selectedQuarter,
+          memberType,
+          status: 'ACTIVE',
+          firstLessonWeek: selectedWeek,
+          enrolledDate: new Date().toISOString()
+        }
+      },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    await saveMemberToDB(newMember, selectedQuarter);
+    await loadClassQuarterData(classProfile.id, selectedQuarter);
+
+    await addToSyncQueue({
+      id: `sync_mem_${newMember.id}_${Date.now()}`,
+      action: 'CREATE',
+      entity: 'MEMBER',
+      data: newMember,
+      createdAt: new Date().toISOString()
+    });
+    setSyncQueue(await getSyncQueue());
+  };
+
+  // Member CRUD Handlers
+  const handleSaveMember = async (memberToSave: Member) => {
+    if (!classProfile) return;
+    const withClass: Member = {
+      ...memberToSave,
+      classId: classProfile.id
+    };
+    await saveMemberToDB(withClass, selectedQuarter);
+    await loadClassQuarterData(classProfile.id, selectedQuarter);
+
+    await addToSyncQueue({
+      id: `sync_mem_${memberToSave.id}_${Date.now()}`,
+      action: members.some(m => m.id === memberToSave.id) ? 'UPDATE' : 'CREATE',
+      entity: 'MEMBER',
+      data: withClass,
+      createdAt: new Date().toISOString()
+    });
+    setSyncQueue(await getSyncQueue());
+  };
+
+  const handleSaveBulkMembers = async (membersList: Member[]) => {
+    if (!classProfile) return;
+    const withClass = membersList.map(m => ({
+      ...m,
+      classId: classProfile.id
+    }));
+    await saveBulkMembersToDB(withClass, selectedQuarter);
+    await loadClassQuarterData(classProfile.id, selectedQuarter);
+
+    for (const m of withClass) {
+      await addToSyncQueue({
+        id: `sync_mem_${m.id}_${Date.now()}`,
+        action: 'CREATE',
+        entity: 'MEMBER',
+        data: m,
+        createdAt: new Date().toISOString()
+      });
+    }
+    setSyncQueue(await getSyncQueue());
+  };
+
+  const handleDeleteMember = async (id: string) => {
+    if (!classProfile) return;
+    await deleteMemberFromDB(id);
+    await loadClassQuarterData(classProfile.id, selectedQuarter);
+
+    await addToSyncQueue({
+      id: `sync_del_${id}_${Date.now()}`,
+      action: 'DELETE',
+      entity: 'MEMBER',
+      data: { id },
+      createdAt: new Date().toISOString()
+    });
+    setSyncQueue(await getSyncQueue());
+  };
+
+  // Visitor to Student Conversion
+  const handleConvertVisitorToStudent = async (memberId: string) => {
+    if (!classProfile) return;
+    const member = members.find(m => m.id === memberId);
+    if (!member) return;
+
+    const currentEnr = member.quarterEnrollments || {};
+    currentEnr[selectedQuarter] = {
+      ...(currentEnr[selectedQuarter] || { quarterNumber: selectedQuarter, status: 'ACTIVE', firstLessonWeek: 1 }),
+      memberType: 'STUDENT'
+    };
+
+    const converted: Member = {
+      ...member,
+      memberType: 'STUDENT',
+      quarterEnrollments: currentEnr,
+      convertedFromVisitorAtLesson: selectedWeek,
+      updatedAt: new Date().toISOString()
+    };
+
+    await saveMemberToDB(converted, selectedQuarter);
+    await loadClassQuarterData(classProfile.id, selectedQuarter);
+
+    await addToSyncQueue({
+      id: `sync_convert_${memberId}_${Date.now()}`,
+      action: 'UPDATE',
+      entity: 'MEMBER',
+      data: converted,
+      createdAt: new Date().toISOString()
+    });
+    setSyncQueue(await getSyncQueue());
+  };
+
+  // Grade & Offering Handlers
+  const handleUpdateGrade = async (grade: WeeklyGradeRecord) => {
+    if (!classProfile) return;
+    const total = (grade.attendance === 'PRESENT')
+      ? (grade.punctuality || 0) + (grade.memoryVerse || 0) + (grade.classParticipation || 0)
+      : 0;
+
+    const updatedGrade: WeeklyGradeRecord = {
+      ...grade,
+      classId: classProfile.id,
+      quarterNumber: selectedQuarter,
+      lessonTotal: total,
+      updatedAt: new Date().toISOString()
+    };
+
+    await saveGradeToDB(updatedGrade);
+    await loadClassQuarterData(classProfile.id, selectedQuarter);
+
+    await addToSyncQueue({
+      id: `sync_grade_${grade.id}_${Date.now()}`,
+      action: 'UPDATE',
+      entity: 'GRADE',
+      data: updatedGrade,
+      createdAt: new Date().toISOString()
+    });
+    setSyncQueue(await getSyncQueue());
+  };
+
+  const handleUpdateOffering = async (offering: WeeklyOfferingRecord) => {
+    if (!classProfile) return;
+    const updatedOffering: WeeklyOfferingRecord = {
+      ...offering,
+      classId: classProfile.id,
+      quarterNumber: selectedQuarter,
+      updatedAt: new Date().toISOString()
+    };
+
+    await saveOfferingToDB(updatedOffering);
+    await loadClassQuarterData(classProfile.id, selectedQuarter);
+
+    await addToSyncQueue({
+      id: `sync_offering_${offering.id}_${Date.now()}`,
+      action: 'UPDATE',
+      entity: 'OFFERING',
+      data: updatedOffering,
+      createdAt: new Date().toISOString()
+    });
+    setSyncQueue(await getSyncQueue());
+  };
+
+  // Absence Log & Escalation Handlers
+  const handleSaveAbsenceLog = async (log: AbsenceLogRecord) => {
+    if (!classProfile) return;
+    const updatedLog: AbsenceLogRecord = {
+      ...log,
+      classId: classProfile.id,
+      quarterNumber: selectedQuarter
+    };
+
+    await saveAbsenceLogToDB(updatedLog);
+    await loadClassQuarterData(classProfile.id, selectedQuarter);
+
+    await addToSyncQueue({
+      id: `sync_log_${log.id}_${Date.now()}`,
+      action: 'CREATE',
+      entity: 'ABSENCE_LOG',
+      data: updatedLog,
+      createdAt: new Date().toISOString()
+    });
+    setSyncQueue(await getSyncQueue());
+  };
+
+  const handleUpdateMemberStatus = async (memberId: string, status: any, exitNote?: string) => {
+    if (!classProfile) return;
+    const member = members.find(m => m.id === memberId);
+    if (!member) return;
+
+    const updated: Member = {
+      ...member,
+      status,
+      notes: exitNote ? `${member.notes || ''} [Exit Note: ${exitNote}]` : member.notes,
+      updatedAt: new Date().toISOString()
+    };
+
+    await saveMemberToDB(updated, selectedQuarter);
+    await loadClassQuarterData(classProfile.id, selectedQuarter);
+  };
+
+  const handleRelegateToVisitor = async (memberId: string) => {
+    if (!classProfile) return;
+    const member = members.find(m => m.id === memberId);
+    if (!member) return;
+
+    const currentEnr = member.quarterEnrollments || {};
+    currentEnr[selectedQuarter] = {
+      ...(currentEnr[selectedQuarter] || { quarterNumber: selectedQuarter, status: 'ACTIVE', firstLessonWeek: 1 }),
+      memberType: 'VISITOR'
+    };
+
+    const updated: Member = {
+      ...member,
+      memberType: 'VISITOR',
+      quarterEnrollments: currentEnr,
+      updatedAt: new Date().toISOString()
+    };
+
+    await saveMemberToDB(updated, selectedQuarter);
+    await loadClassQuarterData(classProfile.id, selectedQuarter);
+  };
+
+  // Open Add Visitor with Referral from Student
+  const handleOpenAddVisitorWithReferral = async (sponsorMemberId: string) => {
+    if (!classProfile) return;
+    const sponsor = members.find(m => m.id === sponsorMemberId);
+    if (sponsor) {
+      const updatedSponsor: Member = {
+        ...sponsor,
+        evangelismReferralCount: (sponsor.evangelismReferralCount || 0) + 1,
+        updatedAt: new Date().toISOString()
+      };
+      await saveMemberToDB(updatedSponsor, selectedQuarter);
+      await loadClassQuarterData(classProfile.id, selectedQuarter);
+    }
+
+    setPreSelectedSponsorId(sponsorMemberId);
+    setActiveTab('ROSTER_MANAGEMENT');
+  };
+
+  // AI Prompt Transition from Absence Care
+  const handleOpenAICompose = (member: Member, weeksAbsent: number) => {
+    const prompt = `Draft a heartfelt, warm, and spiritually encouraging WhatsApp pastoral check-in message for ${member.fullName} who has been absent for ${weeksAbsent} consecutive Sunday School lessons. Their known prayer request is "${member.prayerRequests || 'God\'s peace and protection'}". Reference our current lesson topic and memory verse gently.`;
+    setAiInitialPrompt(prompt);
+    setActiveTab('AI_ASSISTANT');
+  };
+
+  // Sync Push & Pull Logic
+  const handlePushSync = async () => {
+    setIsSyncing(true);
+    setSyncStatusText('Pushing mutations to Host Server...');
+    try {
+      const hostIp = localStorage.getItem('gofamint_host_ip') || 'http://192.168.1.150:5000';
+      
+      const payload: SyncPayload = {
+        classProfile,
+        members,
+        grades,
+        offerings,
+        absenceLogs,
+        referrals: [],
+        timestamp: new Date().toISOString(),
+        sourceClient: navigator.userAgent
+      };
+
+      const res = await pushSyncToServer(payload, hostIp);
+      if (res.success) {
+        await clearSyncQueue();
+        setSyncQueue([]);
+        setSyncStatusText('Synced with Host Laptop');
+      }
+    } catch (err: any) {
+      console.warn('Sync push notification:', err.message);
+      setSyncStatusText('Offline - Changes Queued');
+    } finally {
+      setIsSyncing(false);
+    }
+    // Always also retry/flush anything pending to the CENTRAL Firestore database —
+    // this is the sync path that actually reaches every other device, regardless
+    // of whether the optional local-network Host Server above was reachable.
+    await syncWithCloud(false);
+  };
+
+  const handlePullSync = async () => {
+    setIsSyncing(true);
+    setSyncStatusText('Pulling from Host Server...');
+    try {
+      const hostIp = localStorage.getItem('gofamint_host_ip') || 'http://192.168.1.150:5000';
+      const result = await pullSyncFromServer(hostIp);
+
+      if (result.success && result.payload) {
+        const remoteData = result.payload;
+        if (remoteData.classProfile) {
+          await saveClassProfile(remoteData.classProfile);
+          setClassProfile(remoteData.classProfile);
+        }
+        if (remoteData.members?.length) {
+          for (const m of remoteData.members) await saveMemberToDB(m, selectedQuarter);
+        }
+        if (remoteData.grades?.length) {
+          for (const g of remoteData.grades) await saveGradeToDB(g);
+        }
+        if (remoteData.offerings?.length) {
+          for (const o of remoteData.offerings) await saveOfferingToDB(o);
+        }
+        if (remoteData.absenceLogs?.length) {
+          for (const l of remoteData.absenceLogs) await saveAbsenceLogToDB(l);
+        }
+        if (classProfile) {
+          await loadClassQuarterData(classProfile.id, selectedQuarter);
+        }
+        setSyncStatusText('Pulled Latest from Host');
+      }
+    } catch (err: any) {
+      console.warn('Sync pull notification:', err.message);
+      setSyncStatusText('Offline Mode (Local IndexedDB)');
+    } finally {
+      setIsSyncing(false);
+    }
+    // Always also pull the latest state from the CENTRAL Firestore database —
+    // this is what actually picks up changes made on other devices, regardless
+    // of whether the optional local-network Host Server above was reachable.
+    await syncWithCloud(false);
+  };
+
+  // Full Backup Import
+  const handleImportFullBackup = async (data: any) => {
+    if (data.classProfile) {
+      await saveClassProfile(data.classProfile);
+      setClassProfile(data.classProfile);
+    }
+    if (data.members) {
+      for (const m of data.members) await saveMemberToDB(m);
+    }
+    if (data.grades) {
+      for (const g of data.grades) await saveGradeToDB(g);
+    }
+    if (data.offerings) {
+      for (const o of data.offerings) await saveOfferingToDB(o);
+    }
+    if (data.absenceLogs) {
+      for (const l of data.absenceLogs) await saveAbsenceLogToDB(l);
+    }
+    if (classProfile) {
+      await loadClassQuarterData(classProfile.id, selectedQuarter);
+    }
+  };
+
+  // Calculate Urgent Absence & Visitor Progression Badges
+  const urgentAbsenceCount = members.filter(m => {
+    const absences = getConsecutiveAbsences(m.id, selectedWeek, grades, m.firstLessonWeek || 1);
+    return absences >= 2 && m.status !== 'LEFT_CLASS';
+  }).length;
+
+  const visitorConversionCount = members.filter(m => {
+    if (m.memberType !== 'VISITOR' || m.status === 'LEFT_CLASS') return false;
+    const consecutive = getConsecutiveVisits(m.id, selectedWeek, grades);
+    return consecutive >= 2;
+  }).length;
+
+  // Oversight Handlers
+  const handleEnterOversight = async (targetPortal: string, targetClassId?: string) => {
+    try {
+      await logOversightAccess({
+        targetPortal,
+        targetClassId,
+        action: 'ENTER_OVERSIGHT',
+      });
+    } catch (e) {
+      console.warn('Could not log oversight access:', e);
+    }
+
+    if (targetPortal === 'WORKERS') {
+      setOversightTarget({ type: 'WORKERS', label: 'Workers Directorate & Attendance Terminal' });
+      setShowAdminPortal(false);
+      setShowWorkersModule(true);
+      setShowOpeningPage(false);
+    } else if (targetPortal === 'CLASS_REGISTER' && targetClassId) {
+      setOversightTarget({
+        type: 'CLASS',
+        classId: targetClassId,
+        label: `Class Register (${targetClassId})`,
+      });
+      await loadClassQuarterData(targetClassId, selectedQuarter);
+      setShowAdminPortal(false);
+      setShowWorkersModule(false);
+      setShowOpeningPage(false);
+      setIsUnlocked(true);
+    }
+  };
+
+  const handleExitOversight = () => {
+    setOversightTarget(null);
+    setShowWorkersModule(false);
+    setShowOpeningPage(false);
+    setShowAdminPortal(true);
+  };
+
+  if (isCheckingAuth) {
+    return (
+      <div className="min-h-screen bg-blue-950 flex flex-col items-center justify-center text-slate-300 p-4 text-center">
+        <div className="w-12 h-12 border-4 border-amber-400 border-t-transparent rounded-full animate-spin mb-4" />
+        <p className="text-xs text-blue-200 mt-1">Checking sign-in status...</p>
+      </div>
+    );
+  }
+
+  if (!cloudUser) {
+    return <CloudLoginGate 
+      onSignedIn={() => { /* onAuthStateChanged will update cloudUser */ }} 
+      isSystemInitialized={isSystemInitialized === true}
+      onFirstRunComplete={() => setIsSystemInitialized(true)}
+    />;
+  }
+
+  if (isInitializing) {
+    return (
+      <div className="min-h-screen bg-blue-950 flex flex-col items-center justify-center text-slate-300 p-4 text-center">
+        <div className="w-12 h-12 border-4 border-amber-400 border-t-transparent rounded-full animate-spin mb-4" />
+        <h2 className="text-base font-bold font-['Cinzel',serif] tracking-wide text-white">
+          THE GOSPEL FAITH MISSION INTL
+        </h2>
+        <p className="text-xs text-blue-200 mt-1">Initializing Offline IndexedDB Sunday School Secretary Engine...</p>
+      </div>
+    );
+  }
+
+  // If user entered the Workers Directorate Module
+  if (showWorkersModule) {
+    return (
+      <>
+        {isProfileLocked && (
+          <LockScreen
+            userEmail={cloudUser.email || ''}
+            userRole={currentUserProfile?.roleType}
+            onUnlocked={() => setIsProfileLocked(false)}
+          />
+        )}
+        {oversightTarget && (
+          <OversightBanner
+            targetLabel={oversightTarget.label}
+            onExitOversight={handleExitOversight}
+          />
+        )}
+        <WorkersModuleView
+          onBack={() => {
+            if (oversightTarget) {
+              handleExitOversight();
+            } else {
+              setShowWorkersModule(false);
+              setShowOpeningPage(true);
+            }
+          }}
+        />
+      </>
+    );
+  }
+
+  // If user entered the Admin Portal
+  if (showAdminPortal) {
+    return (
+      <>
+        {isProfileLocked && (
+          <LockScreen
+            userEmail={cloudUser.email || ''}
+            userRole={currentUserProfile?.roleType}
+            onUnlocked={() => setIsProfileLocked(false)}
+          />
+        )}
+        <AdminPortalRoot
+          onBackToPortalSelect={() => {
+            setShowAdminPortal(false);
+            setShowOpeningPage(true);
+          }}
+          onEnterClassRegister={(targetClassId) => {
+            if (currentUserProfile?.roleType === 'GENERAL_SUPERINTENDENT' || currentUserProfile?.roleType === 'SUPER_ADMIN') {
+              handleEnterOversight('CLASS_REGISTER', targetClassId);
+            } else {
+              setShowAdminPortal(false);
+              setShowWorkersModule(false);
+              setIsUnlocked(false);
+              sessionStorage.removeItem('gofamint_unlocked');
+              setShowOpeningPage(true);
+            }
+          }}
+          onEnterWorkersModule={() => {
+            if (currentUserProfile?.roleType === 'GENERAL_SUPERINTENDENT' || currentUserProfile?.roleType === 'SUPER_ADMIN') {
+              handleEnterOversight('WORKERS');
+            } else {
+              setShowAdminPortal(false);
+              setShowWorkersModule(true);
+            }
+          }}
+          onLockProfile={() => {
+            sessionStorage.setItem('gofamint_profile_locked', 'true');
+            setIsProfileLocked(true);
+          }}
+          onEnterOversight={handleEnterOversight}
+        />
+      </>
+    );
+  }
+
+  // If user is at the Opening Page
+  if (showOpeningPage) {
+    return (
+      <>
+        {isProfileLocked && (
+          <LockScreen
+            userEmail={cloudUser.email || ''}
+            userRole={currentUserProfile?.roleType}
+            onUnlocked={() => setIsProfileLocked(false)}
+          />
+        )}
+        {oversightTarget && (
+          <OversightBanner
+            targetLabel={oversightTarget.label}
+            onExitOversight={handleExitOversight}
+          />
+        )}
+        <OpeningFlowView
+          classProfile={classProfile}
+          members={members}
+          isUnlocked={isUnlocked}
+          onEnterClass={handleEnterClassFromWelcome}
+          onEnterAdminPortal={() => {
+            setShowOpeningPage(false);
+            setShowAdminPortal(true);
+          }}
+          onEnterWorkersModule={() => {
+            setShowOpeningPage(false);
+            setShowWorkersModule(true);
+          }}
+          onRegisterNewClassSubmit={handleRegisterNewClassSubmit}
+          onClearDataAndStartScratch={handleClearDataAndStartScratch}
+          onDatabaseRestored={loadAppData}
+        />
+
+        <AuthModal
+          isOpen={isAuthModalOpen}
+          isFirstRun={isRegisteringNew || !classProfile?.isSetupComplete}
+          existingClassProfile={isRegisteringNew ? null : classProfile}
+          onCompleteSetup={handleCompleteFirstRunSetup}
+          onUnlock={handleUnlockConsole}
+          onCancel={() => setIsAuthModalOpen(false)}
+        />
+      </>
+    );
+  }
+
+  const currencySymbol = classProfile?.currencySymbol || '₦';
+
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
+      {isProfileLocked && (
+        <LockScreen
+          userEmail={cloudUser.email || ''}
+          userRole={currentUserProfile?.roleType}
+          onUnlocked={() => setIsProfileLocked(false)}
+        />
+      )}
+      {oversightTarget && (
+        <OversightBanner
+          targetLabel={oversightTarget.label}
+          onExitOversight={handleExitOversight}
+        />
+      )}
+      
+      {/* App Header */}
+      <Header
+        classProfile={classProfile}
+        currentWeek={selectedWeek}
+        selectedQuarter={selectedQuarter}
+        activeQuarterNumber={sundaySchoolYear?.activeQuarterNumber || classProfile?.quarter || 1}
+        onQuarterChange={(q) => handleQuarterChange(q as QuarterNumber)}
+        syncState={{
+          isOnline,
+          isSyncing,
+          syncQueueCount: syncQueue.length,
+          syncStatusText
+        }}
+        onSyncClick={handlePushSync}
+        onLockClick={() => {
+          sessionStorage.setItem('gofamint_profile_locked', 'true');
+          setIsProfileLocked(true);
+        }}
+        onOpenAI={() => setActiveTab('AI_ASSISTANT')}
+        onOpenWelcome={() => {
+          setShowWorkersModule(false);
+          setShowAdminPortal(false);
+          setShowOpeningPage(true);
+        }}
+        onOpenAdminPortal={() => {
+          setShowWorkersModule(false);
+          setShowOpeningPage(false);
+          setShowAdminPortal(true);
+        }}
+        onOpenWorkersModule={() => {
+          setShowAdminPortal(false);
+          setShowOpeningPage(false);
+          setShowWorkersModule(true);
+        }}
+        totalStudents={members.filter(m => m.memberType === 'STUDENT' && m.status !== 'LEFT_CLASS').length}
+        totalVisitors={members.filter(m => m.memberType === 'VISITOR' && m.status !== 'LEFT_CLASS').length}
+      />
+
+      {/* Navigation Tab Bar */}
+      <Navigation
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        urgentAbsenceCount={urgentAbsenceCount}
+        visitorConversionCount={visitorConversionCount}
+        unreadCommentsCount={comments.filter(c => c.classId === classProfile?.id).length}
+      />
+
+      {/* Main Content Area */}
+      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
+        {/* 4-Quarter Global Selector & Status Bar */}
+        <QuarterSelectorBar
+          selectedQuarter={selectedQuarter}
+          activeQuarterNumber={sundaySchoolYear?.activeQuarterNumber || classProfile?.quarter || 1}
+          sundaySchoolYear={sundaySchoolYear}
+          onSelectQuarter={handleQuarterChange}
+          onArchiveQuarter={handleArchiveQuarter}
+        />
+
+        {activeTab === 'GRADING_MATRIX' && (
+          <GradingMatrixView
+            selectedWeek={selectedWeek}
+            onSelectWeek={setSelectedWeek}
+            members={members}
+            grades={grades}
+            offerings={offerings}
+            lessons={currentQuarterLessons}
+            classProfile={classProfile}
+            adminComments={comments.filter(c => c.classId === classProfile?.id)}
+            quarterStatus={selectedQuarterStatus}
+            selectedQuarter={selectedQuarter}
+            onUpdateGrade={handleUpdateGrade}
+            onUpdateOffering={handleUpdateOffering}
+            onUpdateLessonTopic={handleUpdateLessonTopic}
+            onOpenAddVisitorWithReferral={handleOpenAddVisitorWithReferral}
+            onQuickAddMember={handleQuickAddMember}
+            onNavigateToRoster={() => setActiveTab('ROSTER_MANAGEMENT')}
+            onOpenQuarterTransition={() => setIsQuarterTransitionOpen(true)}
+            currencySymbol={currencySymbol}
+          />
+        )}
+
+        {activeTab === 'ROSTER_MANAGEMENT' && (
+          <RosterManagementView
+            members={members}
+            grades={grades}
+            currentWeek={selectedWeek}
+            classProfile={classProfile}
+            onSaveMember={handleSaveMember}
+            onSaveBulkMembers={handleSaveBulkMembers}
+            onDeleteMember={handleDeleteMember}
+            onConvertVisitorToStudent={handleConvertVisitorToStudent}
+            preSelectedSponsorId={preSelectedSponsorId}
+            onClearPreSelectedSponsor={() => setPreSelectedSponsorId(null)}
+          />
+        )}
+
+        {(activeTab === 'WELFARE_FOLLOW_UP' || (activeTab as any) === 'ABSENCE_CARE') && (
+          <WelfareFollowUpView
+            members={members}
+            grades={grades}
+            absenceLogs={absenceLogs}
+            currentWeek={selectedWeek}
+            classProfile={classProfile}
+            activeLessons={currentQuarterLessons}
+            selectedQuarterNumber={selectedQuarter}
+            onSaveAbsenceLog={handleSaveAbsenceLog}
+            onUpdateMemberStatus={handleUpdateMemberStatus}
+            onRelegateToVisitor={handleRelegateToVisitor}
+            onRestoreToStudent={(id) => handleUpdateMemberStatus(id, 'ACTIVE')}
+          />
+        )}
+
+        {(activeTab === 'QUARTER_ANALYSIS' || (activeTab as any) === 'WEEK_12_ANALYTICS') && (
+          <QuarterAnalysisView
+            members={members}
+            grades={grades}
+            offerings={offerings}
+            absenceLogs={absenceLogs}
+            classProfile={classProfile}
+            quarterData={sundaySchoolYear?.quarters?.find(q => q.quarterNumber === selectedQuarter) || null}
+            quarterNumber={selectedQuarter}
+            currencySymbol={currencySymbol}
+            onUpgradeVisitor={handleConvertVisitorToStudent}
+            onExemptMember={(memberId, reason) => {
+              handleUpdateMemberStatus(memberId, 'HIGH_PROBABILITY', reason);
+            }}
+            onExitMember={(memberId, reason) => {
+              handleUpdateMemberStatus(memberId, 'LEFT_CLASS', reason);
+            }}
+          />
+        )}
+
+        {activeTab === 'CLASS_DISCUSSION' && (
+          <ClassDiscussionView
+            classProfile={classProfile}
+            comments={comments}
+            currentRole="Class Secretary"
+            currentUserName={classProfile?.secretaryName || classProfile?.className || 'Class Secretary'}
+            onSaveComment={handleSaveComment}
+            onDeleteComment={handleDeleteComment}
+          />
+        )}
+
+        {activeTab === 'QR_PORTAL' && (
+          <QRPortalView
+            members={members}
+            grades={grades}
+            classProfile={classProfile}
+          />
+        )}
+
+        {activeTab === 'AI_ASSISTANT' && (
+          <AIAssistantView
+            members={members}
+            grades={grades}
+            currentWeek={selectedWeek}
+            classProfile={classProfile}
+            initialPrompt={aiInitialPrompt}
+            onClearInitialPrompt={() => setAiInitialPrompt(undefined)}
+          />
+        )}
+
+        {activeTab === 'DATABASE_SETTINGS' && (
+          <SyncSettingsView
+            classProfile={classProfile}
+            members={members}
+            grades={grades}
+            offerings={offerings}
+            absenceLogs={absenceLogs}
+            syncQueue={syncQueue}
+            isOnline={isOnline}
+            isSyncing={isSyncing}
+            onPushSync={handlePushSync}
+            onPullSync={handlePullSync}
+            onUpdateClassProfile={async (p) => {
+              await saveClassProfile(p);
+              setClassProfile(p);
+            }}
+            onClearDatabase={handleClearDataAndStartScratch}
+            onImportFullBackup={handleImportFullBackup}
+            onDatabaseRestored={loadAppData}
+          />
+        )}
+      </main>
+
+      {/* Geometric Balance Telemetry Footer */}
+      <footer className="bg-slate-200 p-2.5 px-4 sm:px-6 flex flex-col sm:flex-row justify-between items-center text-[10px] font-bold text-slate-600 border-t border-slate-300 gap-1 mt-auto">
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+          <span>STATUS: DEVICE OFFLINE-READY | DATABASE ENCRYPTED</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <span>HOST SYNC: {isOnline ? 'ONLINE & SYNC ACTIVE' : 'OFFLINE LOCAL'}</span>
+          <span>|</span>
+          <span>GOFAMINT_HOF SS PWA v2.4</span>
+        </div>
+      </footer>
+
+      {/* First-Run Setup & Lock Authentication Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        isFirstRun={isRegisteringNew || !classProfile?.isSetupComplete}
+        existingClassProfile={isRegisteringNew ? null : classProfile}
+        onCompleteSetup={handleCompleteFirstRunSetup}
+        onUnlock={handleUnlockConsole}
+        onCancel={() => setIsAuthModalOpen(false)}
+      />
+
+      {/* Intelligent Quarter Transition & Initialization Modal */}
+      {isQuarterTransitionOpen && (
+        <QuarterTransitionModal
+          isOpen={isQuarterTransitionOpen}
+          onClose={() => setIsQuarterTransitionOpen(false)}
+          classProfile={classProfile}
+          fromQuarter={(selectedQuarter > 1 ? (selectedQuarter - 1) : 1) as QuarterNumber}
+          toQuarter={selectedQuarter}
+          onTransitionComplete={async () => {
+            setIsQuarterTransitionOpen(false);
+            if (classProfile) {
+              await loadClassQuarterData(classProfile.id, selectedQuarter);
+            }
+          }}
+          sundaySchoolYear={sundaySchoolYear}
+        />
+      )}
+    </div>
+  );
+}
+
+
+================================================================================
+FILE: src/services/firestoreDatabase.ts
+PATH: C:\Users\USER\.gemini\antigravity\scratch\Gofamint_hof-sunday-school-app\src\services\firestoreDatabase.ts
+================================================================================
+
+import { 
+  collection, 
+  doc, 
+  getDocs, 
+  getDoc, 
+  setDoc, 
+  updateDoc, 
+  deleteDoc, 
+  query, 
+  where, 
+  onSnapshot,
+  writeBatch,
+  DocumentData,
+  Unsubscribe
+} from 'firebase/firestore';
+import { db } from './firebase';
+import {
+  ClassProfile,
+  Member,
+  WeeklyGradeRecord,
+  WeeklyOfferingRecord,
+  AbsenceLogRecord,
+  EvangelismReferralRecord,
+  AdminProfile,
+  SundaySchoolYear,
+  WorkerProfile,
+  WorkerAttendanceRecord,
+  WorkerPrepAttendanceRecord,
+  ClockInConfig,
+  WorkerCategoryDef,
+  SpecialWorkersEvent,
+  SpecialEventAttendanceRecord,
+  AdminComment,
+  TreasuryExpenditure,
+  LessonInfo,
+  QuarterNumber
+} from '../types';
+
+/**
+ * PRODUCTION CLOUD FIRESTORE SERVICE
+ * Serves as the independent, permanent source of truth for the application.
+ * Multi-user realtime synchronization and persistent caching.
+ */
+
+// -------------------------------------------------------------
+// GENERIC CLOUD FIRESTORE HELPERS
+// -------------------------------------------------------------
+
+/**
+ * Recursively sanitizes an object to make it valid for Cloud Firestore.
+ * Firestore strictly forbids `undefined` field values and throws an error if encountered.
+ * This strips out `undefined` properties and ensures dates/nested structures are safely serialized.
+ */
+export function cleanForFirestore<T>(data: T): T {
+  if (data === undefined) {
+    return null as unknown as T;
+  }
+  if (data === null || typeof data !== 'object') {
+    return data;
+  }
+  if (data instanceof Date) {
+    return data.toISOString() as unknown as T;
+  }
+  if (Array.isArray(data)) {
+    return data
+      .filter(item => item !== undefined)
+      .map(item => cleanForFirestore(item)) as unknown as T;
+  }
+  const result: Record<string, any> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (value === undefined) {
+      continue;
+    }
+    result[key] = cleanForFirestore(value);
+  }
+  return result as T;
+}
+
+export async function fetchCollection<T>(collectionName: string): Promise<T[]> {
+  try {
+    const colRef = collection(db, collectionName);
+    const snapshot = await getDocs(colRef);
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as unknown as T));
+  } catch (error) {
+    console.error(`Firestore fetchCollection error [${collectionName}]:`, error);
+    return [];
+  }
+}
+
+export async function fetchDocument<T>(collectionName: string, docId: string): Promise<T | null> {
+  if (!docId) return null;
+  try {
+    const docRef = doc(db, collectionName, docId);
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      return { id: snap.id, ...snap.data() } as unknown as T;
+    }
+    return null;
+  } catch (error) {
+    console.error(`Firestore fetchDocument error [${collectionName}/${docId}]:`, error);
+    return null;
+  }
+}
+
+export async function saveDocument<T extends { id: string }>(
+  collectionName: string,
+  data: T
+): Promise<T> {
+  if (!data || !data.id) {
+    throw new Error(`Cannot save document without stable unique ID to [${collectionName}]`);
+  }
+  try {
+    const docRef = doc(db, collectionName, data.id);
+    const sanitized = cleanForFirestore({
+      ...data,
+      updatedAt: new Date().toISOString()
+    });
+    await setDoc(docRef, sanitized, { merge: true });
+    return data;
+  } catch (error) {
+    console.error(`Firestore saveDocument error [${collectionName}/${data.id}]:`, error);
+    throw error;
+  }
+}
+
+export async function removeDocument(collectionName: string, docId: string): Promise<void> {
+  if (!docId) return;
+  try {
+    const docRef = doc(db, collectionName, docId);
+    await deleteDoc(docRef);
+  } catch (error) {
+    console.error(`Firestore removeDocument error [${collectionName}/${docId}]:`, error);
+    throw error;
+  }
+}
+
+export async function saveBatchDocuments<T extends { id: string }>(
+  collectionName: string,
+  items: T[]
+): Promise<void> {
+  if (!items || items.length === 0) return;
+  
+  // Firestore batches support up to 500 operations per batch
+  const chunkSize = 450;
+  for (let i = 0; i < items.length; i += chunkSize) {
+    const chunk = items.slice(i, i + chunkSize);
+    const batch = writeBatch(db);
+    for (const item of chunk) {
+      if (item && item.id) {
+        const docRef = doc(db, collectionName, item.id);
+        const sanitized = cleanForFirestore({
+          ...item,
+          updatedAt: new Date().toISOString()
+        });
+        batch.set(docRef, sanitized, { merge: true });
+      }
+    }
+    await batch.commit();
+  }
+}
+
+// -------------------------------------------------------------
+// REAL-TIME FIRESTORE SUBSCRIPTIONS (MULTI-USER COLLABORATION)
+// -------------------------------------------------------------
+
+export function subscribeToCollection<T>(
+  collectionName: string,
+  onUpdate: (data: T[]) => void,
+  onError?: (error: Error) => void
+): Unsubscribe {
+  const colRef = collection(db, collectionName);
+  return onSnapshot(
+    colRef,
+    (snapshot) => {
+      const results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as unknown as T));
+      onUpdate(results);
+    },
+    (err) => {
+      console.error(`Subscription error [${collectionName}]:`, err);
+      if (onError) onError(err);
+    }
+  );
+}
+
+export function subscribeToDocument<T>(
+  collectionName: string,
+  docId: string,
+  onUpdate: (data: T | null) => void,
+  onError?: (error: Error) => void
+): Unsubscribe {
+  const docRef = doc(db, collectionName, docId);
+  return onSnapshot(
+    docRef,
+    (snapshot) => {
+      if (snapshot.exists()) {
+        onUpdate({ id: snapshot.id, ...snapshot.data() } as unknown as T);
+      } else {
+        onUpdate(null);
+      }
+    },
+    (err) => {
+      console.error(`Document subscription error [${collectionName}/${docId}]:`, err);
+      if (onError) onError(err);
+    }
+  );
+}
+
+export function subscribeToClassGrades(
+  classId: string,
+  quarterNumber: QuarterNumber,
+  onUpdate: (grades: WeeklyGradeRecord[]) => void
+): Unsubscribe {
+  const colRef = collection(db, 'grades');
+  const q = query(
+    colRef,
+    where('classId', '==', classId),
+    where('quarterNumber', '==', quarterNumber)
+  );
+  return onSnapshot(q, (snapshot) => {
+    const items = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as WeeklyGradeRecord));
+    onUpdate(items);
+  });
+}
+
+export function subscribeToClassMembers(
+  classId: string,
+  onUpdate: (members: Member[]) => void
+): Unsubscribe {
+  const colRef = collection(db, 'members');
+  const q = query(colRef, where('classId', '==', classId));
+  return onSnapshot(q, (snapshot) => {
+    const items = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Member));
+    onUpdate(items);
+  });
+}
+
+// -------------------------------------------------------------
+// CLOUD FIRESTORE HIGH-LEVEL ENTITY ACCESSORS
+// -------------------------------------------------------------
+
+// 1. Classes & Profiles
+export const cloudGetClassProfile = (id: string) => fetchDocument<ClassProfile>('classes', id);
+export const cloudGetAllClasses = () => fetchCollection<ClassProfile>('classes');
+export const cloudSaveClassProfile = (profile: ClassProfile) => saveDocument<ClassProfile>('classes', profile);
+export const cloudDeleteClass = (classId: string) => removeDocument('classes', classId);
+
+// 2. Members (Students & Visitors)
+export const cloudGetAllMembers = () => fetchCollection<Member>('members');
+export const cloudGetMember = (id: string) => fetchDocument<Member>('members', id);
+export const cloudSaveMember = (member: Member) => saveDocument<Member>('members', member);
+export const cloudSaveBulkMembers = (members: Member[]) => saveBatchDocuments<Member>('members', members);
+export const cloudDeleteMember = (memberId: string) => removeDocument('members', memberId);
+
+// 3. Grades & Attendance Records
+export const cloudGetAllGrades = () => fetchCollection<WeeklyGradeRecord>('grades');
+export const cloudSaveGrade = (grade: WeeklyGradeRecord) => saveDocument<WeeklyGradeRecord>('grades', grade);
+export const cloudSaveBulkGrades = (grades: WeeklyGradeRecord[]) => saveBatchDocuments<WeeklyGradeRecord>('grades', grades);
+export const cloudDeleteGrade = (gradeId: string) => removeDocument('grades', gradeId);
+
+// 4. Offerings & Financial Remittances
+export const cloudGetAllOfferings = () => fetchCollection<WeeklyOfferingRecord>('offerings');
+export const cloudSaveOffering = (offering: WeeklyOfferingRecord) => saveDocument<WeeklyOfferingRecord>('offerings', offering);
+export const cloudSaveBulkOfferings = (offerings: WeeklyOfferingRecord[]) => saveBatchDocuments<WeeklyOfferingRecord>('offerings', offerings);
+export const cloudDeleteOffering = (offeringId: string) => removeDocument('offerings', offeringId);
+
+// 5. Absence Logs & Follow-up
+export const cloudGetAllAbsenceLogs = () => fetchCollection<AbsenceLogRecord>('absenceLogs');
+export const cloudSaveAbsenceLog = (log: AbsenceLogRecord) => saveDocument<AbsenceLogRecord>('absenceLogs', log);
+export const cloudDeleteAbsenceLog = (logId: string) => removeDocument('absenceLogs', logId);
+
+// 6. Referrals & Outreach
+export const cloudGetAllReferrals = () => fetchCollection<EvangelismReferralRecord>('referrals');
+export const cloudSaveReferral = (ref: EvangelismReferralRecord) => saveDocument<EvangelismReferralRecord>('referrals', ref);
+export const cloudDeleteReferral = (id: string) => removeDocument('referrals', id);
+
+// 7. Workers & Attendance
+export const cloudGetAllWorkers = () => fetchCollection<WorkerProfile>('workers');
+export const cloudSaveWorker = (worker: WorkerProfile) => saveDocument<WorkerProfile>('workers', worker);
+export const cloudSaveBulkWorkers = (workers: WorkerProfile[]) => saveBatchDocuments<WorkerProfile>('workers', workers);
+export const cloudDeleteWorker = (workerId: string) => removeDocument('workers', workerId);
+
+export const cloudGetAllWorkerAttendance = () => fetchCollection<WorkerAttendanceRecord>('workerAttendance');
+export const cloudSaveWorkerAttendance = (att: WorkerAttendanceRecord) => saveDocument<WorkerAttendanceRecord>('workerAttendance', att);
+export const cloudSaveBulkWorkerAttendance = (atts: WorkerAttendanceRecord[]) => saveBatchDocuments<WorkerAttendanceRecord>('workerAttendance', atts);
+export const cloudDeleteWorkerAttendance = (id: string) => removeDocument('workerAttendance', id);
+
+export const cloudGetAllWorkerPrepAttendance = () => fetchCollection<WorkerPrepAttendanceRecord>('workerPrepAttendance');
+export const cloudSaveWorkerPrepAttendance = (p: WorkerPrepAttendanceRecord) => saveDocument<WorkerPrepAttendanceRecord>('workerPrepAttendance', p);
+export const cloudSaveBulkWorkerPrepAttendance = (ps: WorkerPrepAttendanceRecord[]) => saveBatchDocuments<WorkerPrepAttendanceRecord>('workerPrepAttendance', ps);
+
+// 8. Admin Profiles & Comments
+export const cloudGetAllAdminProfiles = () => fetchCollection<AdminProfile>('adminProfiles');
+export const cloudSaveAdminProfile = (prof: AdminProfile) => saveDocument<AdminProfile>('adminProfiles', prof);
+export const cloudDeleteAdminProfile = (id: string) => removeDocument('adminProfiles', id);
+
+export const cloudGetAllAdminComments = () => fetchCollection<AdminComment>('adminComments');
+export const cloudSaveAdminComment = (comm: AdminComment) => saveDocument<AdminComment>('adminComments', comm);
+export const cloudDeleteAdminComment = (id: string) => removeDocument('adminComments', id);
+
+// 9. Treasury Expenditures
+export const cloudGetAllTreasuryExpenditures = () => fetchCollection<TreasuryExpenditure>('treasuryExpenditures');
+export const cloudSaveTreasuryExpenditure = (exp: TreasuryExpenditure) => saveDocument<TreasuryExpenditure>('treasuryExpenditures', exp);
+export const cloudDeleteTreasuryExpenditure = (id: string) => removeDocument('treasuryExpenditures', id);
+
+// 10. Sunday School Year & Curriculum
+export const cloudGetSundaySchoolYear = async (): Promise<SundaySchoolYear | null> => {
+  const years = await fetchCollection<SundaySchoolYear>('sundaySchoolYear');
+  return years[0] || null;
+};
+export const cloudSaveSundaySchoolYear = (year: SundaySchoolYear) => saveDocument<SundaySchoolYear>('sundaySchoolYear', year);
+
+// 11. Departments
+export const cloudGetAllDepartments = async (): Promise<string[]> => {
+  const docs = await fetchCollection<{ id: string; name: string }>('departments');
+  return docs.map(d => d.name || d.id);
+};
+export const cloudSaveDepartment = (name: string) => saveDocument('departments', { id: name, name });
+export const cloudDeleteDepartment = (name: string) => removeDocument('departments', name);
+
+// 12. Clock-In Config & Categories
+export const cloudGetClockInConfig = async (): Promise<ClockInConfig | null> => {
+  const configs = await fetchCollection<ClockInConfig>('clockInConfig');
+  return configs[0] || null;
+};
+export const cloudSaveClockInConfig = (cfg: ClockInConfig) => saveDocument<ClockInConfig>('clockInConfig', cfg);
+
+export const cloudGetAllWorkerCategories = () => fetchCollection<WorkerCategoryDef>('workerCategories');
+export const cloudSaveWorkerCategory = (cat: WorkerCategoryDef) => saveDocument<WorkerCategoryDef>('workerCategories', cat);
+export const cloudDeleteWorkerCategory = (id: string) => removeDocument('workerCategories', id);
+
+// 13. Special Events
+export const cloudGetAllSpecialEvents = () => fetchCollection<SpecialWorkersEvent>('specialEvents');
+export const cloudSaveSpecialEvent = (ev: SpecialWorkersEvent) => saveDocument<SpecialWorkersEvent>('specialEvents', ev);
+export const cloudDeleteSpecialEvent = (id: string) => removeDocument('specialEvents', id);
+
+export const cloudGetAllSpecialEventAttendance = () => fetchCollection<SpecialEventAttendanceRecord>('specialEventAttendance');
+export const cloudSaveSpecialEventAttendance = (att: SpecialEventAttendanceRecord) => saveDocument<SpecialEventAttendanceRecord>('specialEventAttendance', att);
+export const cloudDeleteSpecialEventAttendance = (id: string) => removeDocument('specialEventAttendance', id);
+
+// 14. Lessons
+export const cloudGetAllLessons = () => fetchCollection<LessonInfo>('lessons');
+export const cloudSaveLesson = (lesson: LessonInfo) => saveDocument<any>('lessons', { ...lesson, id: `WEEK_${lesson.weekNumber}` });
+
+// 15. Reset Year Audit Log & Archived Years (read-only from the client — both
+// collections are written exclusively by the server's Admin SDK during
+// /api/admin/reset-year; see firestore.rules).
+export const cloudGetResetAuditLogs = () => fetchCollection<any>('auditLogs');
+export const cloudGetSundaySchoolYearArchive = () => fetchCollection<SundaySchoolYear>('sundaySchoolYearArchive');
+
+// =============================================================
+// SYSTEM CONFIGURATION
+// =============================================================
+
+export async function cloudGetSystemConfig(): Promise<{ initialized: boolean; schemaVersion: number } | null> {
+  try {
+    const docRef = doc(db, 'systemConfig', 'initialization');
+    const snap = await getDoc(docRef);
+    if (!snap.exists()) return null;
+    const data = snap.data();
+    return {
+      initialized: data?.initialized === true,
+      schemaVersion: data?.schemaVersion || 0,
+    };
+  } catch (err) {
+    console.error('Failed to read systemConfig:', err);
+    return null;
+  }
+}
+
+

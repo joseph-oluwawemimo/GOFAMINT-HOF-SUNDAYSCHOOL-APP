@@ -1,0 +1,8 @@
+{
+  "firestore": {
+    "database": "ai-studio-remixremixremixr-e1005fdc-a3ec-4e1c-8527-666bdea0d747",
+    "location": "europe-west2",
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  }
+}

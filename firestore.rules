@@ -1,0 +1,500 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =========================================================================
+    // CORE AUTHENTICATION & ROLE IDENTIFICATION HELPERS
+    // =========================================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function userDocExists() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function getUserRole() {
+      return userDocExists() && ('roleType' in getUserData()) ? getUserData().roleType : '';
+    }
+
+    // Role Hierarchy Evaluators
+    function isSuperAdmin() {
+      return isAuthenticated() && userDocExists() && getUserRole() == 'SUPER_ADMIN';
+    }
+
+    function isGeneralSuperintendent() {
+      return isAuthenticated() && userDocExists() && (
+        getUserRole() == 'GENERAL_SUPERINTENDENT' || 
+        isSuperAdmin()
+      );
+    }
+
+    function isGeneralSecretary() {
+      return isAuthenticated() && userDocExists() && (
+        getUserRole() == 'GENERAL_SECRETARY' || 
+        isGeneralSuperintendent()
+      );
+    }
+
+    function isAsstGeneralSecretary() {
+      return isAuthenticated() && userDocExists() && (
+        getUserRole() == 'ASST_GENERAL_SECRETARY' || 
+        isGeneralSecretary()
+      );
+    }
+
+    function isTreasurer() {
+      return isAuthenticated() && userDocExists() && (
+        getUserRole() == 'TREASURER' || 
+        isGeneralSuperintendent()
+      );
+    }
+
+    function isRecordOfficer() {
+      return isAuthenticated() && userDocExists() && (
+        getUserRole() == 'RECORD_OFFICER' || 
+        isGeneralSecretary()
+      );
+    }
+
+    function isEnrollmentOfficer() {
+      return isAuthenticated() && userDocExists() && (
+        getUserRole() == 'ENROLLMENT_OFFICER' || 
+        isGeneralSecretary()
+      );
+    }
+
+    function isExecAdmin() {
+      return isAuthenticated() && userDocExists() && (
+        getUserRole() in ['SUPER_ADMIN', 'GENERAL_SUPERINTENDENT', 'GENERAL_SECRETARY']
+      );
+    }
+
+    function isAnyAdmin() {
+      return isAuthenticated() && userDocExists() && (
+        getUserRole() in [
+          'SUPER_ADMIN', 
+          'GENERAL_SUPERINTENDENT', 
+          'GENERAL_SECRETARY', 
+          'ASST_GENERAL_SECRETARY',
+          'RECORD_OFFICER', 
+          'ENROLLMENT_OFFICER', 
+          'TREASURER'
+        ]
+      );
+    }
+
+    function isTeacher() {
+      return isAuthenticated() && userDocExists() && (
+        getUserRole() in ['TEACHER', 'CLASS_SECRETARY', 'TEACHER / CLASS_SECRETARY']
+      );
+    }
+
+    function isWorker() {
+      return isAuthenticated() && userDocExists() && (
+        getUserRole() in ['WORKER', 'TEACHER', 'CLASS_SECRETARY'] || isAnyAdmin()
+      );
+    }
+
+    // Class Isolation Validator
+    function isAssignedToClass(targetClassId) {
+      return isAuthenticated() && userDocExists() && (
+        isAnyAdmin() || (
+          isTeacher() && (
+            (targetClassId != null && 'classId' in getUserData() && getUserData().classId == targetClassId) ||
+            (targetClassId != null && 'assignedClassIds' in getUserData() && targetClassId in getUserData().assignedClassIds) ||
+            (targetClassId != null && 'assignedClass' in getUserData() && getUserData().assignedClass == targetClassId)
+          )
+        )
+      );
+    }
+
+    // Historical Quarter Immutability Guard
+    function isNotArchivedRecord(recordData) {
+      return (!('isArchived' in recordData) || recordData.isArchived != true) &&
+             (!('quarterStatus' in recordData) || recordData.quarterStatus != 'ARCHIVED');
+    }
+
+    // =========================================================================
+    // COLLECTION SECURITY SPECIFICATIONS
+    // =========================================================================
+
+    // 1. Users Collection (Identity, Role Assignments, and Class Affiliations)
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (
+        request.auth.uid == userId || 
+        isAnyAdmin() || 
+        isTeacher()
+      );
+      // Only server-side Admin SDK (via /api/admin/create-user or /api/admin/bootstrap)
+      // can create user documents. This prevents self-registration.
+      allow create: if isExecAdmin();
+      // Users can update their own non-sensitive fields (displayName, photoURL, etc.)
+      // but CANNOT change roleType, isApproved, approvedBy, approvedAt, createdBy.
+      // Executive admins can update any field.
+      allow update: if isAuthenticated() && (
+        isExecAdmin() || (
+          request.auth.uid == userId &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(
+            ['roleType', 'isApproved', 'approvedBy', 'approvedAt', 'createdBy']
+          )
+        )
+      );
+      allow delete: if isAuthenticated() && isGeneralSuperintendent();
+    }
+
+    // 2. Admin Profiles Collection (Executive & Departmental Officers)
+    // Only executive admins can create/manage admin profiles. The old exception
+    // allowing any authenticated user to create hardcoded profile IDs has been
+    // removed to prevent unauthorized role claiming.
+    match /adminProfiles/{profileId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (
+        isGeneralSuperintendent() || 
+        isGeneralSecretary()
+      );
+      allow update: if isAuthenticated() && isGeneralSuperintendent();
+      allow delete: if isAuthenticated() && isGeneralSuperintendent();
+    }
+
+    // 3. Sunday School Year & Curriculum Configuration (Quarters 1–4)
+    match /sundaySchoolYear/{yearId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() && isGeneralSecretary();
+      allow delete: if isAuthenticated() && isGeneralSuperintendent();
+    }
+
+    // 4. Classes Directory
+    match /classes/{classId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (isGeneralSecretary() || isTeacher());
+      allow update: if isAuthenticated() && (isGeneralSecretary() || isAssignedToClass(classId));
+      allow delete: if isAuthenticated() && isGeneralSuperintendent();
+    }
+
+    // 5. Departments Configuration
+    match /departments/{deptName} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() && isGeneralSecretary();
+      allow delete: if isAuthenticated() && isGeneralSuperintendent();
+    }
+
+    // 6. Members Roster (Students & Visitors)
+    match /members/{memberId} {
+      allow read: if isAuthenticated() && (
+        isAnyAdmin() || 
+        isAssignedToClass(resource.data.classId)
+      );
+      allow create: if isAuthenticated() && (
+        isAnyAdmin() || 
+        isEnrollmentOfficer() || 
+        isAssignedToClass(request.resource.data.classId)
+      );
+      allow update: if isAuthenticated() && (
+        isAnyAdmin() || 
+        isEnrollmentOfficer() || (
+          isAssignedToClass(resource.data.classId) && 
+          isAssignedToClass(request.resource.data.classId)
+        )
+      );
+      allow delete: if isAuthenticated() && (
+        isExecAdmin() || 
+        isAssignedToClass(resource.data.classId)
+      );
+    }
+
+    // 7. Weekly Grades, Punctuality, Memory Verse & Attendance
+    match /grades/{gradeId} {
+      allow read: if isAuthenticated() && (
+        isAnyAdmin() || 
+        isAssignedToClass(resource.data.classId)
+      );
+      allow create: if isAuthenticated() && (
+        isRecordOfficer() || (
+          isAssignedToClass(request.resource.data.classId) && 
+          isNotArchivedRecord(request.resource.data)
+        )
+      );
+      allow update: if isAuthenticated() && (
+        isRecordOfficer() || (
+          isAssignedToClass(resource.data.classId) && 
+          isAssignedToClass(request.resource.data.classId) && 
+          isNotArchivedRecord(resource.data)
+        )
+      );
+      allow delete: if isAuthenticated() && (
+        isExecAdmin() || (
+          isAssignedToClass(resource.data.classId) && 
+          isNotArchivedRecord(resource.data)
+        )
+      );
+    }
+
+    // 8. Weekly Offerings & Financial Remittances
+    match /offerings/{offeringId} {
+      allow read: if isAuthenticated() && (
+        isTreasurer() || 
+        isGeneralSuperintendent() || 
+        isGeneralSecretary() || 
+        isRecordOfficer() || (
+          'classId' in resource.data && 
+          isAssignedToClass(resource.data.classId)
+        )
+      );
+      allow create: if isAuthenticated() && (
+        isTreasurer() || 
+        isGeneralSuperintendent() || (
+          'classId' in request.resource.data && 
+          isAssignedToClass(request.resource.data.classId) && 
+          isNotArchivedRecord(request.resource.data)
+        )
+      );
+      allow update: if isAuthenticated() && (
+        isTreasurer() || 
+        isGeneralSuperintendent() || (
+          'classId' in resource.data && 
+          isAssignedToClass(resource.data.classId) && 
+          isNotArchivedRecord(resource.data)
+        )
+      );
+      allow delete: if isAuthenticated() && (
+        isTreasurer() || 
+        isGeneralSuperintendent()
+      );
+    }
+
+    // 9. Treasury Expenditures
+    match /treasuryExpenditures/{expId} {
+      allow read: if isAuthenticated() && (
+        isTreasurer() || 
+        isGeneralSuperintendent()
+      );
+      allow create, update, delete: if isAuthenticated() && (
+        isTreasurer() || 
+        isGeneralSuperintendent()
+      );
+    }
+
+    // 10. Absence Care & Follow-Up Welfare Logs
+    match /absenceLogs/{logId} {
+      allow read: if isAuthenticated() && (
+        isAnyAdmin() || (
+          'classId' in resource.data && 
+          isAssignedToClass(resource.data.classId)
+        )
+      );
+      allow create: if isAuthenticated() && (
+        isAnyAdmin() || (
+          'classId' in request.resource.data && 
+          isAssignedToClass(request.resource.data.classId)
+        )
+      );
+      allow update: if isAuthenticated() && (
+        isAnyAdmin() || (
+          'classId' in resource.data && 
+          isAssignedToClass(resource.data.classId)
+        )
+      );
+      allow delete: if isAuthenticated() && (
+        isExecAdmin() || (
+          'classId' in resource.data && 
+          isAssignedToClass(resource.data.classId)
+        )
+      );
+    }
+
+    // 11. Evangelism & Soul Outreach Referrals
+    match /referrals/{referralId} {
+      allow read: if isAuthenticated() && (
+        isAnyAdmin() || 
+        isEnrollmentOfficer() || 
+        isTeacher()
+      );
+      allow create, update: if isAuthenticated() && (
+        isAnyAdmin() || 
+        isEnrollmentOfficer() || 
+        isTeacher()
+      );
+      allow delete: if isAuthenticated() && (
+        isExecAdmin() || 
+        isEnrollmentOfficer()
+      );
+    }
+
+    // 12. Sunday School Lesson Syllabus (Weeks 1 to 12 / 13)
+    match /lessons/{lessonId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() && isGeneralSecretary();
+      allow delete: if isAuthenticated() && isGeneralSuperintendent();
+    }
+
+    // 13. Workers Directory
+    match /workers/{workerId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() && (
+        isGeneralSecretary() || 
+        isGeneralSuperintendent() || (
+          userDocExists() && 
+          'workerId' in getUserData() && 
+          getUserData().workerId == workerId
+        )
+      );
+      allow delete: if isAuthenticated() && isGeneralSuperintendent();
+    }
+
+    // 14. Worker Sunday Attendance Logs
+    match /workerAttendance/{recordId} {
+      allow read: if isAuthenticated() && (
+        isGeneralSecretary() || 
+        isGeneralSuperintendent() || (
+          userDocExists() && 
+          'workerId' in getUserData() && 
+          'workerId' in resource.data && 
+          getUserData().workerId == resource.data.workerId
+        )
+      );
+      allow create: if isAuthenticated() && (
+        isGeneralSecretary() || 
+        isGeneralSuperintendent() || (
+          userDocExists() && 
+          'workerId' in getUserData() && 
+          'workerId' in request.resource.data && 
+          getUserData().workerId == request.resource.data.workerId
+        )
+      );
+      allow update: if isAuthenticated() && (
+        isGeneralSecretary() || 
+        isGeneralSuperintendent()
+      );
+      allow delete: if isAuthenticated() && isGeneralSuperintendent();
+    }
+
+    // 15. Worker Preparatory Class Attendance
+    match /workerPrepAttendance/{recordId} {
+      allow read: if isAuthenticated() && (
+        isGeneralSecretary() || 
+        isGeneralSuperintendent() || (
+          userDocExists() && 
+          'workerId' in getUserData() && 
+          'workerId' in resource.data && 
+          getUserData().workerId == resource.data.workerId
+        )
+      );
+      allow create, update: if isAuthenticated() && (
+        isGeneralSecretary() || 
+        isGeneralSuperintendent()
+      );
+      allow delete: if isAuthenticated() && isGeneralSuperintendent();
+    }
+
+    // 16. Worker Clock-In Configuration
+    match /clockInConfig/{configId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() && (
+        isGeneralSecretary() || 
+        isGeneralSuperintendent()
+      );
+      allow delete: if isAuthenticated() && isGeneralSuperintendent();
+    }
+
+    // 17. Worker Categories & Roles
+    match /workerCategories/{catId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() && (
+        isGeneralSecretary() || 
+        isGeneralSuperintendent()
+      );
+      allow delete: if isAuthenticated() && isGeneralSuperintendent();
+    }
+
+    // 18. Special Events Definition
+    match /specialEvents/{eventId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated() && (
+        isGeneralSecretary() || 
+        isGeneralSuperintendent()
+      );
+      allow delete: if isAuthenticated() && isGeneralSuperintendent();
+    }
+
+    // 19. Special Events Attendance
+    match /specialEventAttendance/{attId} {
+      allow read: if isAuthenticated() && (
+        isGeneralSecretary() || 
+        isGeneralSuperintendent() || (
+          userDocExists() && 
+          'workerId' in getUserData() && 
+          'workerId' in resource.data && 
+          getUserData().workerId == resource.data.workerId
+        )
+      );
+      allow create: if isAuthenticated() && (
+        isGeneralSecretary() || 
+        isGeneralSuperintendent() || (
+          userDocExists() && 
+          'workerId' in getUserData() && 
+          'workerId' in request.resource.data && 
+          getUserData().workerId == request.resource.data.workerId
+        )
+      );
+      allow update: if isAuthenticated() && (
+        isGeneralSecretary() || 
+        isGeneralSuperintendent()
+      );
+      allow delete: if isAuthenticated() && isGeneralSuperintendent();
+    }
+
+    // 20. Administrative Comments & Memos
+    match /adminComments/{commentId} {
+      allow read: if isAuthenticated() && (
+        isAnyAdmin() || (
+          'classId' in resource.data && 
+          isAssignedToClass(resource.data.classId)
+        )
+      );
+      allow create: if isAuthenticated() && (isAnyAdmin() || isTeacher());
+      allow update: if isAuthenticated() && (isAnyAdmin() || isTeacher());
+      allow delete: if isAuthenticated() && (
+        isExecAdmin() || (
+          'authorId' in resource.data && 
+          resource.data.authorId == request.auth.uid
+        )
+      );
+    }
+
+    // 21. Year Reset Audit Log (written only by the server's Admin SDK via
+    // /api/admin/reset-year, which bypasses these rules entirely — this just
+    // lets Executive Admins view the history from the client).
+    match /auditLogs/{logId} {
+      allow read: if isAuthenticated() && isExecAdmin();
+      allow write: if false;
+    }
+
+    // 22. Archived Sunday School Years (written only by the server's Admin
+    // SDK during a year reset; kept readable so historical themes/quarters
+    // can still be reviewed after a reset).
+    match /sundaySchoolYearArchive/{yearId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    // System Configuration (initialization state — readable by anyone, writable only by Admin SDK)
+    match /systemConfig/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // =========================================================================
+    // DEFAULT DENY SAFETY NET
+    // =========================================================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+

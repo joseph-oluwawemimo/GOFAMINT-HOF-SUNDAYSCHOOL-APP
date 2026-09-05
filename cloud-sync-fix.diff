@@ -1,0 +1,497 @@
+diff -ru '--exclude=node_modules' extracted/app/src/App.tsx work_app/src/App.tsx
+--- extracted/app/src/App.tsx	2026-08-29 22:15:00.000000000 +0000
++++ work_app/src/App.tsx	2026-08-30 02:17:59.824934253 +0000
+@@ -47,7 +47,7 @@
+ import { GOFAMINT_HOF_12_LESSONS } from './data/mockQuarterLessons';
+ import { pushSyncToServer, pullSyncFromServer } from './services/api';
+ import { getConsecutiveAbsences, getConsecutiveVisits } from './utils/calculations';
+-import { seedCloudFromLocalIfEmpty } from './services/cloudSyncManager';
++import { runFullCloudSyncCycle, getLastHydrationError } from './services/cloudSyncManager';
+ import { subscribeToClassGrades, subscribeToClassMembers } from './services/firestoreDatabase';
+ 
+ // Subcomponents
+@@ -160,37 +160,44 @@
+     }
+   };
+ 
+-  // Initialize IndexedDB and load or seed data
+-  const loadAppData = async () => {
+-    try {
+-      await initDB();
++  // Re-reads every top-level data slice from local IndexedDB into React state.
++  // Used both on first load and after pulling fresh data down from Cloud
++  // Firestore (see syncWithCloud below), so the screen reflects whatever is
++  // currently the authoritative state — including changes made on other devices.
++  const refreshStateFromLocalDB = async () => {
++    const profile = await getClassProfile();
++    const loadedQueue = await getSyncQueue();
++    const loadedLessons = await getAllLessons();
++    const loadedComments = await getAllAdminComments();
++    const loadedYear = await getSundaySchoolYear();
++
++    setClassProfile(profile);
++    setSyncQueue(loadedQueue);
++    setLessons(loadedLessons);
++    setComments(loadedComments);
++    setSundaySchoolYear(loadedYear);
+ 
+-      // Trigger asynchronous background cloud hydration
+-      seedCloudFromLocalIfEmpty().catch(e => console.warn('Cloud sync error:', e));
++    const activeQ = loadedYear?.activeQuarterNumber || profile?.quarter || 1;
++    setSelectedQuarter(activeQ);
+ 
+-      const profile = await getClassProfile();
+-      const loadedQueue = await getSyncQueue();
+-      const loadedLessons = await getAllLessons();
+-      const loadedComments = await getAllAdminComments();
+-      const loadedYear = await getSundaySchoolYear();
+-
+-      setClassProfile(profile);
+-      setSyncQueue(loadedQueue);
+-      setLessons(loadedLessons);
+-      setComments(loadedComments);
+-      setSundaySchoolYear(loadedYear);
++    if (profile) {
++      await loadClassQuarterData(profile.id, activeQ);
++    } else {
++      setMembers([]);
++      setGrades([]);
++      setOfferings([]);
++      setAbsenceLogs([]);
++    }
+ 
+-      const activeQ = loadedYear?.activeQuarterNumber || profile?.quarter || 1;
+-      setSelectedQuarter(activeQ);
++    return profile;
++  };
+ 
+-      if (profile) {
+-        await loadClassQuarterData(profile.id, activeQ);
+-      } else {
+-        setMembers([]);
+-        setGrades([]);
+-        setOfferings([]);
+-        setAbsenceLogs([]);
+-      }
++  // Initialize IndexedDB and load whatever is in the local cache immediately
++  // (works instantly, even offline, even before Firebase Auth has resolved).
++  const loadAppData = async () => {
++    try {
++      await initDB();
++      const profile = await refreshStateFromLocalDB();
+ 
+       // Check unlock status in session
+       const sessionUnlocked = sessionStorage.getItem('gofamint_unlocked');
+@@ -212,6 +219,66 @@
+     loadAppData();
+   }, []);
+ 
++  // THE CROSS-DEVICE SYNC FIX: pulls the latest data down from the central
++  // Cloud Firestore database and refreshes the screen with it. Firestore's
++  // security rules require an authenticated user, so this only runs once
++  // Firebase Auth has confirmed a signed-in user (cloudUser).
++  const syncWithCloud = async (silent = true) => {
++    if (!cloudUser) return;
++    if (!silent) {
++      setIsSyncing(true);
++      setSyncStatusText('Syncing with central database…');
++    }
++    try {
++      const result = await runFullCloudSyncCycle();
++      await refreshStateFromLocalDB();
++      if (result.ok) {
++        setSyncStatusText(
++          result.pendingRetries > 0
++            ? `Synced — ${result.pendingRetries} change(s) still waiting to reach the cloud`
++            : 'Synced with central database'
++        );
++      } else {
++        setSyncStatusText(`Cloud sync issue: ${result.error || getLastHydrationError() || 'unknown error'}`);
++      }
++    } catch (err: any) {
++      console.error('Cloud sync cycle failed:', err);
++      setSyncStatusText(`Cloud sync issue: ${err?.message || 'unknown error'}`);
++    } finally {
++      if (!silent) setIsSyncing(false);
++    }
++  };
++
++  // Run an initial cloud sync as soon as we know who's signed in, then keep the
++  // local cache fresh with a light poll while the tab is open/focused and
++  // whenever the browser regains connectivity. No WebSockets/real-time
++  // infrastructure needed — every device just periodically re-reads the shared
++  // central database, which is enough to guarantee "create on Device A, see it
++  // on Device B after a refresh" (and, in practice, usually much sooner).
++  useEffect(() => {
++    if (!cloudUser) return;
++
++    syncWithCloud(true);
++
++    const interval = window.setInterval(() => syncWithCloud(true), 45000);
++    const handleFocus = () => syncWithCloud(true);
++    const handleOnlineReconnect = () => syncWithCloud(true);
++    const handleVisibility = () => {
++      if (document.visibilityState === 'visible') syncWithCloud(true);
++    };
++    window.addEventListener('focus', handleFocus);
++    window.addEventListener('online', handleOnlineReconnect);
++    document.addEventListener('visibilitychange', handleVisibility);
++
++    return () => {
++      window.clearInterval(interval);
++      window.removeEventListener('focus', handleFocus);
++      window.removeEventListener('online', handleOnlineReconnect);
++      document.removeEventListener('visibilitychange', handleVisibility);
++    };
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [cloudUser]);
++
+   // Compute status for selected quarter
+   const selectedQuarterStatus: QuarterStatus = useMemo(() => {
+     if (!sundaySchoolYear) return 'ACTIVE';
+@@ -703,6 +770,10 @@
+     } finally {
+       setIsSyncing(false);
+     }
++    // Always also retry/flush anything pending to the CENTRAL Firestore database —
++    // this is the sync path that actually reaches every other device, regardless
++    // of whether the optional local-network Host Server above was reachable.
++    await syncWithCloud(false);
+   };
+ 
+   const handlePullSync = async () => {
+@@ -741,6 +812,10 @@
+     } finally {
+       setIsSyncing(false);
+     }
++    // Always also pull the latest state from the CENTRAL Firestore database —
++    // this is what actually picks up changes made on other devices, regardless
++    // of whether the optional local-network Host Server above was reachable.
++    await syncWithCloud(false);
+   };
+ 
+   // Full Backup Import
+diff -ru '--exclude=node_modules' extracted/app/src/db/indexedDB.ts work_app/src/db/indexedDB.ts
+--- extracted/app/src/db/indexedDB.ts	2026-08-29 22:15:00.000000000 +0000
++++ work_app/src/db/indexedDB.ts	2026-08-30 02:19:28.120369485 +0000
+@@ -12,10 +12,54 @@
+ } from '../services/firestoreDatabase';
+ 
+ // Fire-and-forget cloud push: local (IndexedDB) writes always succeed first so the
+-// app keeps working offline; this mirrors the write to Firestore in the background
+-// and just logs a warning if it fails (e.g. offline, or not signed in yet).
+-function pushToCloud<T>(label: string, fn: () => Promise<T>): void {
+-  fn().catch((err) => console.warn(`[cloud sync] ${label} failed:`, err?.message || err));
++// app keeps working offline; this mirrors the write to Firestore in the background.
++// If the push fails (offline, transient error, etc.) it is NOT silently dropped —
++// it's persisted to the `cloudSyncFailures` store and retried automatically (see
++// retryFailedCloudPushes(), invoked on reconnect / periodic sync / app focus in
++// cloudSyncManager.ts). This is what guarantees a change made on one device is
++// never lost before it reaches the central Firestore database that other devices
++// read from.
++export interface CloudSyncFailureRecord {
++  id: string;
++  label: string;
++  collectionName: string;
++  action: 'save' | 'delete';
++  docId: string;
++  data?: any;
++  failedAt: string;
++  lastError?: string;
++}
++
++function pushToCloud<T>(
++  label: string,
++  fn: () => Promise<T>,
++  retryMeta?: { collectionName: string; action: 'save' | 'delete'; docId: string; data?: any }
++): void {
++  fn().catch(async (err) => {
++    console.warn(`[cloud sync] ${label} failed:`, err?.message || err);
++    if (!retryMeta) return;
++    try {
++      const record: CloudSyncFailureRecord = {
++        id: `${retryMeta.collectionName}_${retryMeta.docId}_${retryMeta.action}`,
++        label,
++        collectionName: retryMeta.collectionName,
++        action: retryMeta.action,
++        docId: retryMeta.docId,
++        data: retryMeta.data,
++        failedAt: new Date().toISOString(),
++        lastError: err?.message || String(err)
++      };
++      const db = await getDB();
++      await new Promise<void>((resolve, reject) => {
++        const tx = db.transaction('cloudSyncFailures', 'readwrite');
++        tx.objectStore('cloudSyncFailures').put(record);
++        tx.oncomplete = () => resolve();
++        tx.onerror = () => reject(tx.error);
++      });
++    } catch (queueErr) {
++      console.warn('[cloud sync] failed to queue retry record:', queueErr);
++    }
++  });
+ }
+ 
+ import {
+@@ -68,7 +112,10 @@
+ } from '../services/firestoreDatabase';
+ 
+ const DB_NAME = 'GOFAMINT_HOF_SundaySchool_DB';
+-const DB_VERSION = 6;
++// v7: added `cloudSyncFailures` store — persists Cloud Firestore writes that failed
++// (e.g. while offline) so they can be retried instead of being silently dropped,
++// and added the cross-device cloud hydration pipeline (see cloudSyncManager.ts).
++const DB_VERSION = 7;
+ 
+ let dbPromise: Promise<IDBDatabase> | null = null;
+ 
+@@ -167,6 +214,12 @@
+           const eStore = db.createObjectStore('treasuryExpenditures', { keyPath: 'id' });
+           eStore.createIndex('date', 'date', { unique: false });
+         }
++        if (!db.objectStoreNames.contains('cloudSyncFailures')) {
++          // Persisted queue of Cloud Firestore writes that failed (e.g. offline, or a
++          // rejected write). Retried automatically once connectivity is restored so a
++          // failed write is never silently lost — see retryFailedCloudPushes().
++          db.createObjectStore('cloudSyncFailures', { keyPath: 'id' });
++        }
+       };
+ 
+       request.onsuccess = (event) => {
+@@ -201,8 +254,10 @@
+   }
+ }
+ 
+-// Map of local store names to Firestore collection names
+-const FIRESTORE_STORE_MAP: Record<string, string> = {
++// Map of local store names to Firestore collection names. Exported so
++// cloudSyncManager.ts can drive the reverse direction (pulling the central
++// Firestore database down into each device's local IndexedDB cache).
++export const FIRESTORE_STORE_MAP: Record<string, string> = {
+   classProfile: 'classes',
+   allClasses: 'classes',
+   members: 'members',
+@@ -224,12 +279,17 @@
+   treasuryExpenditures: 'treasuryExpenditures'
+ };
+ 
+-export async function putInStore<T>(storeName: string, value: T): Promise<T> {
+-  // Mirror to Cloud Firestore asynchronously
++export async function putInStore<T>(storeName: string, value: T, skipCloudMirror = false): Promise<T> {
++  // Mirror to Cloud Firestore asynchronously. `skipCloudMirror` is used when the
++  // value being written just came FROM the cloud (see hydrateLocalFromCloud in
++  // cloudSyncManager.ts) so we don't immediately write it straight back.
+   const colName = FIRESTORE_STORE_MAP[storeName];
+-  if (colName && (value as any)?.id) {
+-    saveDocument(colName, value as any).catch(err => {
+-      console.warn(`Firestore sync note [${colName}/${(value as any).id}]:`, err);
++  if (!skipCloudMirror && colName && (value as any)?.id) {
++    pushToCloud(`${colName}/${(value as any).id}`, () => saveDocument(colName, value as any), {
++      collectionName: colName,
++      action: 'save',
++      docId: (value as any).id,
++      data: value
+     });
+   }
+ 
+@@ -263,8 +323,10 @@
+   // Mirror deletion to Cloud Firestore asynchronously
+   const colName = FIRESTORE_STORE_MAP[storeName];
+   if (colName && id) {
+-    removeDocument(colName, id).catch(err => {
+-      console.warn(`Firestore deletion sync note [${colName}/${id}]:`, err);
++    pushToCloud(`delete ${colName}/${id}`, () => removeDocument(colName, id), {
++      collectionName: colName,
++      action: 'delete',
++      docId: id
+     });
+   }
+ 
+@@ -293,6 +355,69 @@
+   }
+ }
+ 
++// Replaces the ENTIRE contents of a local IndexedDB store with `items`, without
++// mirroring anything back to Cloud Firestore. This is the primitive used to pull
++// the central Firestore database down into a device's local cache (cloud is
++// authoritative, so this also correctly removes local records that were deleted
++// on another device). See hydrateLocalFromCloud() in cloudSyncManager.ts.
++export async function replaceStoreContents<T>(storeName: string, items: T[]): Promise<void> {
++  const db = await getDB();
++  await new Promise<void>((resolve, reject) => {
++    const tx = db.transaction(storeName, 'readwrite');
++    const store = tx.objectStore(storeName);
++    store.clear();
++    for (const item of items) store.put(item);
++    tx.oncomplete = () => resolve();
++    tx.onerror = () => reject(tx.error);
++  });
++  try {
++    localStorage.setItem(`gofamint_${storeName}`, JSON.stringify(items));
++  } catch {
++    // Non-fatal — localStorage is only used here as an IndexedDB-unavailable fallback mirror.
++  }
++}
++
++// Returns any Cloud Firestore writes that previously failed and are still pending retry.
++export async function getPendingCloudSyncFailures(): Promise<CloudSyncFailureRecord[]> {
++  try {
++    return await getAllFromStore<CloudSyncFailureRecord>('cloudSyncFailures');
++  } catch {
++    return [];
++  }
++}
++
++// Retries every queued failed Cloud Firestore write. Successful retries are removed
++// from the queue; writes that fail again stay queued (with the latest error) for the
++// next retry pass. Called on reconnect / periodic sync / app focus.
++export async function retryFailedCloudPushes(): Promise<{ retried: number; succeeded: number }> {
++  const pending = await getPendingCloudSyncFailures();
++  let succeeded = 0;
++  for (const record of pending) {
++    try {
++      if (record.action === 'save') {
++        await saveDocument(record.collectionName, record.data);
++      } else {
++        await removeDocument(record.collectionName, record.docId);
++      }
++      await deleteFromStore('cloudSyncFailures', record.id).catch(() => {});
++      // deleteFromStore also tries to mirror this deletion to a (non-existent)
++      // Firestore collection named 'cloudSyncFailures' via FIRESTORE_STORE_MAP,
++      // which is a harmless no-op since that store isn't in the map.
++      succeeded++;
++    } catch (err: any) {
++      console.warn(`[cloud sync] retry failed for ${record.label}:`, err?.message || err);
++      try {
++        const db = await getDB();
++        const tx = db.transaction('cloudSyncFailures', 'readwrite');
++        tx.objectStore('cloudSyncFailures').put({ ...record, lastError: err?.message || String(err) });
++      } catch {
++        // best-effort
++      }
++    }
++  }
++  return { retried: pending.length, succeeded };
++}
++
+ // Database Initialization & Clean Startup
+ export async function initializeDatabase(): Promise<{
+   classProfile: ClassProfile | null;
+diff -ru '--exclude=node_modules' extracted/app/src/services/cloudSyncManager.ts work_app/src/services/cloudSyncManager.ts
+--- extracted/app/src/services/cloudSyncManager.ts	2026-08-29 16:58:52.000000000 +0000
++++ work_app/src/services/cloudSyncManager.ts	2026-08-30 02:16:15.632049193 +0000
+@@ -65,8 +65,13 @@
+   getAllFromStore,
+   putInStore,
+   deleteFromStore,
+-  getDB
++  getDB,
++  replaceStoreContents,
++  retryFailedCloudPushes,
++  getPendingCloudSyncFailures,
++  FIRESTORE_STORE_MAP
+ } from '../db/indexedDB';
++import { fetchCollection } from './firestoreDatabase';
+ import {
+   ClassProfile,
+   Member,
+@@ -262,3 +267,99 @@
+     isSyncingToCloud = false;
+   }
+ }
++
++// -------------------------------------------------------------------------
++// CLOUD -> LOCAL HYDRATION (the actual cross-device sync fix)
++// -------------------------------------------------------------------------
++// Previously the app only ever pushed local IndexedDB writes up to Firestore
++// (fire-and-forget) and read exclusively from local IndexedDB on every screen.
++// Nothing ever pulled Firestore's contents back down into IndexedDB, so a
++// second device's local cache never learned about changes made on a first
++// device. Firestore was being used as a one-way backup, not as the shared
++// source of truth every device reads from.
++//
++// hydrateLocalFromCloud() closes that loop: it fetches every collection from
++// the central Firestore database and replaces the matching local IndexedDB
++// store's contents with it, so the next read (loadAppData / loadClassQuarterData
++// in App.tsx) reflects whatever the current authoritative state is — including
++// records created, edited, or deleted from ANY device.
++//
++// Stores that map 1:1 onto a Firestore collection are fully replaced (this also
++// correctly propagates deletions made elsewhere). `classProfile` (the single
++// "currently open" class on this device) and `departments` (stored as a
++// differently-shaped local record) need small adapters, handled below.
++let isHydrating = false;
++let lastHydrationError: string | null = null;
++
++const DIRECT_REPLACE_STORES = Object.keys(FIRESTORE_STORE_MAP).filter(
++  (storeName) => !['classProfile', 'allClasses', 'departments'].includes(storeName)
++);
++
++export function getLastHydrationError(): string | null {
++  return lastHydrationError;
++}
++
++export async function hydrateLocalFromCloud(): Promise<{ ok: boolean; error?: string }> {
++  if (isHydrating) return { ok: true };
++  isHydrating = true;
++  try {
++    // Straightforward collections: members, grades, offerings, absenceLogs,
++    // referrals, adminProfiles, sundaySchoolYear, workers, workerAttendance,
++    // workerPrepAttendance, clockInConfig, workerCategories, specialEvents,
++    // specialEventAttendance, adminComments, treasuryExpenditures, lessons.
++    for (const storeName of DIRECT_REPLACE_STORES) {
++      const collectionName = FIRESTORE_STORE_MAP[storeName];
++      const cloudItems = await fetchCollection<any>(collectionName);
++      await replaceStoreContents(storeName, cloudItems);
++    }
++
++    // Classes: hydrate the full directory, then refresh whichever class is
++    // currently open on this device (without changing the selection itself —
++    // "which class is open on this device" is local UI state, not business data).
++    const cloudClasses = await fetchCollection<any>('classes');
++    await replaceStoreContents('allClasses', cloudClasses);
++    const existingProfiles = await getAllFromStore<any>('classProfile');
++    const currentId = existingProfiles[0]?.id;
++    if (currentId) {
++      const matching = cloudClasses.find((c) => c.id === currentId);
++      if (matching) {
++        await replaceStoreContents('classProfile', [matching]);
++      }
++      // If the currently-open class was deleted from another device, we
++      // deliberately leave the local copy in place rather than silently
++      // clearing the screen — the existing UI's delete/switch-class flows
++      // handle that case explicitly.
++    }
++
++    // Departments: Firestore stores {id, name} docs; the local store's keyPath
++    // is `name`.
++    const cloudDepartments = await fetchCollection<{ id: string; name: string }>('departments');
++    await replaceStoreContents(
++      'departments',
++      cloudDepartments.map((d) => ({ name: d.name || d.id }))
++    );
++
++    lastHydrationError = null;
++    return { ok: true };
++  } catch (err: any) {
++    const message = err?.message || 'Unknown cloud sync error';
++    console.error('[cloud hydration] failed:', err);
++    lastHydrationError = message;
++    return { ok: false, error: message };
++  } finally {
++    isHydrating = false;
++  }
++}
++
++// One full sync cycle: retry anything that failed to push earlier, seed the
++// cloud on very first run, then pull the latest cloud state down locally.
++// Safe to call repeatedly (on load, on window focus, on an interval, after
++// every mutating action) — every step is idempotent / a no-op when there's
++// nothing to do.
++export async function runFullCloudSyncCycle(): Promise<{ ok: boolean; error?: string; pendingRetries: number }> {
++  await retryFailedCloudPushes().catch((err) => console.warn('[cloud sync] retry pass failed:', err));
++  await seedCloudFromLocalIfEmpty();
++  const result = await hydrateLocalFromCloud();
++  const pending = await getPendingCloudSyncFailures().catch(() => []);
++  return { ...result, pendingRetries: pending.length };
++}

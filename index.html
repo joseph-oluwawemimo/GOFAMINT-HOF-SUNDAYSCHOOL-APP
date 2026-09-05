@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>GOFAMINT_HOF Sunday School & Workers Management Portal</title>
+    <meta name="description" content="Offline-first PWA Sunday School Secretary and Workers Attendance Management app for The Gospel Faith Mission Intl featuring 12-week grading matrix, dual rosters, workers clock-in kiosk, preparatory attendance, administrative governance, and analytics." />
+    <meta property="og:title" content="GOFAMINT_HOF Sunday School & Workers Management Portal" />
+    <meta property="og:description" content="Offline-first PWA Sunday School Secretary and Workers Attendance Management app for The Gospel Faith Mission Intl featuring 12-week grading matrix, dual rosters, workers clock-in kiosk, preparatory attendance, administrative governance, and analytics." />
+    <meta name="theme-color" content="#0f2b59" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="GOFAMINT_HOF SS Sec" />
+    <link rel="icon" type="image/svg+xml" href="/gofamint-logo.svg" />
+    <link rel="apple-touch-icon" href="/gofamint-logo.svg" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+  </head>
+  <body class="bg-slate-50 text-slate-800 antialiased selection:bg-blue-600 selection:text-white min-h-screen">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <script>
+      const isLocalhost = Boolean(
+        window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1' ||
+        window.location.hostname === '[::1]'
+      );
+
+      if ('serviceWorker' in navigator) {
+        if (isLocalhost) {
+          // In development on localhost, unregister any existing service worker and purge caches
+          // so edits show up INSTANTLY without stale cache locks.
+          navigator.serviceWorker.getRegistrations().then((registrations) => {
+            for (const registration of registrations) {
+              registration.unregister();
+            }
+          });
+          if ('caches' in window) {
+            caches.keys().then((keys) => {
+              for (const key of keys) {
+                caches.delete(key);
+              }
+            });
+          }
+        } else if (window.location.protocol.startsWith('http')) {
+          window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/sw.js').catch(err => {
+              console.log('SW registration note:', err.message);
+            });
+          });
+        }
+      }
+    </script>
+  </body>
+</html>
+

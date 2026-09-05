@@ -1,0 +1,23 @@
+{
+  "short_name": "GOFAMINT_HOF Sec",
+  "name": "THE GOSPEL FAITH MISSION INTL - Sunday School Secretary App",
+  "description": "Offline-First Sunday School Secretary App with 12-Lesson Grading Matrix, Dual Rosters, Absence Workflow, and QR Portal",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#0f2b59",
+  "theme_color": "#0f2b59",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "scope": "/"
+}

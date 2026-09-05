@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+/* Ensure form controls on light backgrounds default to high-contrast deep blue typing text (#0f2b59) */
+input:not([class*="text-white"]):not([class*="text-amber-"]):not([class*="text-emerald-"]):not([class*="text-red-"]),
+textarea:not([class*="text-white"]):not([class*="text-amber-"]):not([class*="text-emerald-"]):not([class*="text-red-"]),
+select:not([class*="text-white"]):not([class*="text-amber-"]):not([class*="text-emerald-"]):not([class*="text-red-"]) {
+  color: #0f2b59;
+}
+
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="number"],
+input[type="tel"],
+textarea {
+  caret-color: #0f2b59;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #64748b;
+}
+
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  .print-container {
+    box-shadow: none !important;
+    border: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+  }
+}
+
+/* Cross-browser scrollbar suppression utility */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

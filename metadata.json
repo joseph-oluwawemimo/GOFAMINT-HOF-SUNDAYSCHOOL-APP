@@ -1,0 +1,10 @@
+{
+  "name": "GOFAMINT_HOF Sunday School & Workers Management Portal",
+  "description": "Offline-first PWA Sunday School Secretary and Workers Attendance Management app for The Gospel Faith Mission Intl featuring 12-week grading matrix, dual rosters, workers clock-in kiosk, preparatory attendance, administrative governance, and analytics.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
