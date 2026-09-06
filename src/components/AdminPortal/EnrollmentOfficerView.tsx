@@ -44,6 +44,7 @@ import {
   getRealEnrollmentOfficerCollation,
   getEligibleVisitorCandidates,
   certifyVisitorEnrollment,
+  denyVisitorConversion,
   getAllEnrollmentCertifications,
   getAllMembers
 } from '../../db/indexedDB';
@@ -140,6 +141,20 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
       setTimeout(() => setActionSuccessMessage(null), 5000);
     } catch (err: any) {
       alert(`Certification failed: ${err.message}`);
+    }
+  };
+
+  // Deny single visitor conversion request
+  const handleDenySingle = async (candidate: EligibleVisitorCandidate) => {
+    const reason = prompt(`Provide a reason for declining promotion for ${candidate.member.fullName}:`, 'Requires further consistent attendance in class register.');
+    if (reason === null) return;
+    try {
+      await denyVisitorConversion(candidate.member.id, currentAdmin, reason);
+      setActionSuccessMessage(`Declined conversion for ${candidate.member.fullName}. Maintained as Visitor.`);
+      await loadAllData();
+      setTimeout(() => setActionSuccessMessage(null), 5000);
+    } catch (err: any) {
+      alert(`Action failed: ${err.message}`);
     }
   };
 
@@ -764,7 +779,12 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
                           </div>
                         </td>
                         <td className="p-3.5">
-                          {cand.isEligible ? (
+                          {cand.member.conversionStatus === 'PENDING_APPROVAL' ? (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-100 text-amber-900 border border-amber-300 rounded-full font-black text-[11px]">
+                              <Clock className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
+                              <span>Requested by Teacher (Pending Certification)</span>
+                            </span>
+                          ) : cand.isEligible ? (
                             <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-100 text-emerald-900 rounded-full font-black text-[11px]">
                               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                               <span>Eligible for Student Enrollment</span>
@@ -777,13 +797,25 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
                           )}
                         </td>
                         <td className="p-3.5 pr-4 text-right">
-                          <button
-                            onClick={() => setSelectedCandidateForCert(cand)}
-                            className="px-3.5 py-1.5 bg-teal-800 hover:bg-teal-700 text-white rounded-xl font-bold text-xs transition inline-flex items-center gap-1 cursor-pointer"
-                          >
-                            <Award className="w-3.5 h-3.5 text-amber-300" />
-                            <span>Certify & Enroll</span>
-                          </button>
+                          <div className="flex items-center justify-end gap-2">
+                            {cand.member.conversionStatus === 'PENDING_APPROVAL' && (
+                              <button
+                                onClick={() => handleDenySingle(cand)}
+                                className="px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-xl font-bold text-xs transition inline-flex items-center gap-1 cursor-pointer"
+                                title="Decline promotion request and keep as visitor"
+                              >
+                                <X className="w-3.5 h-3.5 text-red-600" />
+                                <span>Decline</span>
+                              </button>
+                            )}
+                            <button
+                              onClick={() => setSelectedCandidateForCert(cand)}
+                              className="px-3.5 py-1.5 bg-teal-800 hover:bg-teal-700 text-white rounded-xl font-bold text-xs transition inline-flex items-center gap-1 cursor-pointer"
+                            >
+                              <Award className="w-3.5 h-3.5 text-amber-300" />
+                              <span>Certify & Enroll</span>
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}

@@ -70,6 +70,7 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [collationData, setCollationData] = useState<RecordOfficerWeeklyCollation | null>(null);
   const [allQuarterCollations, setAllQuarterCollations] = useState<RecordOfficerWeeklyCollation[]>([]);
+  const [allMembersList, setAllMembersList] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Class Register Inspection Modal State
@@ -85,9 +86,13 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
   const loadCollationData = async () => {
     setIsLoading(true);
     try {
-      // Load current week
-      const currentWeekData = await getRealRecordOfficerCollation(selectedQuarter, selectedWeek);
+      // Load current week & all members concurrently
+      const [currentWeekData, allMembersResult] = await Promise.all([
+        getRealRecordOfficerCollation(selectedQuarter, selectedWeek),
+        getAllMembers()
+      ]);
       setCollationData(currentWeekData);
+      setAllMembersList(allMembersResult);
 
       // Load all weeks of the selected quarter in parallel for Quarter Analysis
       const weekPromises: Promise<RecordOfficerWeeklyCollation>[] = [];
@@ -297,6 +302,15 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
 
     const nonZeroWeeks = weeklyTrends.filter(w => w.totalPresent > 0);
     const avgWeeklyAttendance = nonZeroWeeks.length > 0 ? Math.round(totalAttendance / nonZeroWeeks.length) : 0;
+    const avgWeeklyStudents = nonZeroWeeks.length > 0 ? Math.round(totalStudentAttendance / nonZeroWeeks.length) : 0;
+    const avgWeeklyVisitors = nonZeroWeeks.length > 0 ? Math.round(totalVisitorAttendance / nonZeroWeeks.length) : 0;
+
+    const registeredStudentPopulation = allMembersList.filter(
+      m => m.memberType === 'STUDENT' && m.status === 'ACTIVE'
+    ).length;
+    const activeVisitorPopulation = allMembersList.filter(
+      m => m.memberType === 'VISITOR' && m.status === 'ACTIVE'
+    ).length;
 
     let highestWeek = weeklyTrends[0] || { weekNumber: 1, totalPresent: 0 };
     let lowestWeek = nonZeroWeeks[0] || weeklyTrends[0] || { weekNumber: 1, totalPresent: 0 };
@@ -374,6 +388,10 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
       totalClassMembersAbsent,
       totalAttendance,
       avgWeeklyAttendance,
+      avgWeeklyStudents,
+      avgWeeklyVisitors,
+      registeredStudentPopulation,
+      activeVisitorPopulation,
       highestWeek,
       lowestWeek,
       totalOfferingRecorded,
@@ -383,11 +401,11 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
       mostImprovedClass,
       decliningClasses,
       incompleteRecordClasses,
-      currentStudentPop: collationData?.rows.reduce((s, r) => s + r.studentPresent, 0) || 0,
-      currentVisitorPop: collationData?.rows.reduce((s, r) => s + r.currentVisitorPresent + r.newVisitors, 0) || 0,
+      currentStudentPop: registeredStudentPopulation,
+      currentVisitorPop: activeVisitorPopulation,
       totalOnboarded
     };
-  }, [allQuarterCollations, selectedWeek, collationData]);
+  }, [allQuarterCollations, selectedWeek, collationData, allMembersList]);
 
   // Export to CSV
   const handleExportCSV = () => {
@@ -941,46 +959,46 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
-              <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Student Att.</span>
-                <h4 className="text-xl font-black text-slate-900 mt-1">{quarterAnalysis.totalStudentAttendance}</h4>
-                <p className="text-[10px] text-slate-500 mt-0.5">Quarter aggregate</p>
+              <div className="bg-white p-4 rounded-2xl border-2 border-blue-200 shadow-xs">
+                <span className="text-[10px] font-black text-blue-900 uppercase tracking-wider block">Registered Students</span>
+                <h4 className="text-xl font-black text-blue-950 mt-1">{quarterAnalysis.registeredStudentPopulation}</h4>
+                <p className="text-[10px] text-blue-600 font-semibold mt-0.5">Active Roster Census</p>
+              </div>
+
+              <div className="bg-white p-4 rounded-2xl border-2 border-purple-200 shadow-xs">
+                <span className="text-[10px] font-black text-purple-900 uppercase tracking-wider block">Active Visitors</span>
+                <h4 className="text-xl font-black text-purple-950 mt-1">{quarterAnalysis.activeVisitorPopulation}</h4>
+                <p className="text-[10px] text-purple-600 font-semibold mt-0.5">Visitor Pipeline</p>
               </div>
 
               <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Visitor Att.</span>
-                <h4 className="text-xl font-black text-indigo-700 mt-1">{quarterAnalysis.totalVisitorAttendance}</h4>
-                <p className="text-[10px] text-indigo-500 mt-0.5">Existing & New</p>
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Avg. Weekly Students</span>
+                <h4 className="text-xl font-black text-slate-900 mt-1">{quarterAnalysis.avgWeeklyStudents}</h4>
+                <p className="text-[10px] text-slate-500 mt-0.5">Weekly student mean</p>
               </div>
 
               <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total New Visitors</span>
-                <h4 className="text-xl font-black text-purple-700 mt-1">{quarterAnalysis.totalNewVisitors}</h4>
-                <p className="text-[10px] text-purple-500 mt-0.5">First-Time Arrivals</p>
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Avg. Weekly Visitors</span>
+                <h4 className="text-xl font-black text-indigo-700 mt-1">{quarterAnalysis.avgWeeklyVisitors}</h4>
+                <p className="text-[10px] text-indigo-500 mt-0.5">Weekly visitor mean</p>
               </div>
 
-              <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Absences</span>
-                <h4 className="text-xl font-black text-rose-700 mt-1">{quarterAnalysis.totalClassMembersAbsent}</h4>
-                <p className="text-[10px] text-rose-500 mt-0.5">Absent records</p>
+              <div className="bg-blue-900 text-white p-4 rounded-2xl border border-blue-800 shadow-xs">
+                <span className="text-[10px] font-bold text-blue-200 uppercase tracking-wider block">Avg. Total Weekly</span>
+                <h4 className="text-xl font-black text-white mt-1">{quarterAnalysis.avgWeeklyAttendance}</h4>
+                <p className="text-[10px] text-blue-200 mt-0.5">Per lesson average</p>
               </div>
 
               <div className="bg-indigo-950 text-white p-4 rounded-2xl border border-indigo-900 shadow-xs">
                 <span className="text-[10px] font-bold text-indigo-200 uppercase tracking-wider block">Grand Total Att.</span>
                 <h4 className="text-xl font-black text-amber-300 mt-1">{quarterAnalysis.totalAttendance}</h4>
-                <p className="text-[10px] text-indigo-200 mt-0.5">All present sum</p>
-              </div>
-
-              <div className="bg-blue-900 text-white p-4 rounded-2xl border border-blue-800 shadow-xs">
-                <span className="text-[10px] font-bold text-blue-200 uppercase tracking-wider block">Avg. Weekly Att.</span>
-                <h4 className="text-xl font-black text-white mt-1">{quarterAnalysis.avgWeeklyAttendance}</h4>
-                <p className="text-[10px] text-blue-200 mt-0.5">Per lesson average</p>
+                <p className="text-[10px] text-indigo-200 mt-0.5">12-Week aggregate</p>
               </div>
 
               <div className="bg-emerald-900 text-white p-4 rounded-2xl border border-emerald-800 shadow-xs">
                 <span className="text-[10px] font-bold text-emerald-200 uppercase tracking-wider block">Total Offering</span>
                 <h4 className="text-xl font-black text-white mt-1">₦{quarterAnalysis.totalOfferingRecorded.toLocaleString()}</h4>
-                <p className="text-[10px] text-emerald-200 mt-0.5">Recorded offering</p>
+                <p className="text-[10px] text-emerald-200 mt-0.5">Class registers collated</p>
               </div>
             </div>
           </div>

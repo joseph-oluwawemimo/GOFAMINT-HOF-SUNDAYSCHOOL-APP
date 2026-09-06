@@ -7,6 +7,9 @@
     <meta name="description" content="Offline-first PWA Sunday School Secretary and Workers Attendance Management app for The Gospel Faith Mission Intl featuring 12-week grading matrix, dual rosters, workers clock-in kiosk, preparatory attendance, administrative governance, and analytics." />
     <meta property="og:title" content="GOFAMINT_HOF Sunday School & Workers Management Portal" />
     <meta property="og:description" content="Offline-first PWA Sunday School Secretary and Workers Attendance Management app for The Gospel Faith Mission Intl featuring 12-week grading matrix, dual rosters, workers clock-in kiosk, preparatory attendance, administrative governance, and analytics." />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <meta name="theme-color" content="#0f2b59" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -29,6 +32,15 @@
       );
 
       if ('serviceWorker' in navigator) {
+        let refreshing = false;
+        // Automatically reload when a new service worker version activates
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (!refreshing) {
+            refreshing = true;
+            window.location.reload();
+          }
+        });
+
         if (isLocalhost) {
           // In development on localhost, unregister any existing service worker and purge caches
           // so edits show up INSTANTLY without stale cache locks.
@@ -46,7 +58,14 @@
           }
         } else if (window.location.protocol.startsWith('http')) {
           window.addEventListener('load', () => {
-            navigator.serviceWorker.register('/sw.js').catch(err => {
+            navigator.serviceWorker.register('/sw.js').then((reg) => {
+              // Immediately check for SW updates
+              reg.update();
+              // Periodically check for updates every 60 seconds
+              setInterval(() => {
+                reg.update().catch(() => {});
+              }, 60 * 1000);
+            }).catch((err) => {
               console.log('SW registration note:', err.message);
             });
           });
@@ -55,4 +74,3 @@
     </script>
   </body>
 </html>
-

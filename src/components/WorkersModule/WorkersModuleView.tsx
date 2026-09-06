@@ -74,12 +74,14 @@ export type WorkersModuleTab =
 interface WorkersModuleViewProps {
   onBackToMain?: () => void;
   onBack?: () => void;
+  onBackToWelcome?: () => void;
   onLockProfile?: () => void;
 }
 
 export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
   onBackToMain,
   onBack,
+  onBackToWelcome,
   onLockProfile
 }) => {
   const handleExit = onBack || onBackToMain;
@@ -175,16 +177,16 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
         loadedSpecialEvts,
         loadedSpecialAtt
       ] = await Promise.all([
-        getAllWorkers(),
+        getAllWorkers(true),
         getAllWorkerCategories(),
         getAllWorkerAttendance(),
-        getAllWorkerPrepAttendance(),
+        getAllWorkerPrepAttendance(undefined, true),
         getClockInConfig(),
         getAllDepartmentsList(),
         getSundaySchoolYear(),
         getAllAdminProfiles(),
-        getAllSpecialEvents(),
-        getAllSpecialEventAttendance()
+        getAllSpecialEvents(true),
+        getAllSpecialEventAttendance(true)
       ]);
 
       setWorkers(loadedWorkers);
@@ -210,6 +212,23 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
 
   useEffect(() => {
     refreshAllData();
+  }, [refreshAllData]);
+
+  // Reactive listener: When any other admin or background sync modifies worker data in real-time,
+  // immediately refresh state without needing a page refresh or manual reload.
+  useEffect(() => {
+    const handleWorkerSync = (e: any) => {
+      const store = e?.detail?.store;
+      if (!store || ['workers', 'workerAttendance', 'workerPrepAttendance', 'specialEvents', 'specialEventAttendance', 'workerCategories', 'clockInConfig'].includes(store)) {
+        void refreshAllData();
+      }
+    };
+    window.addEventListener('gofamint:worker-sync', handleWorkerSync);
+    window.addEventListener('gofamint:sync-update', handleWorkerSync);
+    return () => {
+      window.removeEventListener('gofamint:worker-sync', handleWorkerSync);
+      window.removeEventListener('gofamint:sync-update', handleWorkerSync);
+    };
   }, [refreshAllData]);
 
   const asstGsecProfile = adminProfiles.find(p => p.roleType === 'ASST_GENERAL_SECRETARY');
@@ -252,8 +271,17 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
   };
 
   const handleDeleteWorker = async (id: string) => {
-    await deleteWorker(id);
-    await refreshAllData();
+    // 1. Optimistic removal - immediate 0ms UI update
+    const previousWorkers = workers;
+    setWorkers(prev => prev.filter(w => w.id !== id));
+
+    try {
+      await deleteWorker(id);
+    } catch (err) {
+      console.error('Failed to delete worker:', err);
+      setWorkers(previousWorkers);
+      alert('Failed to delete worker. Please try again.');
+    }
   };
 
   const handleSaveBulkWorkers = async (newWorkers: WorkerProfile[]) => {
@@ -269,15 +297,34 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
 
   // Handlers for Sunday Attendance
   const handleSundayClockIn = async (record: WorkerAttendanceRecord) => {
-    await recordWorkerAttendance(record);
-    const updated = await getAllWorkerAttendance();
-    setSundayAttendance(updated);
+    // 1. Optimistic update (0ms instant UI responsiveness)
+    setSundayAttendance(prev => {
+      const filtered = prev.filter(a => a.id !== record.id);
+      return [...filtered, record];
+    });
+    try {
+      await recordWorkerAttendance(record);
+      const updated = await getAllWorkerAttendance();
+      setSundayAttendance(updated);
+    } catch (err) {
+      console.error('Failed to record worker attendance:', err);
+    }
   };
 
   const handleSaveSundayBulkRecords = async (records: WorkerAttendanceRecord[]) => {
-    await recordBulkWorkerAttendance(records);
-    const updated = await getAllWorkerAttendance();
-    setSundayAttendance(updated);
+    // 1. Optimistic update (0ms instant UI responsiveness)
+    const recordIds = new Set(records.map(r => r.id));
+    setSundayAttendance(prev => {
+      const filtered = prev.filter(a => !recordIds.has(a.id));
+      return [...filtered, ...records];
+    });
+    try {
+      await recordBulkWorkerAttendance(records);
+      const updated = await getAllWorkerAttendance();
+      setSundayAttendance(updated);
+    } catch (err) {
+      console.error('Failed to record bulk worker attendance:', err);
+    }
   };
 
   const handleUpdateConfig = async (newConfig: ClockInConfig) => {
@@ -287,15 +334,34 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
 
   // Handlers for Preparatory Attendance
   const handleSavePrepRecord = async (record: WorkerPrepAttendanceRecord) => {
-    await recordWorkerPrepAttendance(record);
-    const updated = await getAllWorkerPrepAttendance();
-    setPrepAttendance(updated);
+    // 1. Optimistic update (0ms instant UI responsiveness)
+    setPrepAttendance(prev => {
+      const filtered = prev.filter(p => p.id !== record.id);
+      return [...filtered, record];
+    });
+    try {
+      await recordWorkerPrepAttendance(record);
+      const updated = await getAllWorkerPrepAttendance();
+      setPrepAttendance(updated);
+    } catch (err) {
+      console.error('Failed to record prep attendance:', err);
+    }
   };
 
   const handleSaveBulkPrepRecords = async (records: WorkerPrepAttendanceRecord[]) => {
-    await recordBulkWorkerPrepAttendance(records);
-    const updated = await getAllWorkerPrepAttendance();
-    setPrepAttendance(updated);
+    // 1. Optimistic update (0ms instant UI responsiveness)
+    const recordIds = new Set(records.map(r => r.id));
+    setPrepAttendance(prev => {
+      const filtered = prev.filter(p => !recordIds.has(p.id));
+      return [...filtered, ...records];
+    });
+    try {
+      await recordBulkWorkerPrepAttendance(records);
+      const updated = await getAllWorkerPrepAttendance();
+      setPrepAttendance(updated);
+    } catch (err) {
+      console.error('Failed to record bulk prep attendance:', err);
+    }
   };
 
   const handleAddNewDepartment = async (deptName: string) => {
@@ -354,30 +420,41 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
                     </span>
                   )}
                 </div>
-                <h1 className="text-base font-black font-['Cinzel',serif] text-slate-100">
+                <h1 className="text-xs sm:text-base font-black font-['Cinzel',serif] text-slate-100 tracking-wide line-clamp-1 sm:line-clamp-none">
                   Sunday School Workers Directorate
                 </h1>
               </div>
             </div>
 
-            {/* Mobile Exit Button */}
-            <div className="flex md:hidden items-center gap-2">
-              <button
-                onClick={() => handleRequestExit('LOCK')}
-                className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs transition cursor-pointer"
-                title="Lock Session"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
+            {/* Mobile Exit Buttons */}
+            <div className="flex md:hidden items-center gap-1.5 shrink-0">
+              {onBackToWelcome && (
+                <button
+                  onClick={onBackToWelcome}
+                  className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-[10px] font-bold transition flex items-center gap-1 cursor-pointer"
+                  title="Welcome Screen"
+                >
+                  <ArrowLeft className="w-3 h-3 text-amber-400" />
+                  <span>Welcome</span>
+                </button>
+              )}
               {handleExit && (
                 <button
                   onClick={() => handleRequestExit('PORTAL')}
-                  className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                  className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded-lg text-[10px] font-bold transition flex items-center gap-1 cursor-pointer"
+                  title="Portal Selection"
                 >
-                  <ArrowLeft className="w-3.5 h-3.5" />
-                  <span>Portal</span>
+                  <ArrowLeft className="w-3 h-3 text-amber-400" />
+                  <span>Portals</span>
                 </button>
               )}
+              <button
+                onClick={() => handleRequestExit('LOCK')}
+                className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-xs transition cursor-pointer"
+                title="Lock Session"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
             </div>
           </div>
 
@@ -389,6 +466,17 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
                 <span className="text-amber-300 font-bold">Officer:</span>
                 <span>{asstGsecProfile.profileName}</span>
               </div>
+            )}
+
+            {onBackToWelcome && (
+              <button
+                onClick={onBackToWelcome}
+                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                title="Return to Welcome Screen"
+              >
+                <ArrowLeft className="w-3.5 h-3.5 text-amber-400" />
+                <span>Back to Welcome</span>
+              </button>
             )}
 
             <button

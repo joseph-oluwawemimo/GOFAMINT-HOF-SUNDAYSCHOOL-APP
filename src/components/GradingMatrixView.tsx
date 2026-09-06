@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Calendar,
   BookOpen,
@@ -78,6 +78,59 @@ interface GradingMatrixViewProps {
   currencySymbol?: string;
 }
 
+interface ScoreInputProps {
+  id?: string;
+  value: number;
+  max: number;
+  disabled?: boolean;
+  onChange: (val: number) => void;
+  className?: string;
+}
+
+const ScoreInput: React.FC<ScoreInputProps> = ({ id, value, max, disabled, onChange, className }) => {
+  const [draft, setDraft] = useState<string | null>(null);
+
+  const displayVal = draft !== null ? draft : (value === 0 ? '' : String(value));
+
+  return (
+    <input
+      id={id}
+      type="text"
+      inputMode="numeric"
+      pattern="[0-9]*"
+      disabled={disabled}
+      value={displayVal}
+      placeholder="0"
+      onFocus={(e) => {
+        setDraft(value === 0 ? '' : String(value));
+        e.currentTarget.select();
+      }}
+      onChange={(e) => {
+        const valStr = e.target.value.replace(/[^0-9]/g, '');
+        setDraft(valStr);
+        if (valStr === '') {
+          onChange(0);
+          return;
+        }
+        const num = parseInt(valStr, 10);
+        if (!isNaN(num)) {
+          const clamped = Math.max(0, Math.min(max, num));
+          onChange(clamped);
+        }
+      }}
+      onBlur={() => {
+        if (draft !== null) {
+          const num = parseInt(draft, 10);
+          const clamped = Math.max(0, Math.min(max, isNaN(num) ? 0 : num));
+          onChange(clamped);
+          setDraft(null);
+        }
+      }}
+      className={className}
+    />
+  );
+};
+
 export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
   selectedWeek,
   onSelectWeek,
@@ -107,17 +160,35 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
   const [searchFilter, setSearchFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState<'ALL' | 'STUDENT' | 'VISITOR'>('ALL');
   
-  // Lesson Topic Editing State
+  // Lesson Topic Editing State & Fallback to official curriculum
   const [isEditingTopic, setIsEditingTopic] = useState(false);
-  const currentLesson: LessonInfo = lessons.find(l => l.weekNumber === selectedWeek) || {
-    weekNumber: selectedWeek,
-    topic: `Lesson ${selectedWeek} Topic`,
-    scriptureReading: '',
-    memoryVerse: '',
-    memoryVerseRef: '',
-    aim: ''
+  const defaultQuarterLesson = GOFAMINT_HOF_12_LESSONS.find(l => l.weekNumber === selectedWeek);
+  const foundLesson = lessons.find(l => l.weekNumber === selectedWeek);
+  const isGenericTopic = !foundLesson?.topic || /^Lesson\s+\d+\s+Topic$/i.test(foundLesson.topic.trim());
+  const resolvedTopic = isGenericTopic
+    ? (defaultQuarterLesson?.topic || `Lesson ${selectedWeek} Topic`)
+    : foundLesson.topic;
+
+  const currentLesson: LessonInfo = {
+    ...(defaultQuarterLesson || {
+      weekNumber: selectedWeek,
+      topic: resolvedTopic,
+      scriptureReading: '',
+      memoryVerse: '',
+      memoryVerseRef: '',
+      aim: ''
+    }),
+    ...(foundLesson || {}),
+    topic: resolvedTopic,
+    memoryVerse: foundLesson?.memoryVerse || defaultQuarterLesson?.memoryVerse || '',
+    memoryVerseRef: foundLesson?.memoryVerseRef || defaultQuarterLesson?.memoryVerseRef || '',
+    scriptureReading: foundLesson?.scriptureReading || defaultQuarterLesson?.scriptureReading || ''
   };
   const [topicDraft, setTopicDraft] = useState(currentLesson.topic);
+
+  useEffect(() => {
+    setTopicDraft(currentLesson.topic);
+  }, [currentLesson.topic, selectedWeek]);
 
   // Quick Add Member Inline State (Default & only to Visitor)
   const [showQuickAdd, setShowQuickAdd] = useState(false);
@@ -139,10 +210,17 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
     updatedAt: new Date().toISOString()
   };
 
+  const isRemittedOrAudited = currentOffering.remittanceStatus === 'REMITTED' || currentOffering.remittanceStatus === 'AUDITED';
+  const isWeekLocked = isReadOnly || isRemittedOrAudited;
+
   const isCurrentWeekNoRecord = noRecordWeeks.includes(selectedWeek) || currentOffering.isNoRecordWeek || false;
   const cumulativeOfferingTotal = calculateCumulativeOffering(offerings);
 
   const handleToggleNoRecord = () => {
+    if (isWeekLocked) {
+      alert(`Week ${selectedWeek} register is locked because the offering has been remitted.`);
+      return;
+    }
     if (onToggleNoRecordWeek) {
       onToggleNoRecordWeek(selectedWeek);
     } else {
@@ -172,6 +250,10 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
 
   const handleQuickAddSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isWeekLocked) {
+      alert(`Week ${selectedWeek} register is locked because the offering has been remitted.`);
+      return;
+    }
     if (!newVisitorName.trim()) return;
     if (onQuickAddMember) {
       onQuickAddMember(newVisitorName.trim(), newVisitorPhone.trim(), 'VISITOR');
@@ -215,6 +297,7 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
   };
 
   const handleAttendanceChange = (member: Member, newStatus: AttendanceStatus) => {
+    if (isWeekLocked) return;
     const current = getMemberGrade(member.id);
     let updated: WeeklyGradeRecord = {
       ...current,
@@ -245,6 +328,7 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
     val: number,
     maxVal: number
   ) => {
+    if (isWeekLocked) return;
     const current = getMemberGrade(memberId);
     const clamped = Math.max(0, Math.min(maxVal, isNaN(val) ? 0 : val));
     const updated = {
@@ -260,6 +344,7 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
     field: 'joinedPrayerMeeting' | 'postedStatusInsight' | 'invitedSomeone',
     val: boolean
   ) => {
+    if (isWeekLocked) return;
     const current = getMemberGrade(memberId);
     onUpdateGrade({
       ...current,
@@ -268,6 +353,7 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
   };
 
   const handleBatchScorePreset = (punct: number, verse: number, part: number) => {
+    if (isWeekLocked) return;
     const total = punct + verse + part;
     for (const member of members) {
       if (selectedWeek >= (member.firstLessonWeek || 1)) {
@@ -285,6 +371,7 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
   };
 
   const handleMemberQuickPreset = (memberId: string, punct: number, verse: number, part: number) => {
+    if (isWeekLocked) return;
     const current = getMemberGrade(memberId);
     const total = punct + verse + part;
     onUpdateGrade({
@@ -300,6 +387,7 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
   const [remitSuccessMsg, setRemitSuccessMsg] = useState<string | null>(null);
 
   const handleOfferingAmountChange = (val: number) => {
+    if (isRemittedOrAudited || isReadOnly) return;
     const rawAmt = isNaN(val) ? 0 : val;
     onUpdateOffering({
       ...currentOffering,
@@ -467,6 +555,40 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
         </div>
       )}
 
+      {/* Remitted & Locked Banner */}
+      {isRemittedOrAudited && quarterStatus === 'ACTIVE' && (
+        <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-xl p-4 shadow-md border border-indigo-500/40 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-fade-in print:hidden">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-lg bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 shrink-0">
+              <Lock className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-xs font-black uppercase tracking-wider text-indigo-300">
+                  WEEK {selectedWeek} REGISTER LOCKED — OFFERING REMITTED
+                </h4>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                  currentOffering.remittanceStatus === 'AUDITED'
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                    : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                }`}>
+                  {currentOffering.remittanceStatus === 'AUDITED' ? 'AUDITED' : 'REMITTED'}
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 mt-0.5">
+                Class offering of {currencySymbol}{Number(currentOffering.amount).toLocaleString()} has been remitted {currentOffering.remittedBy ? `by ${currentOffering.remittedBy}` : ''} {currentOffering.remittedAt ? `at ${new Date(currentOffering.remittedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}. Attendance markings, scores, and offering are locked to maintain administrative and financial integrity.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+            <span className="px-3 py-1.5 bg-slate-800/80 border border-slate-700 text-indigo-200 text-xs font-mono font-bold rounded-lg flex items-center gap-1.5">
+              <ShieldCheck className="w-4 h-4 text-indigo-400" />
+              <span>{currentOffering.remittanceStatus === 'AUDITED' ? 'FINANCIALLY AUDITED' : 'LOCKED (REMITTED)'}</span>
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Quarter Forwarding Prompt for Newly Activated Quarters */}
       {members.length === 0 && selectedQuarter > 1 && quarterStatus === 'ACTIVE' && (
         <div className="bg-emerald-50 border-2 border-emerald-300 rounded-xl p-6 shadow-sm text-center space-y-3 animate-fade-in print:hidden">
@@ -591,9 +713,15 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
           <div className="flex flex-wrap items-center gap-2 pt-2 lg:pt-0">
             <button
               id="btn-quick-add-student"
-              onClick={() => setShowQuickAdd(!showQuickAdd)}
-              disabled={isReadOnly}
-              className="px-3.5 py-2 bg-purple-700 hover:bg-purple-800 disabled:opacity-40 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+              onClick={() => {
+                if (isWeekLocked) {
+                  alert(`Week ${selectedWeek} register is locked because the offering has been remitted.`);
+                  return;
+                }
+                setShowQuickAdd(!showQuickAdd);
+              }}
+              disabled={isWeekLocked}
+              className="px-3.5 py-2 bg-purple-700 hover:bg-purple-800 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
             >
               <PlusCircle className="w-4 h-4 text-amber-300" />
               <span>+ Add New Visitor</span>
@@ -635,8 +763,8 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                       setShowMoreActions(false);
                       handleToggleNoRecord();
                     }}
-                    disabled={isReadOnly}
-                    className={`w-full px-3.5 py-2 text-left text-xs font-bold flex items-center gap-2 hover:bg-slate-50 transition cursor-pointer ${
+                    disabled={isWeekLocked}
+                    className={`w-full px-3.5 py-2 text-left text-xs font-bold flex items-center gap-2 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer ${
                       isCurrentWeekNoRecord ? 'text-amber-700' : 'text-slate-700'
                     }`}
                   >
@@ -806,17 +934,28 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
 
           <div className="flex items-center gap-1.5">
             <span className="text-lg font-black text-slate-800">{currencySymbol}</span>
-            <input
-              id="weekly-offering-amount-input"
-              type="number"
-              min="0"
-              step="100"
-              value={currentOffering.amount || ''}
-              onChange={(e) => handleOfferingAmountChange(parseFloat(e.target.value))}
-              onWheel={(e) => e.currentTarget.blur()}
-              placeholder="0.00"
-              className="w-full bg-slate-50 border border-slate-300 rounded-lg p-1.5 px-2.5 text-base font-black text-slate-900 focus:bg-white focus:outline-none focus:border-amber-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-            />
+            <div className="relative w-full">
+              <input
+                id="weekly-offering-amount-input"
+                type="number"
+                min="0"
+                step="100"
+                disabled={isRemittedOrAudited || isReadOnly}
+                value={currentOffering.amount || ''}
+                onChange={(e) => handleOfferingAmountChange(parseFloat(e.target.value))}
+                onWheel={(e) => e.currentTarget.blur()}
+                placeholder="0.00"
+                className={`w-full bg-slate-50 border border-slate-300 rounded-lg p-1.5 px-2.5 text-base font-black text-slate-900 focus:bg-white focus:outline-none focus:border-amber-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
+                  isRemittedOrAudited ? 'bg-slate-100 text-slate-500 cursor-not-allowed border-slate-300 pr-16' : ''
+                }`}
+              />
+              {isRemittedOrAudited && (
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 flex items-center gap-1 text-[10px] font-bold bg-slate-200/90 px-1.5 py-0.5 rounded shadow-2xs">
+                  <Lock className="w-3 h-3 text-slate-600" />
+                  <span>Locked</span>
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Remittance Status Indicator & Action */}
@@ -1023,7 +1162,7 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                     <button
                       id={`att-present-${member.id}`}
                       onClick={() => handleAttendanceChange(member, 'PRESENT')}
-                      disabled={isReadOnly}
+                      disabled={isWeekLocked}
                       className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 border active:scale-95 duration-150 disabled:opacity-50 disabled:cursor-not-allowed ${
                         grade.attendance === 'PRESENT'
                           ? 'bg-emerald-600 border-emerald-600 text-white shadow-xs'
@@ -1037,7 +1176,7 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                     <button
                       id={`att-absent-${member.id}`}
                       onClick={() => handleAttendanceChange(member, 'ABSENT')}
-                      disabled={isReadOnly}
+                      disabled={isWeekLocked}
                       className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 border active:scale-95 duration-150 disabled:opacity-50 disabled:cursor-not-allowed ${
                         grade.attendance === 'ABSENT'
                           ? 'bg-[#5c2c16] border-[#5c2c16] text-white shadow-xs'
@@ -1051,7 +1190,7 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                     <button
                       id={`att-exempt-${member.id}`}
                       onClick={() => handleAttendanceChange(member, 'EXEMPT')}
-                      disabled={isReadOnly}
+                      disabled={isWeekLocked}
                       className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 border active:scale-95 duration-150 disabled:opacity-50 disabled:cursor-not-allowed ${
                         grade.attendance === 'EXEMPT'
                           ? 'bg-red-600 border-red-600 text-white shadow-xs'
@@ -1070,14 +1209,13 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                     <div className="bg-slate-50 p-2 rounded-lg border border-slate-200 text-center min-w-[70px]">
                       <span className="text-[10px] font-bold text-slate-500 block mb-0.5">Punctuality</span>
                       <div className="flex items-center justify-center gap-1">
-                        <input
-                          type="number"
-                          min="0"
-                          max="15"
-                          disabled={grade.attendance !== 'PRESENT' || isReadOnly}
+                        <ScoreInput
+                          id={`score-punctuality-${member.id}`}
+                          max={15}
+                          disabled={grade.attendance !== 'PRESENT' || isWeekLocked}
                           value={grade.attendance === 'PRESENT' ? grade.punctuality : 0}
-                          onChange={(e) => handleScoreChange(member.id, 'punctuality', parseInt(e.target.value), 15)}
-                          className="w-10 bg-white border border-slate-300 rounded text-center text-xs font-bold text-slate-900 py-1 focus:outline-none focus:border-blue-600 disabled:opacity-40"
+                          onChange={(val) => handleScoreChange(member.id, 'punctuality', val, 15)}
+                          className="w-10 bg-white border border-slate-300 rounded text-center text-xs font-bold text-slate-900 py-1 focus:outline-none focus:border-blue-600 disabled:opacity-40 disabled:cursor-not-allowed"
                         />
                         <span className="text-[10px] text-slate-400 font-bold">/15</span>
                       </div>
@@ -1087,14 +1225,13 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                     <div className="bg-slate-50 p-2 rounded-lg border border-slate-200 text-center min-w-[70px]">
                       <span className="text-[10px] font-bold text-slate-500 block mb-0.5">M Vars</span>
                       <div className="flex items-center justify-center gap-1">
-                        <input
-                          type="number"
-                          min="0"
-                          max="15"
-                          disabled={grade.attendance !== 'PRESENT' || isReadOnly}
+                        <ScoreInput
+                          id={`score-memoryverse-${member.id}`}
+                          max={15}
+                          disabled={grade.attendance !== 'PRESENT' || isWeekLocked}
                           value={grade.attendance === 'PRESENT' ? grade.memoryVerse : 0}
-                          onChange={(e) => handleScoreChange(member.id, 'memoryVerse', parseInt(e.target.value), 15)}
-                          className="w-10 bg-white border border-slate-300 rounded text-center text-xs font-bold text-slate-900 py-1 focus:outline-none focus:border-blue-600 disabled:opacity-40"
+                          onChange={(val) => handleScoreChange(member.id, 'memoryVerse', val, 15)}
+                          className="w-10 bg-white border border-slate-300 rounded text-center text-xs font-bold text-slate-900 py-1 focus:outline-none focus:border-blue-600 disabled:opacity-40 disabled:cursor-not-allowed"
                         />
                         <span className="text-[10px] text-slate-400 font-bold">/15</span>
                       </div>
@@ -1104,14 +1241,13 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                     <div className="bg-slate-50 p-2 rounded-lg border border-slate-200 text-center min-w-[70px]">
                       <span className="text-[10px] font-bold text-slate-500 block mb-0.5">C Part.</span>
                       <div className="flex items-center justify-center gap-1">
-                        <input
-                          type="number"
-                          min="0"
-                          max="20"
-                          disabled={grade.attendance !== 'PRESENT' || isReadOnly}
+                        <ScoreInput
+                          id={`score-participation-${member.id}`}
+                          max={20}
+                          disabled={grade.attendance !== 'PRESENT' || isWeekLocked}
                           value={grade.attendance === 'PRESENT' ? grade.classParticipation : 0}
-                          onChange={(e) => handleScoreChange(member.id, 'classParticipation', parseInt(e.target.value), 20)}
-                          className="w-10 bg-white border border-slate-300 rounded text-center text-xs font-bold text-slate-900 py-1 focus:outline-none focus:border-blue-600 disabled:opacity-40"
+                          onChange={(val) => handleScoreChange(member.id, 'classParticipation', val, 20)}
+                          className="w-10 bg-white border border-slate-300 rounded text-center text-xs font-bold text-slate-900 py-1 focus:outline-none focus:border-blue-600 disabled:opacity-40 disabled:cursor-not-allowed"
                         />
                         <span className="text-[10px] text-slate-400 font-bold">/20</span>
                       </div>
@@ -1142,7 +1278,8 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                     <button
                       id={`btn-score-50-${member.id}`}
                       onClick={() => handleMemberQuickPreset(member.id, 15, 15, 20)}
-                      className="px-2.5 py-1 bg-[#3b0764] hover:bg-[#2e0854] active:scale-95 text-white border border-purple-900 rounded-lg text-[11px] font-black shadow-xs transition duration-150"
+                      disabled={isWeekLocked || grade.attendance !== 'PRESENT'}
+                      className="px-2.5 py-1 bg-[#3b0764] hover:bg-[#2e0854] disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 text-white border border-purple-900 rounded-lg text-[11px] font-black shadow-xs transition duration-150"
                       title="Set 15 + 15 + 20 = 50 pts"
                     >
                       🌟 50
@@ -1150,7 +1287,8 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                     <button
                       id={`btn-score-40-${member.id}`}
                       onClick={() => handleMemberQuickPreset(member.id, 10, 15, 15)}
-                      className="px-2.5 py-1 bg-[#1d4ed8] hover:bg-[#1e40af] active:scale-95 text-white border border-blue-700 rounded-lg text-[11px] font-bold shadow-xs transition duration-150"
+                      disabled={isWeekLocked || grade.attendance !== 'PRESENT'}
+                      className="px-2.5 py-1 bg-[#1d4ed8] hover:bg-[#1e40af] disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 text-white border border-blue-700 rounded-lg text-[11px] font-bold shadow-xs transition duration-150"
                       title="Set 10 + 15 + 15 = 40 pts"
                     >
                       40
@@ -1158,7 +1296,8 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                     <button
                       id={`btn-score-30-${member.id}`}
                       onClick={() => handleMemberQuickPreset(member.id, 10, 10, 10)}
-                      className="px-2.5 py-1 bg-[#0284c7] hover:bg-[#0369a1] active:scale-95 text-white border border-sky-500 rounded-lg text-[11px] font-bold shadow-xs transition duration-150"
+                      disabled={isWeekLocked || grade.attendance !== 'PRESENT'}
+                      className="px-2.5 py-1 bg-[#0284c7] hover:bg-[#0369a1] disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 text-white border border-sky-500 rounded-lg text-[11px] font-bold shadow-xs transition duration-150"
                       title="Set 10 + 10 + 10 = 30 pts"
                     >
                       30
@@ -1168,15 +1307,21 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                   {/* Visitor Qualification & Conversion Action */}
                   {member.memberType === 'VISITOR' && qualification && (
                     <div className="flex items-center gap-2">
-                      {qualification.isQualified ? (
+                      {member.conversionStatus === 'PENDING_APPROVAL' ? (
+                        <div className="px-3 py-1 bg-amber-50 border border-amber-300 text-amber-900 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs">
+                          <Clock className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
+                          <span>Awaiting Approval from Enrollment Officer</span>
+                        </div>
+                      ) : qualification.isQualified ? (
                         <button
                           id={`btn-convert-visitor-${member.id}`}
                           onClick={() => onConvertVisitorToStudent && onConvertVisitorToStudent(member.id)}
-                          className="px-3 py-1 bg-gradient-to-r from-purple-700 to-indigo-800 hover:from-purple-800 hover:to-indigo-900 active:scale-95 text-white rounded-lg text-xs font-black flex items-center gap-1.5 shadow-sm border border-purple-400 transition"
-                          title="Click to promote this visitor to full Student status"
+                          disabled={isWeekLocked}
+                          className="px-3 py-1 bg-gradient-to-r from-purple-700 to-indigo-800 hover:from-purple-800 hover:to-indigo-900 disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 text-white rounded-lg text-xs font-black flex items-center gap-1.5 shadow-sm border border-purple-400 transition"
+                          title="Click to request promotion of this visitor to Student status from the Enrollment Officer"
                         >
                           <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                          <span>Convert to Student (Qualified: {qualification.reason === 'CONSECUTIVE_VISITS' ? `${qualification.consecutiveVisits} Consecutive Visits` : `${qualification.attendancePercentage}% Attendance`})</span>
+                          <span>Mark as Student (Request Approval)</span>
                         </button>
                       ) : (
                         <button
@@ -1204,32 +1349,35 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                       </button>
                     ) : (
                       <div className="flex flex-wrap items-center gap-3 text-slate-600">
-                        <label className="flex items-center gap-1.5 cursor-pointer hover:text-slate-900">
+                        <label className={`flex items-center gap-1.5 ${isWeekLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:text-slate-900'}`}>
                           <input
                             type="checkbox"
+                            disabled={isWeekLocked}
                             checked={grade.joinedPrayerMeeting || false}
                             onChange={(e) => handleChecklistChange(member.id, 'joinedPrayerMeeting', e.target.checked)}
-                            className="rounded border-slate-300 bg-slate-50 text-blue-600 focus:ring-0 w-3.5 h-3.5"
+                            className="rounded border-slate-300 bg-slate-50 text-blue-600 focus:ring-0 w-3.5 h-3.5 disabled:cursor-not-allowed"
                           />
                           <span className="font-semibold text-[11px]">Prayer Mtg</span>
                         </label>
 
-                        <label className="flex items-center gap-1.5 cursor-pointer hover:text-slate-900">
+                        <label className={`flex items-center gap-1.5 ${isWeekLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:text-slate-900'}`}>
                           <input
                             type="checkbox"
+                            disabled={isWeekLocked}
                             checked={grade.postedStatusInsight || false}
                             onChange={(e) => handleChecklistChange(member.id, 'postedStatusInsight', e.target.checked)}
-                            className="rounded border-slate-300 bg-slate-50 text-blue-600 focus:ring-0 w-3.5 h-3.5"
+                            className="rounded border-slate-300 bg-slate-50 text-blue-600 focus:ring-0 w-3.5 h-3.5 disabled:cursor-not-allowed"
                           />
                           <span className="font-semibold text-[11px]">WhatsApp Status</span>
                         </label>
 
-                        <label className="flex items-center gap-1.5 cursor-pointer hover:text-slate-900">
+                        <label className={`flex items-center gap-1.5 ${isWeekLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:text-slate-900'}`}>
                           <input
                             type="checkbox"
+                            disabled={isWeekLocked}
                             checked={grade.invitedSomeone || false}
                             onChange={(e) => handleChecklistChange(member.id, 'invitedSomeone', e.target.checked)}
-                            className="rounded border-slate-300 bg-slate-50 text-blue-600 focus:ring-0 w-3.5 h-3.5"
+                            className="rounded border-slate-300 bg-slate-50 text-blue-600 focus:ring-0 w-3.5 h-3.5 disabled:cursor-not-allowed"
                           />
                           <span className="font-semibold text-[11px]">Invited Someone</span>
                         </label>

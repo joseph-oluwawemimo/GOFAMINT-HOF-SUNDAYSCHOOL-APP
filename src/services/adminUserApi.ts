@@ -99,5 +99,37 @@ export async function fetchWorkersDirectoryApi(): Promise<{ success: boolean; wo
   return result.ok ? { success: true, workers: result.data.workers || [] } : { success: false, error: result.data.error || `Request failed (${result.status})` };
 }
 
+export async function deleteWorkerApi(workerId: string): Promise<{ success: boolean; message?: string; error?: string }> {
+  const result = await request(`/api/admin/workers/${encodeURIComponent(workerId)}`, { method: 'DELETE' });
+  return result.ok ? { success: true, message: result.data.message } : { success: false, error: result.data.error || `Request failed (${result.status})` };
+}
 
+export async function fetchSpecialEventsApi(): Promise<{ success: boolean; events?: any[]; attendance?: any[]; error?: string }> {
+  const result = await request('/api/admin/special-events', { method: 'GET' });
+  return result.ok ? { success: true, events: result.data.events || [], attendance: result.data.attendance || [] } : { success: false, error: result.data.error || `Request failed (${result.status})` };
+}
 
+export async function saveSpecialEventApi(event: any): Promise<{ success: boolean; event?: any; error?: string }> {
+  const result = await request('/api/admin/special-events', { method: 'POST', body: JSON.stringify({ event }) });
+  return result.ok ? { success: true, event: result.data.event } : { success: false, error: result.data.error || `Request failed (${result.status})` };
+}
+
+export async function deleteSpecialEventApi(eventId: string): Promise<{ success: boolean; message?: string; error?: string }> {
+  const result = await request(`/api/admin/special-events/${encodeURIComponent(eventId)}`, { method: 'DELETE' });
+  return result.ok ? { success: true, message: result.data.message } : { success: false, error: result.data.error || `Request failed (${result.status})` };
+}
+
+export async function saveSpecialEventAttendanceApi(records: any[]): Promise<{ success: boolean; count?: number; error?: string }> {
+  const result = await request('/api/admin/special-events/attendance', { method: 'POST', body: JSON.stringify({ records }) });
+  return result.ok ? { success: true, count: result.data.count } : { success: false, error: result.data.error || `Request failed (${result.status})` };
+}
+
+export async function fetchWorkerPrepAttendanceApi(): Promise<{ success: boolean; records?: any[]; error?: string }> {
+  const result = await request('/api/admin/workers/prep-attendance', { method: 'GET' });
+  return result.ok ? { success: true, records: result.data.records || [] } : { success: false, error: result.data.error || `Request failed (${result.status})` };
+}
+
+export async function saveWorkerPrepAttendanceApi(records: any[]): Promise<{ success: boolean; count?: number; error?: string }> {
+  const result = await request('/api/admin/workers/prep-attendance', { method: 'POST', body: JSON.stringify({ records }) });
+  return result.ok ? { success: true, count: result.data.count } : { success: false, error: result.data.error || `Request failed (${result.status})` };
+}

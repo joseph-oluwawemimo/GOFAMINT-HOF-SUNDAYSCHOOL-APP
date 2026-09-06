@@ -7,6 +7,7 @@ const EXEC: GofamintRole[] = ['SUPER_ADMIN', 'GENERAL_SUPERINTENDENT', 'GENERAL_
 const APPROVERS: GofamintRole[] = ['SUPER_ADMIN', 'GENERAL_SUPERINTENDENT', 'GENERAL_SECRETARY'];
 const ADMIN_PROFILES = new Set<GofamintRole>([...EXEC, 'ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY', 'TREASURER', 'RECORD_OFFICER', 'ENROLLMENT_OFFICER']);
 const CLASS_ADMINS: GofamintRole[] = ['SUPER_ADMIN', 'GENERAL_SUPERINTENDENT', 'GENERAL_SECRETARY', 'ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY'];
+const WORKER_DIRECTORATE_ROLES = new Set<GofamintRole>([...ADMIN_PROFILES, 'WORKER']);
 type Caller = { id: string; email: string | null; role: GofamintRole };
 
 async function caller(req: Request, res: Response, allowed?: GofamintRole[]): Promise<Caller | null> {
@@ -34,6 +35,15 @@ function initialYear(id: string) {
 export function createApp() {
   const app = express(); app.use(express.json({ limit: '50mb' }));
   app.get('/api/health', (_q, r) => r.json({ status: 'ok', provider: 'supabase' }));
+  const SERVER_START_TIME = Date.now();
+  app.get('/api/version', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+    res.json({
+      version: process.env.BUILD_TIME || String(SERVER_START_TIME),
+      serverStartTime: SERVER_START_TIME,
+      timestamp: Date.now()
+    });
+  });
   app.get('/api/system/status', async (_q, r) => {
     try { const { data, error } = await getSupabaseAdmin().from('system_config').select('initialized,schema_version').eq('id','initialization').maybeSingle(); if (error) throw error; r.json({ initialized: data?.initialized === true, schemaVersion: data?.schema_version || 0 }); }
     catch (e:any) { r.status(500).json({ error: e.message || 'Could not read system status.' }); }
@@ -397,7 +407,7 @@ export function createApp() {
   app.get('/api/admin/classes', async (req, r) => {
     const db = getSupabaseAdmin();
     try {
-      const c = await caller(req, r, Array.from(ADMIN_PROFILES));
+      const c = await caller(req, r);
       if (!c) return;
       const { data, error } = await db.from('classes').select('*').order('id');
       if (error) throw error;
@@ -433,6 +443,22 @@ export function createApp() {
       r.status(500).json({ error: e.message || 'Failed to delete class.' });
     }
   });
+  app.delete('/api/admin/workers/:id', async (req, r) => {
+    const db = getSupabaseAdmin();
+    try {
+      const c = await caller(req, r, ['SUPER_ADMIN', 'GENERAL_SUPERINTENDENT', 'GENERAL_SECRETARY', 'ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY']);
+      if (!c) return;
+      const workerId = req.params.id;
+      if (!workerId) return r.status(400).json({ error: 'Worker ID is required.' });
+      const { error } = await db.from('workers').delete().eq('id', workerId);
+      if (error) throw error;
+      await audit(c, 'DELETE_WORKER', { workerId }, 'workers', workerId);
+      r.json({ success: true, message: `Worker ${workerId} deleted successfully.` });
+    } catch (e: any) {
+      console.error('[Server] delete worker error:', e);
+      r.status(500).json({ error: e.message || 'Failed to delete worker.' });
+    }
+  });
   app.get('/api/workers/directory', async (_req, r) => {
     const db = getSupabaseAdmin();
     try {
@@ -454,6 +480,181 @@ export function createApp() {
       r.status(500).json({ error: e.message || 'Failed to get workers directory.' });
     }
   });
+  app.get('/api/admin/special-events', async (req, r) => {
+    const db = getSupabaseAdmin();
+    try {
+      const c = await caller(req, r, Array.from(ADMIN_PROFILES));
+      if (!c) return;
+      const [evtsRes, attRes] = await Promise.all([
+        db.from('special_events').select('*').order('created_at', { ascending: false }),
+        db.from('special_event_attendance').select('*').order('created_at', { ascending: false })
+      ]);
+      if (evtsRes.error) throw evtsRes.error;
+      if (attRes.error) throw attRes.error;
+
+      const events = (evtsRes.data || []).map((row: any) => ({
+        ...(row.data && typeof row.data === 'object' ? row.data : {}),
+        id: row.id,
+        createdAt: row.created_at || row.data?.createdAt,
+        updatedAt: row.updated_at || row.data?.updatedAt
+      }));
+
+      const attendance = (attRes.data || []).map((row: any) => ({
+        ...(row.data && typeof row.data === 'object' ? row.data : {}),
+        id: row.id,
+        eventId: row.event_id || row.data?.eventId,
+        workerId: row.worker_id || row.data?.workerId,
+        createdAt: row.created_at || row.data?.createdAt,
+        updatedAt: row.updated_at || row.data?.updatedAt
+      }));
+
+      r.json({ success: true, events, attendance });
+    } catch (e: any) {
+      console.error('[Server] get special events error:', e);
+      r.status(500).json({ error: e.message || 'Failed to get special events.' });
+    }
+  });
+
+  app.post('/api/admin/special-events', async (req, r) => {
+    const db = getSupabaseAdmin();
+    try {
+      const c = await caller(req, r, Array.from(ADMIN_PROFILES));
+      if (!c) return;
+      const { event } = req.body || {};
+      if (!event || !event.id || !event.name) {
+        return r.status(400).json({ error: 'Valid event data with id and name is required.' });
+      }
+      const now = new Date().toISOString();
+      const eventData = {
+        ...event,
+        updatedAt: now,
+        createdAt: event.createdAt || now
+      };
+      const cleanData = { ...eventData };
+      delete cleanData.id;
+
+      const { error } = await db.from('special_events').upsert({
+        id: event.id,
+        data: cleanData,
+        updated_at: now
+      }, { onConflict: 'id' });
+      if (error) throw error;
+
+      await audit(c, 'SAVE_SPECIAL_EVENT', { eventId: event.id, name: event.name }, 'special_events', event.id);
+      r.json({ success: true, event: eventData });
+    } catch (e: any) {
+      console.error('[Server] save special event error:', e);
+      r.status(500).json({ error: e.message || 'Failed to save special event.' });
+    }
+  });
+
+  app.delete('/api/admin/special-events/:id', async (req, r) => {
+    const db = getSupabaseAdmin();
+    try {
+      const c = await caller(req, r, Array.from(ADMIN_PROFILES));
+      if (!c) return;
+      const eventId = req.params.id;
+      if (!eventId) return r.status(400).json({ error: 'Event ID is required.' });
+
+      await db.from('special_event_attendance').delete().eq('event_id', eventId);
+      const { error } = await db.from('special_events').delete().eq('id', eventId);
+      if (error) throw error;
+
+      await audit(c, 'DELETE_SPECIAL_EVENT', { eventId }, 'special_events', eventId);
+      r.json({ success: true, message: `Event ${eventId} deleted successfully.` });
+    } catch (e: any) {
+      console.error('[Server] delete special event error:', e);
+      r.status(500).json({ error: e.message || 'Failed to delete special event.' });
+    }
+  });
+
+  app.post('/api/admin/special-events/attendance', async (req, r) => {
+    const db = getSupabaseAdmin();
+    try {
+      const c = await caller(req, r, Array.from(ADMIN_PROFILES));
+      if (!c) return;
+      const { records } = req.body || {};
+      const list = Array.isArray(records) ? records : (req.body?.record ? [req.body.record] : []);
+      if (list.length === 0) return r.status(400).json({ error: 'At least one record is required.' });
+
+      const now = new Date().toISOString();
+      const rows = list.map((item: any) => {
+        const itemCopy = { ...item, updatedAt: now };
+        delete itemCopy.id;
+        return {
+          id: item.id,
+          event_id: item.eventId,
+          worker_id: item.workerId,
+          data: itemCopy,
+          created_at: item.createdAt || now
+        };
+      });
+
+      const { error } = await db.from('special_event_attendance').upsert(rows, { onConflict: 'id' });
+      if (error) throw error;
+
+      r.json({ success: true, count: rows.length });
+    } catch (e: any) {
+      console.error('[Server] save special event attendance error:', e);
+      r.status(500).json({ error: e.message || 'Failed to save special event attendance.' });
+    }
+  });
+
+  app.get('/api/admin/workers/prep-attendance', async (req, r) => {
+    const db = getSupabaseAdmin();
+    try {
+      const c = await caller(req, r, Array.from(WORKER_DIRECTORATE_ROLES));
+      if (!c) return;
+      const { data, error } = await db.from('worker_prep_attendance').select('*').order('updated_at', { ascending: false });
+      if (error) throw error;
+
+      const records = (data || []).map((row: any) => ({
+        ...(row.data && typeof row.data === 'object' ? row.data : {}),
+        id: row.id,
+        workerId: row.worker_id || row.data?.workerId,
+        prepDate: row.prep_date || row.data?.prepDate,
+        updatedAt: row.updated_at || row.data?.updatedAt
+      }));
+
+      r.json({ success: true, records });
+    } catch (e: any) {
+      console.error('[Server] get worker prep attendance error:', e);
+      r.status(500).json({ error: e.message || 'Failed to get worker prep attendance.' });
+    }
+  });
+
+  app.post('/api/admin/workers/prep-attendance', async (req, r) => {
+    const db = getSupabaseAdmin();
+    try {
+      const c = await caller(req, r, Array.from(WORKER_DIRECTORATE_ROLES));
+      if (!c) return;
+      const { records } = req.body || {};
+      const list = Array.isArray(records) ? records : (req.body?.record ? [req.body.record] : []);
+      if (list.length === 0) return r.status(400).json({ error: 'At least one record is required.' });
+
+      const now = new Date().toISOString();
+      const rows = list.map((item: any) => {
+        const itemCopy = { ...item, updatedAt: now };
+        delete itemCopy.id;
+        return {
+          id: item.id,
+          worker_id: item.workerId,
+          prep_date: item.prepDate,
+          data: itemCopy,
+          updated_at: item.updatedAt || now
+        };
+      });
+
+      const { error } = await db.from('worker_prep_attendance').upsert(rows, { onConflict: 'id' });
+      if (error) throw error;
+
+      r.json({ success: true, count: rows.length });
+    } catch (e: any) {
+      console.error('[Server] save worker prep attendance error:', e);
+      r.status(500).json({ error: e.message || 'Failed to save worker prep attendance.' });
+    }
+  });
+
   app.get('/api/schema',(_q,r)=>{const file=path.join(process.cwd(),'src','db','schema.sql');return fs.existsSync(file)?r.type('text/plain').send(fs.readFileSync(file,'utf8')):r.status(404).send('Schema file not found.');});
   return app;
 }

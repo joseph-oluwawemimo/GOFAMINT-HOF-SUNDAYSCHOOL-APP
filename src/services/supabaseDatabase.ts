@@ -201,6 +201,17 @@ export async function saveDocument<T extends { id: string }>(collectionName: str
 
 export async function removeDocument(collectionName: string, documentId: string): Promise<void> {
   if (!documentId) return;
+  if (collectionName === 'workers') {
+    try {
+      const { deleteWorkerApi } = await import('./adminUserApi');
+      const res = await deleteWorkerApi(documentId);
+      if (res && res.success) {
+        return;
+      }
+    } catch (apiErr) {
+      console.warn('deleteWorkerApi fallback to standard delete:', apiErr);
+    }
+  }
   const config = configFor(collectionName);
   const { error } = await getSupabaseClient().from(config.table).delete().eq('id', documentId);
   if (error) {

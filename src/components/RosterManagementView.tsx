@@ -258,14 +258,21 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
               </div>
 
               <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
-                <button
-                  id={`btn-convert-visitor-${visitor.id}`}
-                  onClick={() => onConvertVisitorToStudent(visitor.id)}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition active:scale-95"
-                >
-                  <ArrowRightLeft className="w-3.5 h-3.5" />
-                  <span>Convert to Student Roster</span>
-                </button>
+                {visitor.conversionStatus === 'PENDING_APPROVAL' ? (
+                  <div className="px-3.5 py-1.5 bg-amber-50 border border-amber-300 text-amber-900 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs">
+                    <Clock className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
+                    <span>Awaiting Approval from Enrollment Officer</span>
+                  </div>
+                ) : (
+                  <button
+                    id={`btn-convert-visitor-${visitor.id}`}
+                    onClick={() => onConvertVisitorToStudent(visitor.id)}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition active:scale-95"
+                  >
+                    <ArrowRightLeft className="w-3.5 h-3.5" />
+                    <span>Request Promotion to Student</span>
+                  </button>
+                )}
               </div>
             </div>
           ))}
@@ -485,18 +492,25 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                           </span>
                         )}
                       </div>
-                      <button
-                        onClick={() => onConvertVisitorToStudent(member.id)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 shadow-xs ${
-                          qual.isQualified
-                            ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                            : 'bg-purple-50 hover:bg-purple-100 text-purple-700 hover:text-purple-900 border border-purple-200'
-                        }`}
-                        title={qual.isQualified ? 'Promote qualified visitor to official student' : 'Manual promotion to student'}
-                      >
-                        <ArrowRightLeft className="w-3 h-3" />
-                        <span>{qual.isQualified ? 'Promote to Student ★' : 'Convert to Student'}</span>
-                      </button>
+                      {member.conversionStatus === 'PENDING_APPROVAL' ? (
+                        <span className="inline-flex items-center gap-1 text-amber-800 font-bold bg-amber-50 border border-amber-300 px-2 py-1 rounded text-xs">
+                          <Clock className="w-3 h-3 text-amber-600 animate-pulse" />
+                          <span>Awaiting Approval from Enrollment Officer</span>
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => onConvertVisitorToStudent(member.id)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 shadow-xs ${
+                            qual.isQualified
+                              ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                              : 'bg-purple-50 hover:bg-purple-100 text-purple-700 hover:text-purple-900 border border-purple-200'
+                          }`}
+                          title={qual.isQualified ? 'Request promotion to official student' : 'Request promotion to student'}
+                        >
+                          <ArrowRightLeft className="w-3 h-3" />
+                          <span>{qual.isQualified ? 'Promote to Student ★' : 'Request Promotion to Student'}</span>
+                        </button>
+                      )}
                     </div>
                   );
                 })()}

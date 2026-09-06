@@ -78,6 +78,7 @@ import { OversightBanner } from './components/OversightBanner';
 import { watchAuthState, signOutUser, getCurrentUser } from './services/authService';
 import { logOversightAccess } from './services/adminUserApi';
 import { loadCurrentProfile, type ApplicationProfile } from './services/profileService';
+import { initAppUpdateChecker } from './services/appUpdateChecker';
 import type { User } from '@supabase/supabase-js';
 
 const ADMIN_PORTAL_ROLES = new Set([
@@ -166,7 +167,7 @@ export default function App() {
       setProfileResolution('ready');
 
       // Supabase profile identity takes priority over every legacy opening-flow state.
-      // Retain active portal across hard refreshes (Ctrl + Shift + R) so users stay on their current page
+      // Retain active portal across hard refreshes (Ctrl + Shift + R) if an active session was already in progress
       const savedPortal = sessionStorage.getItem('gofamint_active_portal');
       const savedOversight = sessionStorage.getItem('gofamint_oversight_target');
 
@@ -181,44 +182,21 @@ export default function App() {
             setOversightTarget({ type: 'WORKERS', label: 'Workers Directorate & Attendance Terminal' });
           }
         }
-      } else if (ADMIN_PORTAL_ROLES.has(role)) {
+      } else if (savedPortal === 'ADMIN' && ADMIN_PORTAL_ROLES.has(role)) {
         setShowAdminPortal(true);
         setShowWorkersModule(false);
         setShowOpeningPage(false);
-      } else if (WORKERS_MODULE_ROLES.has(role)) {
-        setShowWorkersModule(true);
-        setShowAdminPortal(false);
-        setShowOpeningPage(false);
-      } else {
+      } else if (savedPortal === 'CLASS_REGISTER' && profile.classId) {
         setShowAdminPortal(false);
         setShowWorkersModule(false);
-        if (profile.classId) {
-          const { getAllClassesDirectory } = await import('./db/indexedDB');
-          const allCls = await getAllClassesDirectory();
-          const targetCls = allCls.find(c => c.id === profile.classId);
-          if (targetCls) {
-            setClassProfile(targetCls);
-            if (!targetCls.isSetupComplete || !targetCls.secretaryName) {
-              setShowOpeningPage(true);
-              setIsUnlocked(false);
-            } else if (targetCls.approvalStatus === 'PENDING_APPROVAL') {
-              setShowOpeningPage(true);
-              setIsUnlocked(false);
-            } else {
-              setShowOpeningPage(false);
-              setIsUnlocked(true);
-              sessionStorage.setItem('gofamint_unlocked', 'true');
-              sessionStorage.setItem('gofamint_unlocked_class_id', profile.classId);
-              await loadClassQuarterData(profile.classId, selectedQuarter);
-            }
-          } else {
-            setShowOpeningPage(true);
-            setIsUnlocked(false);
-          }
-        } else {
-          setShowOpeningPage(false);
-          setIsUnlocked(true);
-        }
+        setShowOpeningPage(false);
+        setIsUnlocked(true);
+      } else {
+        // Fresh sign-in or no active portal session: Always route through the official branded Welcome Screen & Portal Destination
+        setShowOpeningPage(true);
+        setShowAdminPortal(false);
+        setShowWorkersModule(false);
+        setIsUnlocked(false);
       }
     } catch (err: any) {
       console.warn('Could not load Supabase user profile on auth:', err);
@@ -229,6 +207,7 @@ export default function App() {
 
   useEffect(() => {
     let isMounted = true;
+    void initAppUpdateChecker();
 
     // Check existing stored session immediately on mount
     getCurrentUser()
@@ -463,7 +442,7 @@ export default function App() {
     const scope: SyncScope = {
       roleType: currentUserProfile.role,
       classId: currentUserProfile.classId,
-      targetOversightPortal: oversightTarget?.type === 'CLASS' ? 'CLASS_REGISTER' : oversightTarget?.type === 'WORKERS' ? 'WORKERS' : undefined,
+      targetOversightPortal: showWorkersModule ? 'WORKERS' : (oversightTarget?.type === 'CLASS' ? 'CLASS_REGISTER' : oversightTarget?.type === 'WORKERS' ? 'WORKERS' : undefined),
       targetOversightClassId: oversightTarget?.classId,
     };
     const unsubscribeRealtime = startRealtimeCloudSync(scope, async () => {
@@ -500,7 +479,7 @@ export default function App() {
       window.removeEventListener('online', handleOnlineReconnect);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cloudUser, currentUserProfile?.role, currentUserProfile?.classId, oversightTarget, profileResolution]);
+  }, [cloudUser, currentUserProfile?.role, currentUserProfile?.classId, oversightTarget, profileResolution, showWorkersModule]);
 
   // Compute status for selected quarter
   const selectedQuarterStatus: QuarterStatus = useMemo(() => {
@@ -792,34 +771,28 @@ export default function App() {
     setSyncQueue(await getSyncQueue());
   };
 
-  // Visitor to Student Conversion
+  // Visitor to Student Conversion (Sets status to PENDING_APPROVAL for Enrollment Officer)
   const handleConvertVisitorToStudent = async (memberId: string) => {
     if (!classProfile) return;
     const member = members.find(m => m.id === memberId);
     if (!member) return;
 
-    const currentEnr = member.quarterEnrollments || {};
-    currentEnr[selectedQuarter] = {
-      ...(currentEnr[selectedQuarter] || { quarterNumber: selectedQuarter, status: 'ACTIVE', firstLessonWeek: 1 }),
-      memberType: 'STUDENT'
-    };
-
-    const converted: Member = {
+    const requested: Member = {
       ...member,
-      memberType: 'STUDENT',
-      quarterEnrollments: currentEnr,
-      convertedFromVisitorAtLesson: selectedWeek,
+      conversionStatus: 'PENDING_APPROVAL',
+      conversionRequestedAt: new Date().toISOString(),
+      conversionRequestedBy: classProfile.secretaryName || classProfile.className,
       updatedAt: new Date().toISOString()
     };
 
-    await saveMemberToDB(converted, selectedQuarter);
+    await saveMemberToDB(requested, selectedQuarter);
     await loadClassQuarterData(classProfile.id, selectedQuarter);
 
     await addToSyncQueue({
       id: `sync_convert_${memberId}_${Date.now()}`,
       action: 'UPDATE',
       entity: 'MEMBER',
-      data: converted,
+      data: requested,
       createdAt: new Date().toISOString()
     });
     setSyncQueue(await getSyncQueue());
@@ -1166,38 +1139,53 @@ export default function App() {
       ? 'Account role configuration required'
       : 'Unable to resolve account access';
 
+    if (isLoadingProfile) {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 flex flex-col items-center justify-center p-4">
+          <div className="flex flex-col items-center justify-center space-y-4">
+            <div className="relative">
+              <div className="w-14 h-14 rounded-full border-4 border-amber-400/20 border-t-amber-400 animate-spin" />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
+              </div>
+            </div>
+            <div className="text-center space-y-1">
+              <span className="text-xs font-black uppercase tracking-widest text-amber-300 font-['Cinzel',serif] block">
+                THE GOSPEL FAITH MISSION INTERNATIONAL
+              </span>
+              <p className="text-xs text-slate-300 font-medium">
+                Loading Sunday School Portal...
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-950 via-slate-900 to-indigo-950 flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white/95 rounded-2xl p-8 text-center shadow-2xl space-y-4 border border-amber-400/40">
-          {isLoadingProfile ? (
-            <div className="w-12 h-12 border-4 border-amber-400 border-t-transparent rounded-full animate-spin mx-auto" />
-          ) : (
-            <div className="w-12 h-12 rounded-full bg-amber-100 border border-amber-300 flex items-center justify-center mx-auto text-amber-800 font-black text-xl">!</div>
-          )}
+          <div className="w-12 h-12 rounded-full bg-amber-100 border border-amber-300 flex items-center justify-center mx-auto text-amber-800 font-black text-xl">!</div>
           <h2 className="text-lg font-bold text-slate-900 font-['Cinzel',serif]">{title}</h2>
           <p className="text-sm text-slate-600 leading-relaxed">
-            {isLoadingProfile
-              ? 'Confirming the application role assigned to your signed-in account…'
-              : profileResolutionError || 'Your account could not be resolved.'}
+            {profileResolutionError || 'Your account could not be resolved.'}
           </p>
-          {!isLoadingProfile && (
-            <div className="flex justify-center gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => void resolveAuthenticatedProfile(cloudUser)}
-                className="px-5 py-2.5 bg-blue-950 hover:bg-blue-900 text-white font-bold rounded-xl text-xs transition"
-              >
-                Retry
-              </button>
-              <button
-                type="button"
-                onClick={() => void signOutUser()}
-                className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition"
-              >
-                Sign Out
-              </button>
-            </div>
-          )}
+          <div className="flex justify-center gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => void resolveAuthenticatedProfile(cloudUser)}
+              className="px-5 py-2.5 bg-blue-950 hover:bg-blue-900 text-white font-bold rounded-xl text-xs transition"
+            >
+              Retry
+            </button>
+            <button
+              type="button"
+              onClick={() => void signOutUser()}
+              className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition"
+            >
+              Sign Out
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -1221,6 +1209,16 @@ export default function App() {
           />
         )}
         <WorkersModuleView
+          onBackToWelcome={() => {
+            sessionStorage.removeItem('gofamint_active_portal');
+            sessionStorage.removeItem('gofamint_oversight_target');
+            if (oversightTarget) {
+              handleExitOversight();
+            }
+            setShowWorkersModule(false);
+            setShowAdminPortal(false);
+            setShowOpeningPage(true);
+          }}
           onBack={() => {
             sessionStorage.removeItem('gofamint_active_portal');
             sessionStorage.removeItem('gofamint_oversight_target');
@@ -1253,7 +1251,14 @@ export default function App() {
         )}
         <AdminPortalRoot
           authProfile={currentUserProfile}
+          onBackToWelcome={() => {
+            sessionStorage.removeItem('gofamint_active_portal');
+            setShowAdminPortal(false);
+            setShowWorkersModule(false);
+            setShowOpeningPage(true);
+          }}
           onBackToPortalSelect={() => {
+            sessionStorage.removeItem('gofamint_active_portal');
             setShowAdminPortal(false);
             setShowOpeningPage(true);
           }}
@@ -1302,12 +1307,17 @@ export default function App() {
           classProfile={classProfile}
           members={members}
           isUnlocked={isUnlocked}
-          onEnterClass={handleEnterClassFromWelcome}
+          onEnterClass={(targetCls) => {
+            sessionStorage.setItem('gofamint_active_portal', 'CLASS_REGISTER');
+            handleEnterClassFromWelcome(targetCls);
+          }}
           onEnterAdminPortal={() => {
+            sessionStorage.setItem('gofamint_active_portal', 'ADMIN');
             setShowOpeningPage(false);
             setShowAdminPortal(true);
           }}
           onEnterWorkersModule={() => {
+            sessionStorage.setItem('gofamint_active_portal', 'WORKERS');
             setShowOpeningPage(false);
             setShowWorkersModule(true);
           }}

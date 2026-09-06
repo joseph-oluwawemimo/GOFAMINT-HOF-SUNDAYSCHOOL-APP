@@ -1774,6 +1774,12 @@ export async function saveBulkWorkers(workers: WorkerProfile[]): Promise<WorkerP
 
 export async function deleteWorker(id: string): Promise<void> {
   await deleteFromStore('workers', id);
+  try {
+    const { deleteWorkerApi } = await import('../services/adminUserApi');
+    await deleteWorkerApi(id);
+  } catch (err) {
+    console.warn('Immediate deleteWorkerApi call warning:', err);
+  }
   pushToCloud('deleteWorker', () => cloudDeleteWorker(id), {
     collectionName: 'workers',
     action: 'delete',
@@ -1782,9 +1788,28 @@ export async function deleteWorker(id: string): Promise<void> {
 }
 
 // Sunday Clock-In Attendance Store
-export async function getAllWorkerAttendance(serviceDate?: string): Promise<WorkerAttendanceRecord[]> {
+export async function getAllWorkerAttendance(serviceDate?: string, forceCloudRefresh = false): Promise<WorkerAttendanceRecord[]> {
   try {
-    const list = await getAllFromStore<WorkerAttendanceRecord>('workerAttendance');
+    let list = (await getAllFromStore<WorkerAttendanceRecord>('workerAttendance')) || [];
+    if (list.length === 0 || forceCloudRefresh) {
+      try {
+        const { cloudGetAllWorkerAttendance } = await import('../services/supabaseDatabase');
+        const cloudAtt = await cloudGetAllWorkerAttendance();
+        if (cloudAtt && cloudAtt.length > 0) {
+          const map = new Map<string, WorkerAttendanceRecord>();
+          for (const a of list) { if (a && a.id) map.set(a.id, a); }
+          for (const a of cloudAtt) {
+            if (a && a.id) {
+              map.set(a.id, a);
+              await putInStore('workerAttendance', a).catch(() => {});
+            }
+          }
+          list = Array.from(map.values());
+        }
+      } catch (err) {
+        console.warn('Could not fetch cloud worker attendance:', err);
+      }
+    }
     if (serviceDate) {
       return (list || []).filter(a => a.serviceDate === serviceDate);
     }
@@ -1824,9 +1849,50 @@ export async function deleteWorkerAttendance(id: string): Promise<void> {
 }
 
 // Preparatory Class Attendance Store
-export async function getAllWorkerPrepAttendance(prepDate?: string): Promise<WorkerPrepAttendanceRecord[]> {
+export async function getAllWorkerPrepAttendance(prepDate?: string, forceCloudRefresh = false): Promise<WorkerPrepAttendanceRecord[]> {
   try {
-    const list = await getAllFromStore<WorkerPrepAttendanceRecord>('workerPrepAttendance');
+    let list = (await getAllFromStore<WorkerPrepAttendanceRecord>('workerPrepAttendance')) || [];
+    if (list.length === 0 || forceCloudRefresh) {
+      let fetchedFromServer = false;
+      try {
+        const { fetchWorkerPrepAttendanceApi } = await import('../services/adminUserApi');
+        const res = await fetchWorkerPrepAttendanceApi();
+        if (res.success && res.records && res.records.length > 0) {
+          const map = new Map<string, WorkerPrepAttendanceRecord>();
+          for (const r of list) { if (r && r.id) map.set(r.id, r); }
+          for (const r of res.records) {
+            if (r && r.id) {
+              map.set(r.id, r);
+              await putInStore('workerPrepAttendance', r).catch(() => {});
+            }
+          }
+          list = Array.from(map.values());
+          fetchedFromServer = true;
+        }
+      } catch (err) {
+        console.warn('Could not fetch prep attendance from server API:', err);
+      }
+
+      if (!fetchedFromServer) {
+        try {
+          const { cloudGetAllWorkerPrepAttendance } = await import('../services/supabaseDatabase');
+          const direct = await cloudGetAllWorkerPrepAttendance();
+          if (direct && direct.length > 0) {
+            const map = new Map<string, WorkerPrepAttendanceRecord>();
+            for (const r of list) { if (r && r.id) map.set(r.id, r); }
+            for (const r of direct) {
+              if (r && r.id) {
+                map.set(r.id, r);
+                await putInStore('workerPrepAttendance', r).catch(() => {});
+              }
+            }
+            list = Array.from(map.values());
+          }
+        } catch (dbErr) {
+          console.warn('Direct Supabase prep attendance fallback warning:', dbErr);
+        }
+      }
+    }
     if (prepDate) {
       return (list || []).filter(p => p.prepDate === prepDate);
     }
@@ -1839,6 +1905,10 @@ export async function getAllWorkerPrepAttendance(prepDate?: string): Promise<Wor
 
 export async function saveWorkerPrepAttendance(record: WorkerPrepAttendanceRecord): Promise<WorkerPrepAttendanceRecord> {
   const res = await putInStore<WorkerPrepAttendanceRecord>('workerPrepAttendance', record);
+  try {
+    const { saveWorkerPrepAttendanceApi } = await import('../services/adminUserApi');
+    saveWorkerPrepAttendanceApi([record]).catch(() => {});
+  } catch {}
   pushToCloud('saveWorkerPrepAttendance', () => cloudSaveWorkerPrepAttendance(record), {
     collectionName: 'workerPrepAttendance',
     action: 'save',
@@ -1852,6 +1922,10 @@ export async function saveBulkWorkerPrepAttendance(records: WorkerPrepAttendance
   for (const r of records) {
     await putInStore<WorkerPrepAttendanceRecord>('workerPrepAttendance', r);
   }
+  try {
+    const { saveWorkerPrepAttendanceApi } = await import('../services/adminUserApi');
+    saveWorkerPrepAttendanceApi(records).catch(() => {});
+  } catch {}
   pushToCloud('saveBulkWorkerPrepAttendance', () => cloudSaveBulkWorkerPrepAttendance(records));
   return records;
 }
@@ -2668,9 +2742,35 @@ export const recordBulkWorkerPrepAttendance = saveBulkWorkerPrepAttendance;
 // SPECIAL WORKERS TRAINING & EVENTS MODULE
 // -------------------------------------------------------------
 
-export async function getAllSpecialEvents(): Promise<SpecialWorkersEvent[]> {
+export async function getAllSpecialEvents(forceCloudRefresh = false): Promise<SpecialWorkersEvent[]> {
   try {
-    const list = await getAllFromStore<SpecialWorkersEvent>('specialEvents');
+    let list = (await getAllFromStore<SpecialWorkersEvent>('specialEvents')) || [];
+    if (list.length === 0 || forceCloudRefresh) {
+      try {
+        const { fetchSpecialEventsApi } = await import('../services/adminUserApi');
+        const res = await fetchSpecialEventsApi();
+        if (res.success && res.events && res.events.length > 0) {
+          const map = new Map<string, SpecialWorkersEvent>();
+          for (const ev of list) { if (ev && ev.id) map.set(ev.id, ev); }
+          for (const ev of res.events) {
+            if (ev && ev.id) {
+              map.set(ev.id, ev);
+              await putInStore('specialEvents', ev).catch(() => {});
+            }
+          }
+          list = Array.from(map.values());
+          if (res.attendance && res.attendance.length > 0) {
+            for (const at of res.attendance) {
+              if (at && at.id) {
+                await putInStore('specialEventAttendance', at).catch(() => {});
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Could not fetch special events from server API:', err);
+      }
+    }
     return list ? list.sort((a, b) => b.createdAt.localeCompare(a.createdAt)) : [];
   } catch (e) {
     console.warn('Error reading specialEvents store:', e);
@@ -2680,6 +2780,12 @@ export async function getAllSpecialEvents(): Promise<SpecialWorkersEvent[]> {
 
 export async function saveSpecialEvent(event: SpecialWorkersEvent): Promise<SpecialWorkersEvent> {
   const res = await putInStore<SpecialWorkersEvent>('specialEvents', event);
+  try {
+    const { saveSpecialEventApi } = await import('../services/adminUserApi');
+    await saveSpecialEventApi(event);
+  } catch (err) {
+    console.warn('Immediate saveSpecialEventApi warning:', err);
+  }
   pushToCloud('saveSpecialEvent', () => cloudSaveSpecialEvent(event), {
     collectionName: 'specialEvents',
     action: 'save',
@@ -2691,6 +2797,12 @@ export async function saveSpecialEvent(event: SpecialWorkersEvent): Promise<Spec
 
 export async function deleteSpecialEvent(eventId: string): Promise<void> {
   await deleteFromStore('specialEvents', eventId);
+  try {
+    const { deleteSpecialEventApi } = await import('../services/adminUserApi');
+    await deleteSpecialEventApi(eventId);
+  } catch (err) {
+    console.warn('Immediate deleteSpecialEventApi warning:', err);
+  }
   pushToCloud('deleteSpecialEvent', () => cloudDeleteSpecialEvent(eventId), {
     collectionName: 'specialEvents',
     action: 'delete',
@@ -2709,9 +2821,28 @@ export async function deleteSpecialEvent(eventId: string): Promise<void> {
   }
 }
 
-export async function getAllSpecialEventAttendance(): Promise<SpecialEventAttendanceRecord[]> {
+export async function getAllSpecialEventAttendance(forceCloudRefresh = false): Promise<SpecialEventAttendanceRecord[]> {
   try {
-    const list = await getAllFromStore<SpecialEventAttendanceRecord>('specialEventAttendance');
+    let list = (await getAllFromStore<SpecialEventAttendanceRecord>('specialEventAttendance')) || [];
+    if (list.length === 0 || forceCloudRefresh) {
+      try {
+        const { fetchSpecialEventsApi } = await import('../services/adminUserApi');
+        const res = await fetchSpecialEventsApi();
+        if (res.success && res.attendance && res.attendance.length > 0) {
+          const map = new Map<string, SpecialEventAttendanceRecord>();
+          for (const at of list) { if (at && at.id) map.set(at.id, at); }
+          for (const at of res.attendance) {
+            if (at && at.id) {
+              map.set(at.id, at);
+              await putInStore('specialEventAttendance', at).catch(() => {});
+            }
+          }
+          list = Array.from(map.values());
+        }
+      } catch (err) {
+        console.warn('Could not fetch special event attendance from server API:', err);
+      }
+    }
     return list || [];
   } catch (e) {
     console.warn('Error reading specialEventAttendance store:', e);
@@ -3561,9 +3692,12 @@ export async function getEligibleVisitorCandidates(
       const totalEligible = Math.max(1, selectedWeek - firstWeek + 1);
       const attendanceRate = Math.round((attendedWeeks.length / totalEligible) * 100);
 
-      // Standard consistency rule: 3+ consecutive visits or >= 75% attendance with at least 3 attendances
-      const isEligible = consecutive >= 3 || (attendedWeeks.length >= 3 && attendanceRate >= 75);
-      const reason = consecutive >= 3
+      // Standard consistency rule: 3+ consecutive visits or >= 75% attendance with at least 3 attendances or explicit teacher conversion request
+      const isPendingApproval = visitor.conversionStatus === 'PENDING_APPROVAL';
+      const isEligible = isPendingApproval || consecutive >= 3 || (attendedWeeks.length >= 3 && attendanceRate >= 75);
+      const reason = isPendingApproval
+        ? `Teacher Promotion Requested — Awaiting Certification${visitor.conversionRequestedBy ? ` (by ${visitor.conversionRequestedBy})` : ''}`
+        : consecutive >= 3
         ? `${consecutive} Consecutive Attendances Achieved`
         : attendedWeeks.length >= 3 && attendanceRate >= 75
         ? `High Attendance Consistency (${attendedWeeks.length} of ${totalEligible} weeks - ${attendanceRate}%)`
@@ -3584,6 +3718,13 @@ export async function getEligibleVisitorCandidates(
       });
     }
   }
+
+  // Sort candidates so PENDING_APPROVAL appears at the very top
+  candidates.sort((a, b) => {
+    const aPending = a.member.conversionStatus === 'PENDING_APPROVAL' ? 1 : 0;
+    const bPending = b.member.conversionStatus === 'PENDING_APPROVAL' ? 1 : 0;
+    return bPending - aPending;
+  });
 
   return candidates;
 }
@@ -3630,6 +3771,7 @@ export async function certifyVisitorEnrollment(
   const updatedMember: Member = {
     ...target,
     memberType: 'STUDENT',
+    conversionStatus: 'APPROVED',
     convertedFromVisitorAtLesson: weekNumber,
     enrolledDate: new Date().toISOString(),
     certifiedBy: officerProfile.profileName,
@@ -3640,6 +3782,11 @@ export async function certifyVisitorEnrollment(
   };
 
   await putInStore('members', updatedMember);
+  pushToCloud('updateMember', () => cloudSaveMember(updatedMember), {
+    collectionName: 'members',
+    action: 'save',
+    docId: updatedMember.id
+  });
 
   // Store certification audit record
   const certRecord: EnrollmentCertificationRecord = {
@@ -3665,6 +3812,37 @@ export async function certifyVisitorEnrollment(
   } catch (e) {
     console.warn('Could not save certification to localStorage:', e);
   }
+
+  return { success: true, member: updatedMember };
+}
+
+/**
+ * Denies a Visitor's promotion request and keeps them as visitor.
+ */
+export async function denyVisitorConversion(
+  memberId: string,
+  officerProfile: AdminProfile,
+  reason?: string
+): Promise<{ success: boolean; member: Member }> {
+  const allMembers = await getAllMembers();
+  const target = allMembers.find(m => m.id === memberId);
+  if (!target) {
+    throw new Error(`Member ${memberId} not found in database`);
+  }
+
+  const updatedMember: Member = {
+    ...target,
+    conversionStatus: 'DENIED',
+    notes: reason ? `${target.notes || ''}\n[Conversion Denied by ${officerProfile.profileName}]: ${reason}`.trim() : target.notes,
+    updatedAt: new Date().toISOString()
+  };
+
+  await putInStore('members', updatedMember);
+  pushToCloud('updateMember', () => cloudSaveMember(updatedMember), {
+    collectionName: 'members',
+    action: 'save',
+    docId: updatedMember.id
+  });
 
   return { success: true, member: updatedMember };
 }

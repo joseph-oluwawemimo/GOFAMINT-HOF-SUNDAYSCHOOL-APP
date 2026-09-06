@@ -63,6 +63,7 @@ import { cloudGetSundaySchoolYear, cloudGetAllAdminProfiles, cloudApproveAdminPr
 interface AdminPortalRootProps {
   authProfile: ApplicationProfile | null;
   onBackToPortalSelect: () => void;
+  onBackToWelcome?: () => void;
   onEnterClassRegister?: (classId?: string) => void;
   onEnterWorkersModule?: () => void;
   onLockProfile?: () => void;
@@ -72,6 +73,7 @@ interface AdminPortalRootProps {
 export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
   authProfile,
   onBackToPortalSelect,
+  onBackToWelcome,
   onEnterClassRegister,
   onEnterWorkersModule,
   onLockProfile,
@@ -371,10 +373,34 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {onBackToWelcome && (
+              <button
+                onClick={onBackToWelcome}
+                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-600 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                title="Return to Welcome Screen"
+              >
+                <ArrowLeft className="w-3.5 h-3.5 text-amber-400" />
+                <span className="hidden sm:inline">Back to Welcome</span>
+                <span className="sm:hidden">Welcome</span>
+              </button>
+            )}
+
+            {onBackToPortalSelect && (
+              <button
+                onClick={onBackToPortalSelect}
+                className="px-3 py-1.5 bg-indigo-950/80 hover:bg-indigo-900 text-indigo-200 hover:text-white border border-indigo-700/60 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                title="Return to Portal Destination Selection"
+              >
+                <ArrowLeft className="w-3.5 h-3.5 text-amber-400" />
+                <span className="hidden sm:inline">Portal Selection</span>
+                <span className="sm:hidden">Portals</span>
+              </button>
+            )}
+
             {onEnterWorkersModule && (
               <button
                 onClick={onEnterWorkersModule}
-                className="px-3 py-1.5 bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-700/60 rounded-xl text-xs font-bold transition flex items-center gap-1.5"
+                className="px-3 py-1.5 bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-700/60 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
               >
                 <Sparkles className="w-3.5 h-3.5" />
                 <span>Workers Directorate</span>
@@ -384,7 +410,7 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
             {onLockProfile && (
               <button
                 onClick={onLockProfile}
-                className="px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-400/40 rounded-xl text-xs font-bold transition flex items-center gap-1.5"
+                className="px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-400/40 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
                 title="Lock profile session (requires password to resume)"
               >
                 <Lock className="w-3.5 h-3.5" />
@@ -402,7 +428,7 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
         
         {/* Staff & Officer Account Creation / Management Panel (Executive Admins Only) */}
         {(['GENERAL_SUPERINTENDENT', 'GENERAL_SECRETARY', 'SUPER_ADMIN'].includes(currentAdmin?.roleType || '')) && (
-          <CloudUserManagementPanel />
+          <CloudUserManagementPanel adminRole={currentAdmin?.roleType} />
         )}
 
         {(() => {

@@ -10,7 +10,8 @@ import {
   BookOpen,
   Calendar,
   Home,
-  Shield
+  Shield,
+  ArrowLeft
 } from 'lucide-react';
 import { GofamintLogo } from './GofamintLogo';
 import { ClassProfile, SyncState } from '../types';
@@ -51,7 +52,7 @@ export const Header: React.FC<HeaderProps> = ({
   totalWeeksInQuarter = 12
 }) => {
   return (
-    <header className="bg-blue-900 text-white border-b-4 border-blue-700 sticky top-0 z-40 shadow-md">
+    <header className="bg-gradient-to-r from-slate-950 via-indigo-950 to-slate-900 text-white border-b-2 border-indigo-500/40 sticky top-0 z-40 shadow-xl">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3.5">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
 
@@ -129,36 +130,19 @@ export const Header: React.FC<HeaderProps> = ({
               <span>Visitors: <strong className="text-emerald-300">{totalVisitors}</strong></span>
             </div>
 
-            {/* Host Sync Status Pill */}
-            <button
-              id="header-btn-sync"
-              onClick={onSyncClick}
-              disabled={syncState.isSyncing}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold border transition ${syncState.isSyncing
-                  ? 'bg-amber-900/60 border-amber-400 text-amber-200'
-                  : syncState.isOnline
-                    ? 'bg-emerald-800/80 border-emerald-400 text-emerald-100 hover:bg-emerald-700'
-                    : 'bg-blue-950 border-blue-700 text-blue-300 hover:text-white'
-                }`}
-              title={syncState.isOnline ? 'Connected to local network. Click to sync.' : 'Offline mode active (Local IndexedDB)'}
-            >
-              {syncState.isSyncing ? (
-                <>
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-300" />
-                  <span className="hidden sm:inline">Syncing...</span>
-                </>
-              ) : syncState.isOnline ? (
-                <>
-                  <span className="w-2 h-2 rounded-full bg-green-400"></span>
-                  <span className="hidden sm:inline">Sync Active</span>
-                </>
-              ) : (
-                <>
-                  <WifiOff className="w-3.5 h-3.5 text-slate-300" />
-                  <span className="hidden sm:inline">Offline Mode</span>
-                </>
-              )}
-            </button>
+            {/* Navigation Actions: Back to Welcome Page & Portals */}
+            {onOpenWelcome && (
+              <button
+                id="header-btn-back-welcome"
+                onClick={onOpenWelcome}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-indigo-400/40 rounded-lg text-xs font-bold text-amber-300 hover:text-white transition shadow-xs cursor-pointer"
+                title="Return to Welcome Page"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Back to Welcome Page</span>
+                <span className="sm:hidden">Welcome</span>
+              </button>
+            )}
 
             {/* Lock / Security Button */}
             <button

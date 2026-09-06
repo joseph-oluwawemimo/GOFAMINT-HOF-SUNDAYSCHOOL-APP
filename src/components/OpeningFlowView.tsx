@@ -111,27 +111,32 @@ export const OpeningFlowView: React.FC<OpeningFlowViewProps> = ({
     currentUserProfile?.classId ||
     (cloudUser?.email?.includes('@') && !isAdmin ? cloudUser.email.split('@')[0].toUpperCase() : null);
 
-  const refreshClassesAndWorkers = async () => {
+  const [isLoadingClasses, setIsLoadingClasses] = useState(false);
+
+  const refreshClassesAndWorkers = async (forceCloud = false) => {
     try {
+      setIsLoadingClasses(true);
       const [workers, classes] = await Promise.all([
         getAllWorkers(true),
-        getAllClassesDirectory()
+        getAllClassesDirectory(forceCloud || allClassesList.length === 0)
       ]);
       setWorkersList(workers || []);
       setAllClassesList(classes || []);
     } catch (err) {
       console.error('Error loading classes or workers:', err);
+    } finally {
+      setIsLoadingClasses(false);
     }
   };
 
   useEffect(() => {
-    refreshClassesAndWorkers();
+    refreshClassesAndWorkers(true);
   }, []);
 
-  // Check if class user is authorized to access a given class (Item 11)
+  // Check if class user is authorized to access a given class
   const isAuthorizedForClass = (cls: ClassProfile) => {
-    if (isAdmin) return true;
-    if (!assignedClassId) return true; // generic user without specific restriction
+    if (userRole === 'GENERAL_SUPERINTENDENT' || userRole === 'SUPER_ADMIN') return true;
+    if (!assignedClassId) return false;
     const targetIdNorm = cls.id.toUpperCase().replace(/[^A-Z0-9]/g, '');
     const assignedIdNorm = assignedClassId.toUpperCase().replace(/[^A-Z0-9]/g, '');
     return targetIdNorm === assignedIdNorm || targetIdNorm.includes(assignedIdNorm) || assignedIdNorm.includes(targetIdNorm);
@@ -158,7 +163,7 @@ export const OpeningFlowView: React.FC<OpeningFlowViewProps> = ({
   // Open registration modal for a class
   const handleOpenClassRegistration = (cls: ClassProfile) => {
     if (!isAuthorizedForClass(cls)) {
-      setAuthErrorModalMessage('You are not authorized to enter this app/class.');
+      setAuthErrorModalMessage('You are not authorized to enter this class register.');
       return;
     }
     setRegisteringClass(cls);
@@ -175,7 +180,7 @@ export const OpeningFlowView: React.FC<OpeningFlowViewProps> = ({
   // Handle Teacher/Secretary entering class register (Item 11 & 12)
   const handleEnterApprovedClass = (cls: ClassProfile) => {
     if (!isAuthorizedForClass(cls)) {
-      setAuthErrorModalMessage('You are not authorized to enter this app/class.');
+      setAuthErrorModalMessage('You are not authorized to enter this class register.');
       return;
     }
     onEnterClass(cls);
@@ -467,7 +472,10 @@ export const OpeningFlowView: React.FC<OpeningFlowViewProps> = ({
               <div className="pt-5 mt-4 border-t border-slate-200">
                 <button
                   id="btn-portal-select-teacher"
-                  onClick={() => setCurrentStep('TEACHER_PORTAL_HOME')}
+                  onClick={() => {
+                    refreshClassesAndWorkers(true);
+                    setCurrentStep('TEACHER_PORTAL_HOME');
+                  }}
                   className="w-full py-3 bg-blue-900 hover:bg-blue-800 active:scale-[0.98] text-white rounded-xl text-xs font-black flex items-center justify-center gap-2 shadow-md transition cursor-pointer"
                 >
                   <span>Enter Teachers Portal</span>
@@ -491,13 +499,22 @@ export const OpeningFlowView: React.FC<OpeningFlowViewProps> = ({
           
           {/* Navigation Bar */}
           <div className="flex items-center justify-between">
-            <button
-              onClick={() => setCurrentStep('PORTAL_SELECTION')}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:text-slate-900 transition shadow-xs cursor-pointer"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              <span>Back to Portal Selection</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCurrentStep('OPENING_PAGE')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:text-slate-900 transition shadow-xs cursor-pointer"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Back to Welcome Page</span>
+              </button>
+              <button
+                onClick={() => setCurrentStep('PORTAL_SELECTION')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-blue-900 hover:text-blue-800 transition shadow-xs cursor-pointer"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Back to Portal Selection</span>
+              </button>
+            </div>
 
             <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">
               Teacher & Secretary Portal
@@ -541,7 +558,13 @@ export const OpeningFlowView: React.FC<OpeningFlowViewProps> = ({
               </span>
             </div>
 
-            {allClassesList.length === 0 ? (
+            {isLoadingClasses ? (
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-8 text-center text-slate-500 text-xs space-y-2">
+                <div className="w-6 h-6 border-2 border-blue-900 border-t-transparent rounded-full animate-spin mx-auto" />
+                <p className="font-bold text-slate-800">Loading Sunday School Classes...</p>
+                <p className="text-[11px] text-slate-500">Connecting to cloud directory</p>
+              </div>
+            ) : allClassesList.length === 0 ? (
               <div className="bg-slate-50 border border-dashed border-slate-300 rounded-xl p-8 text-center text-slate-500 text-xs space-y-1">
                 <p className="font-bold">No classes created yet in the directory.</p>
                 <p>The Assistant General Secretary must create class profiles in the Admin Portal first.</p>

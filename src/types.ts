@@ -201,6 +201,9 @@ export interface Member {
   certifiedBy?: string;
   certifiedAt?: string;
   exitNote?: string;
+  conversionStatus?: 'NONE' | 'PENDING_APPROVAL' | 'APPROVED' | 'DENIED';
+  conversionRequestedAt?: string;
+  conversionRequestedBy?: string;
   createdAt: string;
   updatedAt: string;
 }

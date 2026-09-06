@@ -981,7 +981,7 @@ export const TreasurerView: React.FC<TreasurerViewProps> = ({
                   type="number"
                   required
                   min="1"
-                  step="100"
+                  step="any"
                   value={expenseAmount}
                   onChange={(e) => setExpenseAmount(e.target.value)}
                   placeholder="5000"

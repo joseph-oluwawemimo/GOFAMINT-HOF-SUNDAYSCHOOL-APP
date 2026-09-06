@@ -367,10 +367,18 @@ export const DepartmentClassExplorer: React.FC<DepartmentClassExplorerProps> = (
               return (
                 <button
                   key={cls.id}
-                  onClick={() => setSelectedClassId(cls.id)}
+                  onClick={() => {
+                    setSelectedClassId(cls.id);
+                    setTimeout(() => {
+                      const el = document.getElementById('selected-class-inspector');
+                      if (el) {
+                        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      }
+                    }, 50);
+                  }}
                   className={`p-3.5 rounded-2xl text-left transition border flex flex-col justify-between gap-2 ${
                     isSelected
-                      ? 'bg-blue-50/80 border-2 border-blue-900 shadow-xs'
+                      ? 'bg-blue-50/80 border-2 border-blue-900 shadow-xs ring-2 ring-blue-500/20'
                       : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50'
                   }`}
                 >
@@ -393,7 +401,10 @@ export const DepartmentClassExplorer: React.FC<DepartmentClassExplorerProps> = (
 
                   <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-500">
                     <span>{cls.teachers?.length || 1} Teachers Assigned</span>
-                    <span className="font-bold text-blue-900">Direct Entry →</span>
+                    <span className="font-bold text-blue-900 flex items-center gap-1 hover:underline">
+                      <span>Direct Entry</span>
+                      <span>→</span>
+                    </span>
                   </div>
                 </button>
               );
@@ -405,7 +416,7 @@ export const DepartmentClassExplorer: React.FC<DepartmentClassExplorerProps> = (
 
       {/* Selected Class Active View & Permitted Dashboards */}
       {selectedClass && (
-        <div className="space-y-6">
+        <div id="selected-class-inspector" className="space-y-6 scroll-mt-6">
           
           {/* Active Class Header Card */}
           <div className="bg-white rounded-3xl border-2 border-blue-900/30 p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">

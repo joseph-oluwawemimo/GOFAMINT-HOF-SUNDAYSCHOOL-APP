@@ -177,16 +177,16 @@ create policy lessons_delete on public.lessons for delete using (public.is_gener
 create policy workers_read on public.workers for select using (auth.uid() is not null);
 create policy workers_create on public.workers for insert with check (public.is_general_secretary() or public.is_own_worker(id));
 create policy workers_update on public.workers for update using (public.is_general_secretary() or public.is_own_worker(id)) with check (public.is_general_secretary() or public.is_own_worker(id));
-create policy workers_delete on public.workers for delete using (public.is_general_superintendent());
+create policy workers_delete on public.workers for delete using (public.is_any_admin());
 
 create policy worker_attendance_read on public.worker_attendance for select using (public.is_general_secretary() or public.is_own_worker(worker_id));
 create policy worker_attendance_create on public.worker_attendance for insert with check (public.is_general_secretary() or public.is_own_worker(worker_id));
 create policy worker_attendance_update on public.worker_attendance for update using (public.is_general_secretary()) with check (public.is_general_secretary());
-create policy worker_attendance_delete on public.worker_attendance for delete using (public.is_general_superintendent());
+create policy worker_attendance_delete on public.worker_attendance for delete using (public.is_any_admin());
 create policy worker_prep_attendance_read on public.worker_prep_attendance for select using (public.is_general_secretary() or public.is_own_worker(worker_id));
 create policy worker_prep_attendance_create on public.worker_prep_attendance for insert with check (public.is_general_secretary());
 create policy worker_prep_attendance_update on public.worker_prep_attendance for update using (public.is_general_secretary()) with check (public.is_general_secretary());
-create policy worker_prep_attendance_delete on public.worker_prep_attendance for delete using (public.is_general_superintendent());
+create policy worker_prep_attendance_delete on public.worker_prep_attendance for delete using (public.is_any_admin());
 
 create policy clock_in_config_read on public.clock_in_config for select using (auth.uid() is not null);
 create policy clock_in_config_create on public.clock_in_config for insert with check (public.is_general_secretary());

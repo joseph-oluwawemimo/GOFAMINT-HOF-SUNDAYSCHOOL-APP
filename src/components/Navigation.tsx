@@ -39,7 +39,7 @@ export const Navigation: React.FC<NavigationProps> = ({
     },
     {
       id: 'ROSTER_MANAGEMENT',
-      label: 'Roster & Registration',
+      label: 'Student Registration',
       icon: Users,
       badge: visitorConversionCount > 0 ? visitorConversionCount : undefined,
       badgeColor: 'bg-purple-600 text-white'

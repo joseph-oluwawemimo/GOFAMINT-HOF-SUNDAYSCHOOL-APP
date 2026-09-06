@@ -25,6 +25,22 @@ import { GofamintLogo } from '../GofamintLogo';
 import jsQR from 'jsqr';
 import confetti from 'canvas-confetti';
 
+function getDayLabelFromDate(dateStr: string): string {
+  if (!dateStr) return 'Sunday';
+  const parts = dateStr.split('-');
+  if (parts.length === 3) {
+    const y = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10) - 1;
+    const d = parseInt(parts[2], 10);
+    const dt = new Date(y, m, d, 12, 0, 0);
+    const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    return daysOfWeek[dt.getDay()] || 'Sunday';
+  }
+  const dt = new Date(dateStr);
+  const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  return !isNaN(dt.getTime()) ? daysOfWeek[dt.getDay()] : 'Sunday';
+}
+
 interface SpecialEventsViewProps {
   workers: WorkerProfile[];
   departmentsList?: string[];
@@ -103,8 +119,8 @@ export const SpecialEventsView: React.FC<SpecialEventsViewProps> = ({
     try {
       setIsLoading(true);
       let [allEvts, allAtt] = await Promise.all([
-        getAllSpecialEvents(),
-        getAllSpecialEventAttendance()
+        getAllSpecialEvents(true),
+        getAllSpecialEventAttendance(true)
       ]);
 
       // Dual-layer backup check for Events
@@ -243,10 +259,11 @@ export const SpecialEventsView: React.FC<SpecialEventsViewProps> = ({
     setVenue('National / Regional Camp / Church Auditorium');
     setDescription('');
     setStatus('ACTIVE');
+    const initialDayLabel = getDayLabelFromDate(today);
     setDaySchedules([
       {
         date: today,
-        dayLabel: 'Thursday',
+        dayLabel: initialDayLabel,
         programStartTime: '17:00',
         clockInOpenTime: '16:00',
         notes: 'Session Opening & Keynote'
@@ -272,12 +289,22 @@ export const SpecialEventsView: React.FC<SpecialEventsViewProps> = ({
 
   // Add Day Schedule helper
   const handleAddDaySchedule = () => {
-    const baseDate = endDate || startDate || new Date().toISOString().split('T')[0];
-    const d = new Date(baseDate);
-    d.setDate(d.getDate() + (daySchedules.length > 0 ? 1 : 0));
-    const nextDateStr = d.toISOString().split('T')[0];
-    const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    const dayLabel = daysOfWeek[d.getDay()];
+    const baseDate = daySchedules.length > 0
+      ? daySchedules[daySchedules.length - 1].date
+      : (endDate || startDate || new Date().toISOString().split('T')[0]);
+    const parts = baseDate.split('-');
+    let nextDateStr = baseDate;
+    if (parts.length === 3) {
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10) - 1;
+      const d = parseInt(parts[2], 10);
+      const dt = new Date(y, m, d + 1, 12, 0, 0);
+      const yStr = dt.getFullYear();
+      const mStr = String(dt.getMonth() + 1).padStart(2, '0');
+      const dStr = String(dt.getDate()).padStart(2, '0');
+      nextDateStr = `${yStr}-${mStr}-${dStr}`;
+    }
+    const dayLabel = getDayLabelFromDate(nextDateStr);
 
     setDaySchedules([
       ...daySchedules,
@@ -297,11 +324,17 @@ export const SpecialEventsView: React.FC<SpecialEventsViewProps> = ({
 
   const handleUpdateDaySchedule = (index: number, field: keyof SpecialEventDaySchedule, value: string) => {
     const updated = [...daySchedules];
-    updated[index] = { ...updated[index], [field]: value };
+    if (field === 'date') {
+      const autoDayLabel = getDayLabelFromDate(value);
+      updated[index] = { ...updated[index], date: value, dayLabel: autoDayLabel };
+    } else {
+      updated[index] = { ...updated[index], [field]: value };
+    }
     setDaySchedules(updated);
   };
 
   // Save Event
+  const [isSavingEvent, setIsSavingEvent] = useState(false);
   const handleSaveEvent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!eventName.trim()) {
@@ -328,11 +361,19 @@ export const SpecialEventsView: React.FC<SpecialEventsViewProps> = ({
       updatedAt: new Date().toISOString()
     };
 
-    await saveSpecialEvent(newEvent);
-    await loadData();
-    setSelectedEventId(newEvent.id);
-    setSelectedDate(newEvent.daySchedules[0]?.date || '');
-    setIsModalOpen(false);
+    try {
+      setIsSavingEvent(true);
+      await saveSpecialEvent(newEvent);
+      await loadData();
+      setSelectedEventId(newEvent.id);
+      setSelectedDate(newEvent.daySchedules[0]?.date || '');
+      setIsModalOpen(false);
+    } catch (err: any) {
+      console.error('Failed to save special event:', err);
+      alert('Failed to save event: ' + (err?.message || 'Unknown error'));
+    } finally {
+      setIsSavingEvent(false);
+    }
   };
 
   // Delete Event handler - triggers in-UI modal
@@ -1757,9 +1798,10 @@ export const SpecialEventsView: React.FC<SpecialEventsViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-blue-900 hover:bg-blue-800 text-white rounded-xl text-xs font-black transition shadow-xs cursor-pointer"
+                  disabled={isSavingEvent}
+                  className="px-5 py-2 bg-blue-900 hover:bg-blue-800 disabled:opacity-50 text-white rounded-xl text-xs font-black transition shadow-xs cursor-pointer flex items-center gap-1.5"
                 >
-                  {editingEvent ? 'Save Changes' : 'Create Special Event'}
+                  {isSavingEvent ? 'Saving...' : editingEvent ? 'Save Changes' : 'Create Special Event'}
                 </button>
               </div>
 

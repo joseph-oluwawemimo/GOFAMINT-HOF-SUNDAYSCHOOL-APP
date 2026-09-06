@@ -30,7 +30,16 @@ const ASSIGNABLE_ADMIN_ROLES = [
   { value: 'WORKER', label: 'Worker (Directorate Member)' },
 ];
 
-export const CloudUserManagementPanel: React.FC<{ recoveryOnly?: boolean }> = ({ recoveryOnly = false }) => {
+interface CloudUserManagementPanelProps {
+  recoveryOnly?: boolean;
+  adminRole?: string;
+}
+
+export const CloudUserManagementPanel: React.FC<CloudUserManagementPanelProps> = ({
+  recoveryOnly = false,
+  adminRole
+}) => {
+  const canCreateClassLogins = adminRole === 'ASST_GENERAL_SECRETARY' || adminRole === 'GENERAL_SUPERINTENDENT' || adminRole === 'SUPER_ADMIN';
   const [activeTab, setActiveTab] = useState<'CREATE_STAFF' | 'CREATE_CLASS_LOGIN' | 'LIST'>('CREATE_STAFF');
   const [isOpen, setIsOpen] = useState(false);
 
@@ -275,22 +284,24 @@ export const CloudUserManagementPanel: React.FC<{ recoveryOnly?: boolean }> = ({
             >
               + Create Administrative Staff Login
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab('CREATE_CLASS_LOGIN');
-                setResult(null);
-                loadClasses();
-              }}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
-                activeTab === 'CREATE_CLASS_LOGIN'
-                  ? 'bg-indigo-900 text-amber-300 shadow-xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              <BookOpen className="w-3.5 h-3.5" />
-              <span>+ Create Class Login (No Email)</span>
-            </button>
+            {canCreateClassLogins && (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('CREATE_CLASS_LOGIN');
+                  setResult(null);
+                  loadClasses();
+                }}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                  activeTab === 'CREATE_CLASS_LOGIN'
+                    ? 'bg-indigo-900 text-amber-300 shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <BookOpen className="w-3.5 h-3.5" />
+                <span>+ Create Class Login (No Email)</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {
