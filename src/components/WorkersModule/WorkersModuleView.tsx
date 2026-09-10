@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   WorkerProfile, 
   WorkerAttendanceRecord, 
@@ -57,7 +57,7 @@ import { WorkerQrPassModal } from './WorkerQrPassModal';
 import { 
   Users, QrCode, BookOpen, Layers, UserCheck, 
   BarChart3, Plus, Upload, Sparkles, ArrowLeft,
-  Lock, KeyRound, ShieldAlert, LogOut, Eye, EyeOff, CheckCircle2,
+  KeyRound, ShieldAlert, LogOut, Eye, EyeOff, CheckCircle2,
   Trophy, Calendar
 } from 'lucide-react';
 import { GofamintLogo } from '../GofamintLogo';
@@ -100,8 +100,6 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
     sessionStorage.setItem('gofamint_workers_active_tab', tab);
   };
   
-  // Workers Directorate access is established by the resolved Supabase profile.
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(true);
   const [adminProfiles, setAdminProfiles] = useState<AdminProfile[]>([]);
 
   // Controlled Exit Confirmation Modal state (Complaint 8)
@@ -149,6 +147,8 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
   const [specialEvents, setSpecialEvents] = useState<SpecialWorkersEvent[]>([]);
   const [specialAttendance, setSpecialAttendance] = useState<SpecialEventAttendanceRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const refreshInFlightRef = useRef<Promise<void> | null>(null);
 
   // Modal states
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -162,9 +162,12 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
   const [adminDepartments, setAdminDepartments] = useState<string[]>([]);
 
   // Load all initial data from IndexedDB
-  const refreshAllData = useCallback(async () => {
-    try {
-      setIsLoading(true);
+  const refreshAllData = useCallback((forceCloudRefresh = false): Promise<void> => {
+    if (refreshInFlightRef.current) return refreshInFlightRef.current;
+
+    const refreshTask = (async () => {
+      try {
+        setLoadError(null);
       const [
         loadedWorkers,
         loadedCats,
@@ -177,16 +180,16 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
         loadedSpecialEvts,
         loadedSpecialAtt
       ] = await Promise.all([
-        getAllWorkers(true),
+        getAllWorkers(forceCloudRefresh),
         getAllWorkerCategories(),
         getAllWorkerAttendance(),
-        getAllWorkerPrepAttendance(undefined, true),
+        getAllWorkerPrepAttendance(undefined, forceCloudRefresh),
         getClockInConfig(),
         getAllDepartmentsList(),
         getSundaySchoolYear(),
         getAllAdminProfiles(),
-        getAllSpecialEvents(true),
-        getAllSpecialEventAttendance(true)
+        getAllSpecialEvents(forceCloudRefresh),
+        getAllSpecialEventAttendance(forceCloudRefresh)
       ]);
 
       setWorkers(loadedWorkers);
@@ -203,31 +206,40 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
         setSundaySchoolYear(loadedYear);
         setSelectedAdmonitionQuarter(loadedYear.activeQuarterNumber || 1);
       }
-    } catch (err) {
-      console.error('Error loading workers module data:', err);
-    } finally {
-      setIsLoading(false);
-    }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error('Error loading workers module data:', err);
+        setLoadError(`Workers Directorate data could not be loaded: ${message}`);
+      } finally {
+        setIsLoading(false);
+        refreshInFlightRef.current = null;
+      }
+    })();
+
+    refreshInFlightRef.current = refreshTask;
+    return refreshTask;
   }, []);
 
   useEffect(() => {
-    refreshAllData();
+    void refreshAllData(true);
   }, [refreshAllData]);
 
   // Reactive listener: When any other admin or background sync modifies worker data in real-time,
   // immediately refresh state without needing a page refresh or manual reload.
   useEffect(() => {
+    let refreshTimer: number | undefined;
     const handleWorkerSync = (e: any) => {
       const store = e?.detail?.store;
-      if (!store || ['workers', 'workerAttendance', 'workerPrepAttendance', 'specialEvents', 'specialEventAttendance', 'workerCategories', 'clockInConfig'].includes(store)) {
-        void refreshAllData();
+      const stores: string[] = Array.isArray(e?.detail?.stores) ? e.detail.stores : (store ? [store] : []);
+      if (stores.length === 0 || stores.some(changedStore => ['workers', 'workerAttendance', 'workerPrepAttendance', 'specialEvents', 'specialEventAttendance', 'workerCategories', 'clockInConfig'].includes(changedStore))) {
+        window.clearTimeout(refreshTimer);
+        refreshTimer = window.setTimeout(() => void refreshAllData(false), 50);
       }
     };
     window.addEventListener('gofamint:worker-sync', handleWorkerSync);
-    window.addEventListener('gofamint:sync-update', handleWorkerSync);
     return () => {
+      window.clearTimeout(refreshTimer);
       window.removeEventListener('gofamint:worker-sync', handleWorkerSync);
-      window.removeEventListener('gofamint:sync-update', handleWorkerSync);
     };
   }, [refreshAllData]);
 
@@ -267,7 +279,7 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
 
   const handleSaveWorkerProfile = async (workerData: WorkerProfile) => {
     await saveWorker(workerData);
-    await refreshAllData();
+    await refreshAllData(false);
   };
 
   const handleDeleteWorker = async (id: string) => {
@@ -286,7 +298,7 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
 
   const handleSaveBulkWorkers = async (newWorkers: WorkerProfile[]) => {
     await saveBulkWorkers(newWorkers);
-    await refreshAllData();
+    await refreshAllData(false);
   };
 
   // Handlers for QR Pass
@@ -298,6 +310,7 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
   // Handlers for Sunday Attendance
   const handleSundayClockIn = async (record: WorkerAttendanceRecord) => {
     // 1. Optimistic update (0ms instant UI responsiveness)
+    const previousAttendance = sundayAttendance;
     setSundayAttendance(prev => {
       const filtered = prev.filter(a => a.id !== record.id);
       return [...filtered, record];
@@ -308,11 +321,14 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
       setSundayAttendance(updated);
     } catch (err) {
       console.error('Failed to record worker attendance:', err);
+      setSundayAttendance(previousAttendance);
+      alert('Worker attendance was not saved. The previous register has been restored.');
     }
   };
 
   const handleSaveSundayBulkRecords = async (records: WorkerAttendanceRecord[]) => {
     // 1. Optimistic update (0ms instant UI responsiveness)
+    const previousAttendance = sundayAttendance;
     const recordIds = new Set(records.map(r => r.id));
     setSundayAttendance(prev => {
       const filtered = prev.filter(a => !recordIds.has(a.id));
@@ -324,6 +340,8 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
       setSundayAttendance(updated);
     } catch (err) {
       console.error('Failed to record bulk worker attendance:', err);
+      setSundayAttendance(previousAttendance);
+      alert('Bulk worker attendance was not saved. The previous register has been restored.');
     }
   };
 
@@ -335,6 +353,7 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
   // Handlers for Preparatory Attendance
   const handleSavePrepRecord = async (record: WorkerPrepAttendanceRecord) => {
     // 1. Optimistic update (0ms instant UI responsiveness)
+    const previousAttendance = prepAttendance;
     setPrepAttendance(prev => {
       const filtered = prev.filter(p => p.id !== record.id);
       return [...filtered, record];
@@ -345,11 +364,14 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
       setPrepAttendance(updated);
     } catch (err) {
       console.error('Failed to record prep attendance:', err);
+      setPrepAttendance(previousAttendance);
+      alert('Preparatory attendance was not saved. The previous register has been restored.');
     }
   };
 
   const handleSaveBulkPrepRecords = async (records: WorkerPrepAttendanceRecord[]) => {
     // 1. Optimistic update (0ms instant UI responsiveness)
+    const previousAttendance = prepAttendance;
     const recordIds = new Set(records.map(r => r.id));
     setPrepAttendance(prev => {
       const filtered = prev.filter(p => !recordIds.has(p.id));
@@ -361,39 +383,15 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
       setPrepAttendance(updated);
     } catch (err) {
       console.error('Failed to record bulk prep attendance:', err);
+      setPrepAttendance(previousAttendance);
+      alert('Bulk preparatory attendance was not saved. The previous register has been restored.');
     }
   };
 
   const handleAddNewDepartment = async (deptName: string) => {
     await addDepartmentToYear(deptName);
-    await refreshAllData();
+    await refreshAllData(false);
   };
-
-  // If Not Authenticated, show access restricted notice
-  if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center text-white p-4 font-sans">
-        <div className="max-w-md w-full bg-slate-900 rounded-3xl border border-slate-800 p-8 text-center space-y-4 shadow-2xl">
-          <div className="w-14 h-14 rounded-2xl bg-amber-500/20 border border-amber-500/50 flex items-center justify-center mx-auto text-amber-400">
-            <Lock className="w-7 h-7" />
-          </div>
-          <h2 className="text-lg font-bold text-white font-['Cinzel',serif]">Workers Directorate</h2>
-          <p className="text-xs text-slate-400">
-            Access to the Workers Directorate is restricted to authorized personnel (Assistant General Secretary, General Secretary, General Superintendent, or Workers).
-          </p>
-          {handleExit && (
-            <button
-              type="button"
-              onClick={handleExit}
-              className="px-5 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 rounded-xl text-xs font-bold transition shadow-md"
-            >
-              Return to Portals
-            </button>
-          )}
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-blue-900 selection:text-white">
@@ -600,6 +598,18 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
             <p className="text-xs text-slate-500 font-bold">
               Loading GOFAMINT_HOF Workers Directory & Records...
             </p>
+          </div>
+        ) : loadError ? (
+          <div role="alert" className="max-w-xl mx-auto py-14 text-center space-y-4">
+            <ShieldAlert className="w-10 h-10 text-red-600 mx-auto" />
+            <p className="text-sm font-bold text-red-800">{loadError}</p>
+            <button
+              type="button"
+              onClick={() => void refreshAllData(true)}
+              className="px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800"
+            >
+              Retry data load
+            </button>
           </div>
         ) : (
           <>

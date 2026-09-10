@@ -4,10 +4,12 @@ import { createApp } from "./src/server/app";
 
 process.on("uncaughtException", (err) => {
   console.error("[Server] Uncaught Exception:", err?.message || err);
+  process.exit(1);
 });
 
 process.on("unhandledRejection", (reason) => {
   console.error("[Server] Unhandled Rejection:", reason);
+  process.exit(1);
 });
 
 async function startServer() {
@@ -63,4 +65,7 @@ async function startServer() {
   });
 }
 
-startServer();
+startServer().catch((error) => {
+  console.error('[Server] Startup failed:', error?.message || error);
+  process.exit(1);
+});

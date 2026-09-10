@@ -58,37 +58,16 @@ export async function loadCurrentProfile(userId: string): Promise<ApplicationPro
 
   if (!data) return null;
 
-  let isApproved = data.is_approved === true;
-  let approvedBy = data.approved_by;
-  let approvedAt = data.approved_at;
-
-  // If profiles record is not yet marked approved, also check admin_profiles table
-  if (!isApproved) {
-    try {
-      const { data: adminRow } = await client
-        .from('admin_profiles')
-        .select('is_approved, approved_by, approved_at')
-        .or(`id.eq.${userId},profile_id.eq.${userId},username.eq.${data.email}`)
-        .maybeSingle();
-
-      if (adminRow && adminRow.is_approved === true) {
-        isApproved = true;
-        approvedBy = adminRow.approved_by || approvedBy;
-        approvedAt = adminRow.approved_at || approvedAt;
-      }
-    } catch {}
-  }
-
   return {
     id: data.id,
     email: data.email,
     displayName: data.display_name,
     role: data.role as GofamintRole,
-    isApproved,
+    isApproved: data.is_approved === true,
     classId: data.class_id,
     workerId: data.worker_id,
-    approvedBy,
-    approvedAt,
+    approvedBy: data.approved_by,
+    approvedAt: data.approved_at,
     createdAt: data.created_at,
   };
 }

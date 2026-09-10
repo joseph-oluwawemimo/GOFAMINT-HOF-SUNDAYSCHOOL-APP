@@ -346,7 +346,8 @@ export function validateAndPreviewDataBackup(rawJson: any): ValidationPreviewRes
         year: rawRecords.classProfile.year || 2026,
         currencySymbol: rawRecords.classProfile.currencySymbol || '₦',
         isSetupComplete: rawRecords.classProfile.isSetupComplete !== undefined ? rawRecords.classProfile.isSetupComplete : true,
-        approvalStatus: rawRecords.classProfile.approvalStatus || 'APPROVED',
+        // A backup without explicit approval evidence must not grant access.
+        approvalStatus: rawRecords.classProfile.approvalStatus || 'PENDING_APPROVAL',
         serverIp: rawRecords.classProfile.serverIp || undefined,
         createdAt: rawRecords.classProfile.createdAt || new Date().toISOString(),
         updatedAt: rawRecords.classProfile.updatedAt || new Date().toISOString()
@@ -366,7 +367,7 @@ export function validateAndPreviewDataBackup(rawJson: any): ValidationPreviewRes
         year: c.year || 2026,
         currencySymbol: c.currencySymbol || '₦',
         isSetupComplete: c.isSetupComplete !== undefined ? c.isSetupComplete : true,
-        approvalStatus: c.approvalStatus || 'APPROVED',
+        approvalStatus: c.approvalStatus || 'PENDING_APPROVAL',
         serverIp: c.serverIp || undefined,
         createdAt: c.createdAt || new Date().toISOString(),
         updatedAt: c.updatedAt || new Date().toISOString()

@@ -1,34 +1,10 @@
 import {
   cloudSaveClassProfile,
-  cloudSaveMember,
-  cloudDeleteMember,
-  cloudSaveGrade,
-  cloudDeleteGrade,
-  cloudSaveOffering,
-  cloudDeleteOffering,
-  cloudSaveAbsenceLog,
-  cloudDeleteAbsenceLog,
   cloudSaveLesson,
-  cloudSaveWorker,
-  cloudSaveBulkWorkers,
-  cloudDeleteWorker,
-  cloudSaveWorkerAttendance,
-  cloudSaveBulkWorkerAttendance,
-  cloudDeleteWorkerAttendance,
-  cloudSaveWorkerPrepAttendance,
-  cloudSaveBulkWorkerPrepAttendance,
-  cloudDeleteWorkerPrepAttendance,
-  cloudSaveClockInConfig,
-  cloudSaveSpecialEvent,
-  cloudDeleteSpecialEvent,
-  cloudSaveSpecialEventAttendance,
-  cloudSaveBulkSpecialEventAttendance,
-  cloudDeleteSpecialEventAttendance,
-  cloudSaveWorkerCategory,
-  cloudDeleteWorkerCategory,
   cloudDeleteClass,
   cloudSaveDepartment
 } from '../services/supabaseDatabase';
+import { protectPendingCloudChanges } from '../utils/cloudOutbox';
 
 // Fire-and-forget cloud push: local (IndexedDB) writes always succeed first so the
 // app keeps working offline; this mirrors the write to Supabase in the background.
@@ -46,38 +22,150 @@ export interface CloudSyncFailureRecord {
   docId: string;
   data?: any;
   failedAt: string;
+  revision?: string;
   lastError?: string;
 }
 
-function pushToCloud<T>(
+const activeCloudPushes = new Map<string, Promise<unknown>>();
+
+const WORKER_SYNC_STORES = new Set([
+  'workers', 'workerAttendance', 'workerPrepAttendance', 'specialEvents',
+  'specialEventAttendance', 'workerCategories', 'clockInConfig'
+]);
+
+function notifyLocalStoreChange(storeName: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const detail = { store: storeName, stores: [storeName], source: 'local' };
+    window.dispatchEvent(new CustomEvent('gofamint:sync-update', { detail }));
+    if (WORKER_SYNC_STORES.has(storeName)) {
+      window.dispatchEvent(new CustomEvent('gofamint:worker-sync', { detail }));
+    }
+  } catch (error) {
+    console.error(`Could not notify the UI about the ${storeName} update:`, error);
+  }
+}
+
+async function writeCloudOutboxRecord(record: CloudSyncFailureRecord): Promise<void> {
+  try {
+    const db = await getDB();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('cloudSyncFailures', 'readwrite');
+      tx.objectStore('cloudSyncFailures').put(record);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('Cloud outbox transaction was aborted.'));
+    });
+  } catch (indexedDbError) {
+    try {
+      const key = 'gofamint_cloudSyncFailures';
+      const current = JSON.parse(localStorage.getItem(key) || '[]') as CloudSyncFailureRecord[];
+      const next = current.filter(item => item.id !== record.id);
+      next.push(record);
+      localStorage.setItem(key, JSON.stringify(next));
+      console.warn('IndexedDB cloud outbox was unavailable; using the localStorage outbox.', indexedDbError);
+    } catch (localStorageError) {
+      throw new AggregateError([indexedDbError, localStorageError], 'Could not persist the cloud retry operation.');
+    }
+  }
+}
+
+async function mutateCloudOutboxRecordIfCurrent(
+  record: CloudSyncFailureRecord,
+  mutation: 'delete' | 'record-error',
+  lastError?: string
+): Promise<void> {
+  try {
+    const db = await getDB();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('cloudSyncFailures', 'readwrite');
+      const store = tx.objectStore('cloudSyncFailures');
+      const request = store.get(record.id);
+      request.onsuccess = () => {
+        const current = request.result as CloudSyncFailureRecord | undefined;
+        if (!current || current.revision !== record.revision) return;
+        if (mutation === 'delete') store.delete(record.id);
+        else store.put({ ...current, lastError });
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('Cloud outbox update was aborted.'));
+    });
+    // Also clear/update a fallback record left by an earlier session in which
+    // IndexedDB was unavailable.
+    try {
+      const key = 'gofamint_cloudSyncFailures';
+      const current = JSON.parse(localStorage.getItem(key) || '[]') as CloudSyncFailureRecord[];
+      const matching = current.find(item => item.id === record.id);
+      if (matching?.revision === record.revision) {
+        const next = mutation === 'delete'
+          ? current.filter(item => item.id !== record.id)
+          : current.map(item => item.id === record.id ? { ...item, lastError } : item);
+        localStorage.setItem(key, JSON.stringify(next));
+      }
+    } catch (fallbackMirrorError) {
+      console.warn('Could not update the optional localStorage outbox mirror:', fallbackMirrorError);
+    }
+  } catch (indexedDbError) {
+    try {
+      const key = 'gofamint_cloudSyncFailures';
+      const current = JSON.parse(localStorage.getItem(key) || '[]') as CloudSyncFailureRecord[];
+      const matching = current.find(item => item.id === record.id);
+      if (!matching || matching.revision !== record.revision) return;
+      const next = mutation === 'delete'
+        ? current.filter(item => item.id !== record.id)
+        : current.map(item => item.id === record.id ? { ...item, lastError } : item);
+      localStorage.setItem(key, JSON.stringify(next));
+    } catch (localStorageError) {
+      throw new AggregateError([indexedDbError, localStorageError], 'Could not update the cloud retry operation.');
+    }
+  }
+}
+
+async function pushToCloud<T>(
   label: string,
   fn: () => Promise<T>,
   retryMeta?: { collectionName: string; action: 'save' | 'delete'; docId: string; data?: any }
-): void {
-  fn().catch(async (err) => {
-    console.warn(`[cloud sync] ${label} failed:`, err?.message || err);
-    if (!retryMeta) return;
-    try {
-      const record: CloudSyncFailureRecord = {
-        id: `${retryMeta.collectionName}_${retryMeta.docId}_${retryMeta.action}`,
-        label,
-        collectionName: retryMeta.collectionName,
-        action: retryMeta.action,
-        docId: retryMeta.docId,
-        data: retryMeta.data,
-        failedAt: new Date().toISOString(),
-        lastError: err?.message || String(err)
-      };
-      const db = await getDB();
-      await new Promise<void>((resolve, reject) => {
-        const tx = db.transaction('cloudSyncFailures', 'readwrite');
-        tx.objectStore('cloudSyncFailures').put(record);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      });
-    } catch (queueErr) {
-      console.warn('[cloud sync] failed to queue retry record:', queueErr);
-    }
+): Promise<void> {
+  if (!retryMeta) {
+    void fn().catch((err) => console.error(`[cloud sync] ${label} failed without retry metadata:`, err));
+    return;
+  }
+
+  const record: CloudSyncFailureRecord = {
+    id: `${retryMeta.collectionName}_${retryMeta.docId}_${retryMeta.action}`,
+    label,
+    collectionName: retryMeta.collectionName,
+    action: retryMeta.action,
+    docId: retryMeta.docId,
+    data: retryMeta.data,
+    failedAt: new Date().toISOString(),
+    revision: `${Date.now()}_${Math.random().toString(36).slice(2)}`
+  };
+
+  await writeCloudOutboxRecord(record);
+  const previousOperation = activeCloudPushes.get(record.id) || Promise.resolve();
+  const operation = previousOperation
+    .catch(() => undefined)
+    .then(async () => {
+      try {
+        await fn();
+        await mutateCloudOutboxRecordIfCurrent(record, 'delete');
+      } catch (err: any) {
+        const lastError = err?.message || String(err);
+        console.warn(`[cloud sync] ${label} queued for retry:`, lastError);
+        await mutateCloudOutboxRecordIfCurrent(record, 'record-error', lastError);
+      }
+    })
+    .finally(() => {
+      if (activeCloudPushes.get(record.id) === operation) {
+        activeCloudPushes.delete(record.id);
+      }
+    });
+
+  activeCloudPushes.set(record.id, operation);
+  void operation.catch((error) => {
+    console.error(`[cloud sync] Could not update durable outbox record ${record.id}:`, error);
   });
 }
 
@@ -295,67 +383,66 @@ export const CLOUD_STORE_MAP: Record<string, string> = {
 };
 
 export async function putInStore<T>(storeName: string, value: T, skipCloudMirror = false): Promise<T> {
-  // Mirror to Supabase asynchronously. `skipCloudMirror` is used when the
-  // value being written just came FROM the cloud (see hydrateLocalFromCloud in
-  // cloudSyncManager.ts) so we don't immediately write it straight back.
-  const colName = CLOUD_STORE_MAP[storeName];
-  if (!skipCloudMirror && colName && (value as any)?.id) {
-    pushToCloud(`${colName}/${(value as any).id}`, () => saveDocument(colName, value as any), {
-      collectionName: colName,
-      action: 'save',
-      docId: (value as any).id,
-      data: value
-    });
-  }
-
-  try {
-    const db = await getDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, 'readwrite');
-      const store = tx.objectStore(storeName);
-      const req = store.put(value);
-      req.onsuccess = () => {
-        // Also mirror to localStorage as backup
-        getAllFromStore(storeName).then(all => {
-          localStorage.setItem(`gofamint_${storeName}`, JSON.stringify(all));
-        }).catch(() => {});
-        resolve(value);
-      };
-      req.onerror = () => reject(req.error);
-    });
-  } catch {
-    const all = await getAllFromStore<any>(storeName);
-    const key = (value as any).id;
-    const idx = all.findIndex((i: any) => i.id === key);
-    if (idx >= 0) all[idx] = value;
-    else all.push(value);
-    localStorage.setItem(`gofamint_${storeName}`, JSON.stringify(all));
-    return value;
-  }
-}
-
-export async function deleteFromStore(storeName: string, id: string): Promise<void> {
-  // Mirror deletion to Supabase asynchronously
-  const colName = CLOUD_STORE_MAP[storeName];
-  if (colName && id) {
-    pushToCloud(`delete ${colName}/${id}`, () => removeDocument(colName, id), {
-      collectionName: colName,
-      action: 'delete',
-      docId: id
-    });
-  }
-
   try {
     const db = await getDB();
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(storeName, 'readwrite');
       const store = tx.objectStore(storeName);
-      const req = store.delete(id);
-      req.onsuccess = () => resolve();
-      req.onerror = () => reject(req.error);
+      store.put(value);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error(`IndexedDB write to ${storeName} was aborted.`));
+    });
+    void getAllFromStore(storeName)
+      .then(all => localStorage.setItem(`gofamint_${storeName}`, JSON.stringify(all)))
+      .catch((error) => console.warn(`Local backup mirror failed for ${storeName}:`, error));
+  } catch (indexedDbError) {
+    const all = await getAllFromStore<any>(storeName);
+    const key = (value as any).id;
+    const idx = all.findIndex((i: any) => i.id === key);
+    if (idx >= 0) all[idx] = value;
+    else all.push(value);
+    try {
+      localStorage.setItem(`gofamint_${storeName}`, JSON.stringify(all));
+    } catch (localStorageError) {
+      throw new AggregateError(
+        [indexedDbError, localStorageError],
+        `Could not persist data in either IndexedDB or localStorage for ${storeName}.`
+      );
+    }
+  }
+
+  // Persist the cloud operation only after the local transaction commits.
+  // Returning from this function therefore means the record and its outbox
+  // entry can both survive an immediate browser refresh.
+  const colName = CLOUD_STORE_MAP[storeName];
+  const documentId = (value as any)?.id;
+  if (!skipCloudMirror && colName && documentId) {
+    await pushToCloud(`${colName}/${documentId}`, () => saveDocument(colName, value as any), {
+      collectionName: colName,
+      action: 'save',
+      docId: documentId,
+      data: value
+    });
+  }
+  if (!skipCloudMirror) notifyLocalStoreChange(storeName);
+  return value;
+}
+
+export async function deleteFromStore(storeName: string, id: string, skipCloudMirror = false): Promise<void> {
+  let indexedDbError: unknown;
+  try {
+    const db = await getDB();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(storeName, 'readwrite');
+      tx.objectStore(storeName).delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error(`IndexedDB delete from ${storeName} was aborted.`));
     });
   } catch (err) {
-    console.warn(`IndexedDB delete error for ${storeName}:`, err);
+    indexedDbError = err;
+    console.warn(`IndexedDB delete unavailable for ${storeName}; applying localStorage fallback:`, err);
   }
   // Also synchronize localStorage mirror
   try {
@@ -366,8 +453,21 @@ export async function deleteFromStore(storeName: string, id: string): Promise<vo
       localStorage.setItem(`gofamint_${storeName}`, JSON.stringify(filtered));
     }
   } catch (e) {
-    console.warn(`localStorage delete sync error:`, e);
+    if (indexedDbError) {
+      throw new AggregateError([indexedDbError, e], `Could not delete data from either local store for ${storeName}.`);
+    }
+    console.warn(`localStorage delete mirror failed for ${storeName}:`, e);
   }
+
+  const colName = CLOUD_STORE_MAP[storeName];
+  if (!skipCloudMirror && colName && id) {
+    await pushToCloud(`delete ${colName}/${id}`, () => removeDocument(colName, id), {
+      collectionName: colName,
+      action: 'delete',
+      docId: id
+    });
+  }
+  notifyLocalStoreChange(storeName);
 }
 
 // Replaces the ENTIRE contents of a local IndexedDB store with `items`, without
@@ -376,17 +476,30 @@ export async function deleteFromStore(storeName: string, id: string): Promise<vo
 // authoritative, so this also correctly removes local records that were deleted
 // on another device). See hydrateLocalFromCloud() in cloudSyncManager.ts.
 export async function replaceStoreContents<T>(storeName: string, items: T[]): Promise<void> {
+  let protectedItems = items;
+  const collectionName = CLOUD_STORE_MAP[storeName]
+    || ((storeName === 'classProfile' || storeName === 'allClasses')
+      ? 'classes'
+      : storeName === 'lessons'
+        ? 'lessons'
+        : undefined);
+  if (collectionName) {
+    const pending = await getAllFromStore<CloudSyncFailureRecord>('cloudSyncFailures');
+    protectedItems = protectPendingCloudChanges(items, pending, collectionName);
+  }
+
   const db = await getDB();
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(storeName, 'readwrite');
     const store = tx.objectStore(storeName);
     store.clear();
-    for (const item of items) store.put(item);
+    for (const item of protectedItems) store.put(item);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error || new Error(`Replacing ${storeName} was aborted.`));
   });
   try {
-    localStorage.setItem(`gofamint_${storeName}`, JSON.stringify(items));
+    localStorage.setItem(`gofamint_${storeName}`, JSON.stringify(protectedItems));
   } catch {
     // Non-fatal — localStorage is only used here as an IndexedDB-unavailable fallback mirror.
   }
@@ -395,9 +508,24 @@ export async function replaceStoreContents<T>(storeName: string, items: T[]): Pr
 // Returns any cloud writes that previously failed and are still pending retry.
 export async function getPendingCloudSyncFailures(): Promise<CloudSyncFailureRecord[]> {
   try {
-    return await getAllFromStore<CloudSyncFailureRecord>('cloudSyncFailures');
-  } catch {
-    return [];
+    const indexed = await getAllFromStore<CloudSyncFailureRecord>('cloudSyncFailures');
+    let fallback: CloudSyncFailureRecord[] = [];
+    try {
+      fallback = JSON.parse(localStorage.getItem('gofamint_cloudSyncFailures') || '[]');
+    } catch (error) {
+      console.warn('Could not read the localStorage cloud outbox mirror:', error);
+    }
+    const merged = new Map<string, CloudSyncFailureRecord>();
+    for (const record of [...indexed, ...fallback]) {
+      const existing = merged.get(record.id);
+      if (!existing || String(record.revision || record.failedAt) >= String(existing.revision || existing.failedAt)) {
+        merged.set(record.id, record);
+      }
+    }
+    return Array.from(merged.values());
+  } catch (error) {
+    console.error('Could not read the durable cloud retry queue:', error);
+    throw error;
   }
 }
 
@@ -408,37 +536,20 @@ export async function retryFailedCloudPushes(): Promise<{ retried: number; succe
   const pending = await getPendingCloudSyncFailures();
   let succeeded = 0;
   for (const record of pending) {
+    // The foreground writer owns this record until its current attempt ends.
+    // Retrying it concurrently could let an older request erase a newer write.
+    if (activeCloudPushes.has(record.id)) continue;
     try {
-      if (record.collectionName === 'classes' && record.action === 'save') {
-        // Classes should NEVER be overwritten with PENDING_APPROVAL via retry queue
-        if (record.data?.approvalStatus !== 'APPROVED') {
-          await deleteFromStore('cloudSyncFailures', record.id).catch(() => {});
-          continue;
-        }
-        const localDir = await getAllFromStore<ClassProfile>('allClasses');
-        const match = localDir.find(c => c.id === record.docId);
-        if (match?.approvalStatus === 'APPROVED' && record.data?.approvalStatus !== 'APPROVED') {
-          await deleteFromStore('cloudSyncFailures', record.id).catch(() => {});
-          continue;
-        }
-      }
-
       if (record.action === 'save') {
         await saveDocument(record.collectionName, record.data);
       } else {
         await removeDocument(record.collectionName, record.docId);
       }
-      await deleteFromStore('cloudSyncFailures', record.id).catch(() => {});
+      await mutateCloudOutboxRecordIfCurrent(record, 'delete');
       succeeded++;
     } catch (err: any) {
       console.warn(`[cloud sync] retry failed for ${record.label}:`, err?.message || err);
-      try {
-        const db = await getDB();
-        const tx = db.transaction('cloudSyncFailures', 'readwrite');
-        tx.objectStore('cloudSyncFailures').put({ ...record, lastError: err?.message || String(err) });
-      } catch {
-        // best-effort
-      }
+      await mutateCloudOutboxRecordIfCurrent(record, 'record-error', err?.message || String(err));
     }
   }
   return { retried: pending.length, succeeded };
@@ -633,7 +744,12 @@ export async function saveLessonTopic(weekNumber: number, topic: string): Promis
   }
 
   await putInStore('lessons', updatedLesson);
-  pushToCloud('lesson', () => cloudSaveLesson(updatedLesson));
+  await pushToCloud('lesson', () => cloudSaveLesson(updatedLesson), {
+    collectionName: 'lessons',
+    action: 'save',
+    docId: `WEEK_${updatedLesson.weekNumber}`,
+    data: { ...updatedLesson, id: `WEEK_${updatedLesson.weekNumber}` }
+  });
   return currentLessons.sort((a, b) => a.weekNumber - b.weekNumber);
 }
 
@@ -681,9 +797,12 @@ export async function saveClassProfile(profile: ClassProfile): Promise<ClassProf
 
   await putInStore<ClassProfile>('allClasses', safeProfile, true);
   const result = await putInStore<ClassProfile>('classProfile', safeProfile, true);
-  if (safeProfile.approvalStatus === 'APPROVED') {
-    pushToCloud('classProfile', () => cloudSaveClassProfile(safeProfile));
-  }
+  await pushToCloud('classProfile', () => cloudSaveClassProfile(safeProfile), {
+    collectionName: 'classes',
+    action: 'save',
+    docId: safeProfile.id,
+    data: safeProfile
+  });
   return result;
 }
 
@@ -752,7 +871,6 @@ export async function saveMember(member: Member, targetQuarter: number = 1): Pro
     updatedAt: new Date().toISOString()
   };
   const result = await putInStore<Member>('members', updated);
-  pushToCloud('member', () => cloudSaveMember(updated));
   return result;
 }
 
@@ -765,19 +883,16 @@ export async function saveBulkMembers(membersList: Member[], targetQuarter: numb
 
 export async function deleteMember(id: string): Promise<void> {
   await deleteFromStore('members', id);
-  pushToCloud('deleteMember', () => cloudDeleteMember(id));
   // Also delete associated grades, absence logs
   const allGrades = await getAllGrades();
   const memberGrades = allGrades.filter(g => g.memberId === id);
   for (const g of memberGrades) {
     await deleteFromStore('grades', g.id);
-    pushToCloud('deleteGrade', () => cloudDeleteGrade(g.id));
   }
   const allLogs = await getAllAbsenceLogs();
   const memberLogs = allLogs.filter(a => a.memberId === id);
   for (const l of memberLogs) {
     await deleteFromStore('absenceLogs', l.id);
-    pushToCloud('deleteAbsenceLog', () => cloudDeleteAbsenceLog(l.id));
   }
 }
 
@@ -860,7 +975,6 @@ export async function saveGrade(grade: WeeklyGradeRecord): Promise<WeeklyGradeRe
   };
 
   const result = await putInStore<WeeklyGradeRecord>('grades', calculatedGrade);
-  pushToCloud('grade', () => cloudSaveGrade(calculatedGrade));
   return result;
 }
 
@@ -919,7 +1033,6 @@ export async function saveOffering(offering: WeeklyOfferingRecord): Promise<Week
   };
 
   const result = await putInStore<WeeklyOfferingRecord>('offerings', updated);
-  pushToCloud('offering', () => cloudSaveOffering(updated));
   return result;
 }
 
@@ -953,7 +1066,6 @@ export async function remitOfferingRecord(
   };
 
   const remitResult = await putInStore<WeeklyOfferingRecord>('offerings', updated);
-  pushToCloud('offering-remit', () => cloudSaveOffering(updated));
   return remitResult;
 }
 
@@ -987,7 +1099,6 @@ export async function auditOfferingRecord(
   };
 
   const auditResult = await putInStore<WeeklyOfferingRecord>('offerings', updated);
-  pushToCloud('offering-audit', () => cloudSaveOffering(updated));
   return auditResult;
 }
 
@@ -1031,7 +1142,6 @@ export async function saveAbsenceLog(log: AbsenceLogRecord): Promise<AbsenceLogR
   };
 
   const result = await putInStore<AbsenceLogRecord>('absenceLogs', updated);
-  pushToCloud('absenceLog', () => cloudSaveAbsenceLog(updated));
   return result;
 }
 
@@ -1705,7 +1815,7 @@ export async function getAllWorkers(forceCloudRefresh = false): Promise<WorkerPr
           for (const w of res.workers) {
             if (w && w.id) {
               map.set(w.id, w);
-              await putInStore('workers', w).catch(() => {});
+              await putInStore('workers', w, true);
             }
           }
           list = Array.from(map.values());
@@ -1755,12 +1865,6 @@ export async function getWorkerByQrToken(token: string): Promise<WorkerProfile |
 
 export async function saveWorker(worker: WorkerProfile): Promise<WorkerProfile> {
   const res = await putInStore<WorkerProfile>('workers', worker);
-  pushToCloud('saveWorker', () => cloudSaveWorker(worker), {
-    collectionName: 'workers',
-    action: 'save',
-    docId: worker.id,
-    data: worker
-  });
   return res;
 }
 
@@ -1768,23 +1872,11 @@ export async function saveBulkWorkers(workers: WorkerProfile[]): Promise<WorkerP
   for (const w of workers) {
     await putInStore<WorkerProfile>('workers', w);
   }
-  pushToCloud('saveBulkWorkers', () => cloudSaveBulkWorkers(workers));
   return workers;
 }
 
 export async function deleteWorker(id: string): Promise<void> {
   await deleteFromStore('workers', id);
-  try {
-    const { deleteWorkerApi } = await import('../services/adminUserApi');
-    await deleteWorkerApi(id);
-  } catch (err) {
-    console.warn('Immediate deleteWorkerApi call warning:', err);
-  }
-  pushToCloud('deleteWorker', () => cloudDeleteWorker(id), {
-    collectionName: 'workers',
-    action: 'delete',
-    docId: id
-  });
 }
 
 // Sunday Clock-In Attendance Store
@@ -1801,7 +1893,7 @@ export async function getAllWorkerAttendance(serviceDate?: string, forceCloudRef
           for (const a of cloudAtt) {
             if (a && a.id) {
               map.set(a.id, a);
-              await putInStore('workerAttendance', a).catch(() => {});
+              await putInStore('workerAttendance', a, true);
             }
           }
           list = Array.from(map.values());
@@ -1822,12 +1914,6 @@ export async function getAllWorkerAttendance(serviceDate?: string, forceCloudRef
 
 export async function saveWorkerAttendance(record: WorkerAttendanceRecord): Promise<WorkerAttendanceRecord> {
   const res = await putInStore<WorkerAttendanceRecord>('workerAttendance', record);
-  pushToCloud('saveWorkerAttendance', () => cloudSaveWorkerAttendance(record), {
-    collectionName: 'workerAttendance',
-    action: 'save',
-    docId: record.id,
-    data: record
-  });
   return res;
 }
 
@@ -1835,17 +1921,11 @@ export async function saveBulkWorkerAttendance(records: WorkerAttendanceRecord[]
   for (const r of records) {
     await putInStore<WorkerAttendanceRecord>('workerAttendance', r);
   }
-  pushToCloud('saveBulkWorkerAttendance', () => cloudSaveBulkWorkerAttendance(records));
   return records;
 }
 
 export async function deleteWorkerAttendance(id: string): Promise<void> {
   await deleteFromStore('workerAttendance', id);
-  pushToCloud('deleteWorkerAttendance', () => cloudDeleteWorkerAttendance(id), {
-    collectionName: 'workerAttendance',
-    action: 'delete',
-    docId: id
-  });
 }
 
 // Preparatory Class Attendance Store
@@ -1863,7 +1943,7 @@ export async function getAllWorkerPrepAttendance(prepDate?: string, forceCloudRe
           for (const r of res.records) {
             if (r && r.id) {
               map.set(r.id, r);
-              await putInStore('workerPrepAttendance', r).catch(() => {});
+              await putInStore('workerPrepAttendance', r, true);
             }
           }
           list = Array.from(map.values());
@@ -1883,7 +1963,7 @@ export async function getAllWorkerPrepAttendance(prepDate?: string, forceCloudRe
             for (const r of direct) {
               if (r && r.id) {
                 map.set(r.id, r);
-                await putInStore('workerPrepAttendance', r).catch(() => {});
+                await putInStore('workerPrepAttendance', r, true);
               }
             }
             list = Array.from(map.values());
@@ -1904,29 +1984,13 @@ export async function getAllWorkerPrepAttendance(prepDate?: string, forceCloudRe
 }
 
 export async function saveWorkerPrepAttendance(record: WorkerPrepAttendanceRecord): Promise<WorkerPrepAttendanceRecord> {
-  const res = await putInStore<WorkerPrepAttendanceRecord>('workerPrepAttendance', record);
-  try {
-    const { saveWorkerPrepAttendanceApi } = await import('../services/adminUserApi');
-    saveWorkerPrepAttendanceApi([record]).catch(() => {});
-  } catch {}
-  pushToCloud('saveWorkerPrepAttendance', () => cloudSaveWorkerPrepAttendance(record), {
-    collectionName: 'workerPrepAttendance',
-    action: 'save',
-    docId: record.id,
-    data: record
-  });
-  return res;
+  return putInStore<WorkerPrepAttendanceRecord>('workerPrepAttendance', record);
 }
 
 export async function saveBulkWorkerPrepAttendance(records: WorkerPrepAttendanceRecord[]): Promise<WorkerPrepAttendanceRecord[]> {
   for (const r of records) {
     await putInStore<WorkerPrepAttendanceRecord>('workerPrepAttendance', r);
   }
-  try {
-    const { saveWorkerPrepAttendanceApi } = await import('../services/adminUserApi');
-    saveWorkerPrepAttendanceApi(records).catch(() => {});
-  } catch {}
-  pushToCloud('saveBulkWorkerPrepAttendance', () => cloudSaveBulkWorkerPrepAttendance(records));
   return records;
 }
 
@@ -1946,12 +2010,6 @@ export async function getClockInConfig(): Promise<ClockInConfig> {
 
 export async function saveClockInConfig(config: ClockInConfig): Promise<ClockInConfig> {
   const res = await putInStore<ClockInConfig>('clockInConfig', config);
-  pushToCloud('saveClockInConfig', () => cloudSaveClockInConfig(config), {
-    collectionName: 'clockInConfig',
-    action: 'save',
-    docId: config.id,
-    data: config
-  });
   return res;
 }
 
@@ -1980,22 +2038,11 @@ export async function getAllWorkerCategories(): Promise<WorkerCategoryDef[]> {
 
 export async function saveWorkerCategory(cat: WorkerCategoryDef): Promise<WorkerCategoryDef> {
   const res = await putInStore<WorkerCategoryDef>('workerCategories', cat);
-  pushToCloud('saveWorkerCategory', () => cloudSaveWorkerCategory(cat), {
-    collectionName: 'workerCategories',
-    action: 'save',
-    docId: cat.id,
-    data: cat
-  });
   return res;
 }
 
 export async function deleteWorkerCategory(id: string): Promise<void> {
   await deleteFromStore('workerCategories', id);
-  pushToCloud('deleteWorkerCategory', () => cloudDeleteWorkerCategory(id), {
-    collectionName: 'workerCategories',
-    action: 'delete',
-    docId: id
-  });
 }
 
 // Admin Profiles Management (8 Permitted Roles)
@@ -2310,11 +2357,17 @@ export async function getAllClassesDirectory(forceCloudRefresh = false): Promise
 }
 
 export async function saveClassToDirectory(profile: ClassProfile): Promise<ClassProfile> {
-  await putInStore<ClassProfile>('allClasses', profile);
+  await putInStore<ClassProfile>('allClasses', profile, true);
   const current = await getClassProfile();
   if (current && current.id === profile.id) {
-    await putInStore<ClassProfile>('classProfile', profile);
+    await putInStore<ClassProfile>('classProfile', profile, true);
   }
+  await pushToCloud('classDirectory', () => cloudSaveClassProfile(profile), {
+    collectionName: 'classes',
+    action: 'save',
+    docId: profile.id,
+    data: profile
+  });
   return profile;
 }
 
@@ -2339,7 +2392,7 @@ export async function createBatchClasses(
 
   if (cloudClasses && cloudClasses.length > 0) {
     for (const cls of cloudClasses) {
-      await putInStore('allClasses', cls);
+      await putInStore('allClasses', cls, true);
       createdOrUpdated.push(cls);
     }
   } else {
@@ -2374,8 +2427,13 @@ export async function createBatchClasses(
         updatedAt: now
       };
 
-      await putInStore('allClasses', newClass);
-      await cloudSaveClassProfile(newClass).catch(() => {});
+      await putInStore('allClasses', newClass, true);
+      await pushToCloud('createClass', () => cloudSaveClassProfile(newClass), {
+        collectionName: 'classes',
+        action: 'save',
+        docId: newClass.id,
+        data: newClass
+      });
       createdOrUpdated.push(newClass);
     }
   }
@@ -2392,9 +2450,17 @@ export async function massCreateClasses(
 
   // Ensure department is saved in local departments store
   try {
-    await putInStore('departments', { name: cleanDept });
-    await cloudSaveDepartment(cleanDept).catch(() => {});
-  } catch {}
+    await putInStore('departments', { name: cleanDept }, true);
+    await pushToCloud('department', () => cloudSaveDepartment(cleanDept), {
+      collectionName: 'departments',
+      action: 'save',
+      docId: cleanDept,
+      data: { id: cleanDept, name: cleanDept }
+    });
+  } catch (error) {
+    console.error('Could not persist department:', error);
+    throw error;
+  }
 
   // 1. Primary: Use the server API (bypasses RLS issues, ensures departments row, and creates in Supabase)
   let cloudClasses: ClassProfile[] | null = null;
@@ -2415,7 +2481,7 @@ export async function massCreateClasses(
 
   if (cloudClasses && cloudClasses.length > 0) {
     for (const cls of cloudClasses) {
-      await putInStore('allClasses', cls);
+      await putInStore('allClasses', cls, true);
       createdOrUpdated.push(cls);
     }
   } else {
@@ -2449,8 +2515,13 @@ export async function massCreateClasses(
         updatedAt: now
       };
 
-      await putInStore('allClasses', newClass);
-      await cloudSaveClassProfile(newClass).catch(() => {});
+      await putInStore('allClasses', newClass, true);
+      await pushToCloud('createClass', () => cloudSaveClassProfile(newClass), {
+        collectionName: 'classes',
+        action: 'save',
+        docId: newClass.id,
+        data: newClass
+      });
       createdOrUpdated.push(newClass);
     }
   }
@@ -2461,11 +2532,11 @@ export async function massCreateClasses(
 export async function deleteClassFromDirectory(classId: string): Promise<boolean> {
   try {
     await deleteFromStore('allClasses', classId);
-    try {
-      const { deleteClassApi } = await import('../services/adminUserApi');
-      await deleteClassApi(classId);
-    } catch {}
-    await cloudDeleteClass(classId).catch(() => {});
+    await pushToCloud('deleteClass', () => cloudDeleteClass(classId), {
+      collectionName: 'classes',
+      action: 'delete',
+      docId: classId
+    });
     return true;
   } catch (e) {
     console.error('Failed to delete class from directory:', e);
@@ -2749,23 +2820,13 @@ export async function getAllSpecialEvents(forceCloudRefresh = false): Promise<Sp
       try {
         const { fetchSpecialEventsApi } = await import('../services/adminUserApi');
         const res = await fetchSpecialEventsApi();
-        if (res.success && res.events && res.events.length > 0) {
-          const map = new Map<string, SpecialWorkersEvent>();
-          for (const ev of list) { if (ev && ev.id) map.set(ev.id, ev); }
-          for (const ev of res.events) {
-            if (ev && ev.id) {
-              map.set(ev.id, ev);
-              await putInStore('specialEvents', ev).catch(() => {});
-            }
-          }
-          list = Array.from(map.values());
-          if (res.attendance && res.attendance.length > 0) {
-            for (const at of res.attendance) {
-              if (at && at.id) {
-                await putInStore('specialEventAttendance', at).catch(() => {});
-              }
-            }
-          }
+        if (!res.success) throw new Error(res.error || 'The server could not load special events.');
+        if (res.events) {
+          await replaceStoreContents('specialEvents', res.events);
+          list = await getAllFromStore<SpecialWorkersEvent>('specialEvents');
+        }
+        if (res.attendance) {
+          await replaceStoreContents('specialEventAttendance', res.attendance);
         }
       } catch (err) {
         console.warn('Could not fetch special events from server API:', err);
@@ -2779,45 +2840,23 @@ export async function getAllSpecialEvents(forceCloudRefresh = false): Promise<Sp
 }
 
 export async function saveSpecialEvent(event: SpecialWorkersEvent): Promise<SpecialWorkersEvent> {
-  const res = await putInStore<SpecialWorkersEvent>('specialEvents', event);
-  try {
-    const { saveSpecialEventApi } = await import('../services/adminUserApi');
-    await saveSpecialEventApi(event);
-  } catch (err) {
-    console.warn('Immediate saveSpecialEventApi warning:', err);
-  }
-  pushToCloud('saveSpecialEvent', () => cloudSaveSpecialEvent(event), {
-    collectionName: 'specialEvents',
-    action: 'save',
-    docId: event.id,
-    data: event
-  });
-  return res;
+  const local = await putInStore<SpecialWorkersEvent>('specialEvents', event);
+  const { saveSpecialEventApi } = await import('../services/adminUserApi');
+  const result = await saveSpecialEventApi(event);
+  if (!result.success) throw new Error(result.error || 'The server did not save the special event.');
+  return result.event || local;
 }
 
 export async function deleteSpecialEvent(eventId: string): Promise<void> {
-  await deleteFromStore('specialEvents', eventId);
-  try {
-    const { deleteSpecialEventApi } = await import('../services/adminUserApi');
-    await deleteSpecialEventApi(eventId);
-  } catch (err) {
-    console.warn('Immediate deleteSpecialEventApi warning:', err);
-  }
-  pushToCloud('deleteSpecialEvent', () => cloudDeleteSpecialEvent(eventId), {
-    collectionName: 'specialEvents',
-    action: 'delete',
-    docId: eventId
-  });
+  const { deleteSpecialEventApi } = await import('../services/adminUserApi');
+  const result = await deleteSpecialEventApi(eventId);
+  if (!result.success) throw new Error(result.error || 'The server did not delete the special event.');
+  await deleteFromStore('specialEvents', eventId, true);
   // Also clean up all attendance records for this event
   const allAtt = await getAllSpecialEventAttendance();
   const matching = allAtt.filter(a => a.eventId === eventId);
   for (const a of matching) {
-    await deleteFromStore('specialEventAttendance', a.id);
-    pushToCloud('deleteSpecialEventAttendance', () => cloudDeleteSpecialEventAttendance(a.id), {
-      collectionName: 'specialEventAttendance',
-      action: 'delete',
-      docId: a.id
-    });
+    await deleteFromStore('specialEventAttendance', a.id, true);
   }
 }
 
@@ -2828,16 +2867,10 @@ export async function getAllSpecialEventAttendance(forceCloudRefresh = false): P
       try {
         const { fetchSpecialEventsApi } = await import('../services/adminUserApi');
         const res = await fetchSpecialEventsApi();
-        if (res.success && res.attendance && res.attendance.length > 0) {
-          const map = new Map<string, SpecialEventAttendanceRecord>();
-          for (const at of list) { if (at && at.id) map.set(at.id, at); }
-          for (const at of res.attendance) {
-            if (at && at.id) {
-              map.set(at.id, at);
-              await putInStore('specialEventAttendance', at).catch(() => {});
-            }
-          }
-          list = Array.from(map.values());
+        if (!res.success) throw new Error(res.error || 'The server could not load special-event attendance.');
+        if (res.attendance) {
+          await replaceStoreContents('specialEventAttendance', res.attendance);
+          list = await getAllFromStore<SpecialEventAttendanceRecord>('specialEventAttendance');
         }
       } catch (err) {
         console.warn('Could not fetch special event attendance from server API:', err);
@@ -2856,31 +2889,28 @@ export async function getSpecialEventAttendanceByEvent(eventId: string): Promise
 }
 
 export async function recordSpecialEventAttendance(record: SpecialEventAttendanceRecord): Promise<SpecialEventAttendanceRecord> {
-  const res = await putInStore<SpecialEventAttendanceRecord>('specialEventAttendance', record);
-  pushToCloud('saveSpecialEventAttendance', () => cloudSaveSpecialEventAttendance(record), {
-    collectionName: 'specialEventAttendance',
-    action: 'save',
-    docId: record.id,
-    data: record
-  });
-  return res;
+  const local = await putInStore<SpecialEventAttendanceRecord>('specialEventAttendance', record);
+  const { saveSpecialEventAttendanceApi } = await import('../services/adminUserApi');
+  const result = await saveSpecialEventAttendanceApi([record]);
+  if (!result.success) throw new Error(result.error || 'The server did not save special-event attendance.');
+  return local;
 }
 
 export async function recordBulkSpecialEventAttendance(records: SpecialEventAttendanceRecord[]): Promise<SpecialEventAttendanceRecord[]> {
   for (const r of records) {
     await putInStore<SpecialEventAttendanceRecord>('specialEventAttendance', r);
   }
-  pushToCloud('saveBulkSpecialEventAttendance', () => cloudSaveBulkSpecialEventAttendance(records));
+  const { saveSpecialEventAttendanceApi } = await import('../services/adminUserApi');
+  const result = await saveSpecialEventAttendanceApi(records);
+  if (!result.success) throw new Error(result.error || 'The server did not save bulk special-event attendance.');
   return records;
 }
 
 export async function deleteSpecialEventAttendance(recordId: string): Promise<void> {
-  await deleteFromStore('specialEventAttendance', recordId);
-  pushToCloud('deleteSpecialEventAttendance', () => cloudDeleteSpecialEventAttendance(recordId), {
-    collectionName: 'specialEventAttendance',
-    action: 'delete',
-    docId: recordId
-  });
+  const { deleteSpecialEventAttendanceApi } = await import('../services/adminUserApi');
+  const result = await deleteSpecialEventAttendanceApi(recordId);
+  if (!result.success) throw new Error(result.error || 'The server did not delete special-event attendance.');
+  await deleteFromStore('specialEventAttendance', recordId, true);
 }
 
 // -------------------------------------------------------------
@@ -3782,11 +3812,6 @@ export async function certifyVisitorEnrollment(
   };
 
   await putInStore('members', updatedMember);
-  pushToCloud('updateMember', () => cloudSaveMember(updatedMember), {
-    collectionName: 'members',
-    action: 'save',
-    docId: updatedMember.id
-  });
 
   // Store certification audit record
   const certRecord: EnrollmentCertificationRecord = {
@@ -3838,11 +3863,6 @@ export async function denyVisitorConversion(
   };
 
   await putInStore('members', updatedMember);
-  pushToCloud('updateMember', () => cloudSaveMember(updatedMember), {
-    collectionName: 'members',
-    action: 'save',
-    docId: updatedMember.id
-  });
 
   return { success: true, member: updatedMember };
 }

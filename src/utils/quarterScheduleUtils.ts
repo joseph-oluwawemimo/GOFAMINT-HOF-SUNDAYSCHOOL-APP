@@ -67,12 +67,18 @@ export function formatDateISO(d: Date): string {
 export function parseDateSafe(dateStr: string, fallback: Date = new Date()): Date {
   if (!dateStr) return fallback;
   const parts = dateStr.split('-');
-  if (parts.length === 3) {
+  if (parts.length === 3 && parts.every(part => /^\d+$/.test(part))) {
     const y = parseInt(parts[0], 10);
     const m = parseInt(parts[1], 10) - 1;
     const d = parseInt(parts[2], 10);
     const parsed = new Date(y, m, d, 12, 0, 0);
-    if (!isNaN(parsed.getTime())) return parsed;
+    if (
+      !isNaN(parsed.getTime()) &&
+      parsed.getFullYear() === y &&
+      parsed.getMonth() === m &&
+      parsed.getDate() === d
+    ) return parsed;
+    return fallback;
   }
   const parsed = new Date(dateStr);
   return isNaN(parsed.getTime()) ? fallback : parsed;
@@ -140,15 +146,13 @@ export function formatWeekWithDates(
 
 // Get fallback default start date for a Quarter
 export function getDefaultQuarterStartDate(quarterNumber: QuarterNumber, yearNum: number = 2025): Date {
-  if (quarterNumber === 1) {
-    return new Date(2025, 8, 7, 12, 0, 0); // 07 September 2025 (Week 1 Sunday, Prep is 04 Sep 2025)
-  } else if (quarterNumber === 2) {
-    return new Date(2025, 11, 7, 12, 0, 0); // 07 December 2025 (Week 1 Sunday, Prep is 04 Dec 2025)
-  } else if (quarterNumber === 3) {
-    return new Date(2026, 2, 8, 12, 0, 0); // 08 March 2026 (Week 1 Sunday, Prep is 05 Mar 2026)
-  } else {
-    return new Date(2026, 5, 7, 12, 0, 0); // 07 June 2026 (Week 1 Sunday, Prep is 04 Jun 2026)
-  }
+  const monthByQuarter = [8, 11, 2, 5];
+  const calendarYear = quarterNumber <= 2 ? yearNum : yearNum + 1;
+  const month = monthByQuarter[quarterNumber - 1];
+  const firstOfMonth = new Date(calendarYear, month, 1, 12, 0, 0);
+  const daysUntilSunday = (7 - firstOfMonth.getDay()) % 7;
+  firstOfMonth.setDate(1 + daysUntilSunday);
+  return firstOfMonth;
 }
 
 export interface GeneratedQuarterPreview {
@@ -335,7 +339,8 @@ export function computeQuarterWeeklyMetrics(
   sundayAttendance: WorkerAttendanceRecord[],
   prepAttendance: WorkerPrepAttendanceRecord[]
 ): WeeklyMetricsSummary[] {
-  const totalActive = activeWorkers.length;
+  const workers = activeWorkers.filter(worker => worker.status === 'ACTIVE');
+  const totalActive = workers.length;
 
   return schedule.map(item => {
     // Sunday Metrics
@@ -347,7 +352,7 @@ export function computeQuarterWeeklyMetrics(
     let sunLate = 0;
     let sunAbsent = 0;
 
-    activeWorkers.forEach(w => {
+    workers.forEach(w => {
       const rec = sunMap.get(w.id);
       if (!rec) {
         sunAbsent++;
@@ -373,7 +378,7 @@ export function computeQuarterWeeklyMetrics(
     let prepLate = 0;
     let prepAbsent = 0;
 
-    activeWorkers.forEach(w => {
+    workers.forEach(w => {
       const rec = prepMap.get(w.id);
       if (!rec || rec.status === 'ABSENT') {
         prepAbsent++;
@@ -527,7 +532,7 @@ export function computeTop3PunctualityHonors(
   const prepDates = new Set(lessonWeeks.map(w => w.prepDate));
 
   // Eligible workers for rankings (exclude exempted workers e.g. Pastors)
-  const eligibleWorkers = activeWorkers.filter(w => !w.exemptFromHonors);
+  const eligibleWorkers = activeWorkers.filter(w => w.status === 'ACTIVE' && !w.exemptFromHonors);
 
   // 1. Calculate Preparatory Class Punctuality for each eligible active worker
   const prepScores = eligibleWorkers.map(w => {

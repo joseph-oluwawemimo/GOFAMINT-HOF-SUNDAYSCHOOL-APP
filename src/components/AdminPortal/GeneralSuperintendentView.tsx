@@ -34,6 +34,7 @@ interface GeneralSuperintendentViewProps {
   onApproveAdminProfile: (id: string, email?: string, roleType?: string) => Promise<void>;
   onApproveClass: (classId: string) => Promise<void>;
   onRefreshData: () => Promise<void>;
+  onEnterAdminProfile: (profile: AdminProfile) => void;
 }
 
 export const GeneralSuperintendentView: React.FC<GeneralSuperintendentViewProps> = ({
@@ -43,9 +44,10 @@ export const GeneralSuperintendentView: React.FC<GeneralSuperintendentViewProps>
   sundaySchoolYear,
   onApproveAdminProfile,
   onApproveClass,
-  onRefreshData
+  onRefreshData,
+  onEnterAdminProfile
 }) => {
-  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'CLASS_PORTAL_EXPLORER' | 'ADMIN_APPROVALS' | 'CLASS_APPROVALS' | 'ALL_CLASSES'>('OVERVIEW');
+  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'PORTAL_OVERSIGHT' | 'CLASS_PORTAL_EXPLORER' | 'ADMIN_APPROVALS' | 'CLASS_APPROVALS' | 'ALL_CLASSES'>('OVERVIEW');
   const [explorerInitialClassId, setExplorerInitialClassId] = useState<string | undefined>(undefined);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
@@ -60,7 +62,7 @@ export const GeneralSuperintendentView: React.FC<GeneralSuperintendentViewProps>
   const pendingAdmins = localProfiles.filter(p => !p.isApproved && p.roleType !== 'GENERAL_SUPERINTENDENT');
   const approvedAdmins = localProfiles.filter(p => p.isApproved);
   const pendingClasses = allClasses.filter(c => String(c.approvalStatus || '').trim().toUpperCase() === 'PENDING_APPROVAL');
-  const approvedClasses = allClasses.filter(c => String(c.approvalStatus || '').trim().toUpperCase() === 'APPROVED' || !c.approvalStatus);
+  const approvedClasses = allClasses.filter(c => String(c.approvalStatus || '').trim().toUpperCase() === 'APPROVED');
 
   const handleApproveAdmin = async (id: string, name: string, email?: string, roleType?: string) => {
     setProcessingId(id);
@@ -160,6 +162,18 @@ export const GeneralSuperintendentView: React.FC<GeneralSuperintendentViewProps>
         </button>
 
         <button
+          onClick={() => setActiveTab('PORTAL_OVERSIGHT')}
+          className={`px-4 py-2 rounded-xl text-xs font-black transition flex items-center gap-2 ${
+            activeTab === 'PORTAL_OVERSIGHT'
+              ? 'bg-emerald-900 text-white shadow-sm ring-2 ring-emerald-400/40'
+              : 'bg-emerald-50 text-emerald-900 hover:bg-emerald-100 border border-emerald-300'
+          }`}
+        >
+          <ExternalLink className="w-4 h-4" />
+          <span>Enter Any Officer Portal</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('CLASS_PORTAL_EXPLORER')}
           className={`px-4 py-2 rounded-xl text-xs font-black transition flex items-center gap-2 ${
             activeTab === 'CLASS_PORTAL_EXPLORER'
@@ -217,6 +231,32 @@ export const GeneralSuperintendentView: React.FC<GeneralSuperintendentViewProps>
           <span>National Class Directory ({allClasses.length})</span>
         </button>
       </div>
+
+      {activeTab === 'PORTAL_OVERSIGHT' && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
+          <div>
+            <h3 className="text-base font-black text-slate-900">Executive Portal Oversight</h3>
+            <p className="text-xs text-slate-500 mt-1">Enter any approved officer portal without that officer's password. Your General Superintendent identity and audit trail remain active.</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {approvedAdmins.filter(profile => profile.roleType !== currentAdmin.roleType).map(profile => (
+              <button
+                key={profile.id}
+                type="button"
+                onClick={() => onEnterAdminProfile(profile)}
+                className="p-4 rounded-xl border-2 border-slate-200 hover:border-emerald-500 hover:bg-emerald-50 text-left transition group"
+              >
+                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-700">{profile.title}</span>
+                <h4 className="text-sm font-black text-slate-900 mt-2">{profile.profileName}</h4>
+                <p className="text-xs text-slate-500 mt-1">{profile.username}</p>
+                <span className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-blue-900 group-hover:text-emerald-800">
+                  Enter in Oversight Mode <ExternalLink className="w-3.5 h-3.5" />
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Tab: Department & Class Portal Explorer (5 Dashboards) */}
       {activeTab === 'CLASS_PORTAL_EXPLORER' && (
@@ -510,7 +550,7 @@ export const GeneralSuperintendentView: React.FC<GeneralSuperintendentViewProps>
                   <span className="text-[10px] font-black uppercase text-blue-900 bg-blue-100 px-2.5 py-0.5 rounded-full">
                     {cls.department}
                   </span>
-                  {cls.approvalStatus === 'APPROVED' || !cls.approvalStatus ? (
+                  {cls.approvalStatus === 'APPROVED' ? (
                     <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
                       Approved
                     </span>

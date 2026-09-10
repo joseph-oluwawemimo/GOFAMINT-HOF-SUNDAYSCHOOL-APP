@@ -58,7 +58,7 @@ import { AsstGeneralSecretaryView } from './AsstGeneralSecretaryView';
 import { DatabaseBackupModal } from '../DatabaseBackupModal';
 import { approveStaffUser, logOversightAccess } from '../../services/adminUserApi';
 import type { ApplicationProfile } from '../../services/profileService';
-import { cloudGetSundaySchoolYear, cloudGetAllAdminProfiles, cloudApproveAdminProfile } from '../../services/supabaseDatabase';
+import { cloudGetSundaySchoolYear, cloudGetAllAdminProfiles } from '../../services/supabaseDatabase';
 
 interface AdminPortalRootProps {
   authProfile: ApplicationProfile | null;
@@ -86,13 +86,14 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
   const [loading, setLoading] = useState(true);
   const [isPendingApproval, setIsPendingApproval] = useState(false);
   const [profileResolutionError, setProfileResolutionError] = useState<string | null>(null);
+  const [oversightAdminProfile, setOversightAdminProfile] = useState<AdminProfile | null>(null);
 
   // Data Backup / Restore Modal State
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
   const [backupModalTab, setBackupModalTab] = useState<'SAVE' | 'LOAD' | 'RESET'>('SAVE');
 
   // Refresh and load all data from IndexedDB and Supabase.
-  const refreshAdminData = async (silent = false) => {
+  const refreshAdminData = async (silent = false, forceCloudRefresh = true) => {
     if (!silent) {
       setLoading(true);
       setCurrentAdmin(null);
@@ -102,7 +103,7 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
     try {
       let profiles = await getAllAdminProfiles();
       let year = await getSundaySchoolYear();
-      const classes = await getAllClassesDirectory(true);
+      const classes = await getAllClassesDirectory(forceCloudRefresh);
 
       // Merge with cloud admin profiles if accessible
       try {
@@ -204,33 +205,31 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
     refreshAdminData();
   }, [authProfile?.id]);
 
-  // Approve Admin Profile (updates both IndexedDB, server API, and direct Supabase tables)
-  const handleApproveAdminProfile = async (id: string, email?: string, roleType?: string) => {
+  useEffect(() => {
+    let refreshTimer: number | undefined;
+    const handleSyncUpdate = () => {
+      window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => {
+        void refreshAdminData(true, false);
+      }, 80);
+    };
+    window.addEventListener('gofamint:sync-update', handleSyncUpdate);
+    return () => {
+      window.clearTimeout(refreshTimer);
+      window.removeEventListener('gofamint:sync-update', handleSyncUpdate);
+    };
+    // The listener is rebound when the authenticated identity changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authProfile?.id]);
+
+  // Approval is security-sensitive: update the local cache only after the
+  // authenticated server confirms that the exact account was activated.
+  const handleApproveAdminProfile = async (id: string, _email?: string, _roleType?: string) => {
     const approverName = currentAdmin?.profileName || 'General Superintendent';
     try {
-      // 1. Immediately update local IndexedDB so the change is persisted locally
+      const result = await approveStaffUser({ targetUid: id });
+      if (!result.success) throw new Error(result.error || 'The server did not approve this officer.');
       await approveAdminProfile(id, approverName);
-
-      // 2. Call backend server API (which uses service role to update both profiles and admin_profiles)
-      try {
-        await approveStaffUser({
-          targetUid: id,
-          email,
-          roleType,
-          approverName
-        });
-      } catch (apiErr) {
-        console.warn('approveStaffUser API warning:', apiErr);
-      }
-
-      // 3. Directly update Supabase cloud tables if connected
-      try {
-        await cloudApproveAdminProfile(id, approverName, email, roleType);
-      } catch (cloudErr) {
-        console.warn('cloudApproveAdminProfile warning:', cloudErr);
-      }
-
-      // 4. Reload active admin data
       await refreshAdminData();
     } catch (err) {
       console.error('Failed to approve admin profile:', err);
@@ -348,6 +347,8 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
     );
   }
 
+  const activePortalAdmin = oversightAdminProfile || currentAdmin;
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-amber-400 selection:text-slate-950">
       
@@ -425,9 +426,20 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
 
       {/* Main Administrative Views */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
+        {oversightAdminProfile && (
+          <div className="bg-emerald-950 border border-emerald-500/50 rounded-2xl px-5 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg">
+            <div>
+              <span className="text-[10px] uppercase font-black tracking-wider text-emerald-300">General Superintendent Oversight Mode</span>
+              <p className="text-sm font-bold text-white">Viewing {oversightAdminProfile.title}: {oversightAdminProfile.profileName}</p>
+            </div>
+            <button type="button" onClick={() => setOversightAdminProfile(null)} className="px-4 py-2 rounded-xl bg-white text-emerald-950 text-xs font-black hover:bg-emerald-50">
+              Return to General Superintendent
+            </button>
+          </div>
+        )}
         
         {/* Staff & Officer Account Creation / Management Panel (Executive Admins Only) */}
-        {(['GENERAL_SUPERINTENDENT', 'GENERAL_SECRETARY', 'SUPER_ADMIN'].includes(currentAdmin?.roleType || '')) && (
+        {!oversightAdminProfile && (['GENERAL_SUPERINTENDENT', 'GENERAL_SECRETARY', 'SUPER_ADMIN'].includes(currentAdmin?.roleType || '')) && (
           <CloudUserManagementPanel adminRole={currentAdmin?.roleType} />
         )}
 
@@ -462,21 +474,25 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
           return (
             <>
               {/* View by Role */}
-              {(currentAdmin?.roleType === 'GENERAL_SUPERINTENDENT' || currentAdmin?.roleType === 'SUPER_ADMIN') && (
+              {(activePortalAdmin?.roleType === 'GENERAL_SUPERINTENDENT' || activePortalAdmin?.roleType === 'SUPER_ADMIN') && (
                 <GeneralSuperintendentView
-                  currentAdmin={currentAdmin}
+                  currentAdmin={activePortalAdmin}
                   adminProfiles={adminProfiles}
                   allClasses={allClasses}
                   sundaySchoolYear={effectiveYear}
                   onApproveAdminProfile={handleApproveAdminProfile}
                   onApproveClass={handleApproveClass}
                   onRefreshData={() => refreshAdminData(true)}
+                  onEnterAdminProfile={(profile) => {
+                    setOversightAdminProfile(profile);
+                    void onEnterOversight?.(`ADMIN_${profile.roleType}`, profile.id);
+                  }}
                 />
               )}
 
-              {currentAdmin?.roleType === 'GENERAL_SECRETARY' && (
+              {activePortalAdmin?.roleType === 'GENERAL_SECRETARY' && (
                 <GeneralSecretaryView
-                  currentAdmin={currentAdmin}
+                  currentAdmin={activePortalAdmin}
                   sundaySchoolYear={effectiveYear}
                   allClasses={allClasses}
                   onSaveSundaySchoolYear={async (updated) => {
@@ -502,33 +518,33 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
                 />
               )}
 
-              {currentAdmin?.roleType === 'TREASURER' && (
+              {activePortalAdmin?.roleType === 'TREASURER' && (
                 <TreasurerView
-                  currentAdmin={currentAdmin}
+                  currentAdmin={activePortalAdmin}
                   allClasses={allClasses}
                   sundaySchoolYear={effectiveYear}
                 />
               )}
 
-              {currentAdmin?.roleType === 'RECORD_OFFICER' && (
+              {activePortalAdmin?.roleType === 'RECORD_OFFICER' && (
                 <RecordOfficerView
-                  currentAdmin={currentAdmin}
+                  currentAdmin={activePortalAdmin}
                   allClasses={allClasses}
                   sundaySchoolYear={effectiveYear}
                 />
               )}
 
-              {currentAdmin?.roleType === 'ENROLLMENT_OFFICER' && (
+              {activePortalAdmin?.roleType === 'ENROLLMENT_OFFICER' && (
                 <EnrollmentOfficerView
-                  currentAdmin={currentAdmin}
+                  currentAdmin={activePortalAdmin}
                   allClasses={allClasses}
                   sundaySchoolYear={effectiveYear}
                 />
               )}
 
-              {(currentAdmin?.roleType === 'ASST_GENERAL_SECRETARY' || currentAdmin?.roleType === 'ASSISTANT_GENERAL_SECRETARY') && (
+              {(activePortalAdmin?.roleType === 'ASST_GENERAL_SECRETARY' || activePortalAdmin?.roleType === 'ASSISTANT_GENERAL_SECRETARY') && (
                 <AsstGeneralSecretaryView
-                  currentAdmin={currentAdmin}
+                  currentAdmin={activePortalAdmin}
                   allClasses={allClasses}
                   sundaySchoolYear={effectiveYear}
                   onEnterWorkersModule={onEnterWorkersModule}

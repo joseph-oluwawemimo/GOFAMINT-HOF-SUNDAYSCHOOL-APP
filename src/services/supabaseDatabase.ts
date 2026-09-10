@@ -501,57 +501,25 @@ export async function cloudSaveAdminProfile(profile: AdminProfile): Promise<Admi
   if (error) throw error;
   return profile;
 }
-export async function cloudApproveAdminProfile(id: string, approverName: string = 'General Superintendent', email?: string, roleType?: string): Promise<void> {
+export async function cloudApproveAdminProfile(id: string, approverName: string = 'General Superintendent'): Promise<void> {
   const now = new Date().toISOString();
   const client = getSupabaseClient();
-  const ops: Promise<any>[] = [
-    Promise.resolve(client.from('admin_profiles').update({
+  const [adminResult, profileResult] = await Promise.all([
+    client.from('admin_profiles').update({
       is_approved: true,
       approved_by: approverName,
       approved_at: now,
       updated_at: now,
-    }).or(`id.eq.${id},profile_id.eq.${id}`)),
-    Promise.resolve(client.from('profiles').update({
+    }).or(`id.eq.${id},profile_id.eq.${id}`),
+    client.from('profiles').update({
       is_approved: true,
       approved_by: approverName,
       approved_at: now,
       updated_at: now,
-    }).eq('id', id)),
-  ];
-  if (email) {
-    const cleanEmail = email.trim().toLowerCase();
-    ops.push(
-      Promise.resolve(client.from('profiles').update({
-        is_approved: true,
-        approved_by: approverName,
-        approved_at: now,
-        updated_at: now,
-      }).eq('email', cleanEmail)),
-      Promise.resolve(client.from('admin_profiles').update({
-        is_approved: true,
-        approved_by: approverName,
-        approved_at: now,
-        updated_at: now,
-      }).eq('username', cleanEmail))
-    );
-  }
-  if (roleType) {
-    ops.push(
-      Promise.resolve(client.from('profiles').update({
-        is_approved: true,
-        approved_by: approverName,
-        approved_at: now,
-        updated_at: now,
-      }).eq('role', roleType)),
-      Promise.resolve(client.from('admin_profiles').update({
-        is_approved: true,
-        approved_by: approverName,
-        approved_at: now,
-        updated_at: now,
-      }).eq('role_type', roleType))
-    );
-  }
-  await Promise.allSettled(ops);
+    }).eq('id', id),
+  ]);
+  if (adminResult.error) throw adminResult.error;
+  if (profileResult.error) throw profileResult.error;
 }
 export async function cloudDeleteAdminProfile(id: string): Promise<void> {
   const { error } = await getSupabaseClient().from('admin_profiles').delete().eq('id', id);

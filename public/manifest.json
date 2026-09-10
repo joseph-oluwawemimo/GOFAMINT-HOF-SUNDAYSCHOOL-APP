@@ -4,14 +4,10 @@
   "description": "Offline-First Sunday School Secretary App with 12-Lesson Grading Matrix, Dual Rosters, Absence Workflow, and QR Portal",
   "icons": [
     {
-      "src": "/icon-192.png",
-      "type": "image/png",
-      "sizes": "192x192"
-    },
-    {
-      "src": "/icon-512.png",
-      "type": "image/png",
-      "sizes": "512x512"
+      "src": "/gofamint-logo.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any"
     }
   ],
   "start_url": "/",

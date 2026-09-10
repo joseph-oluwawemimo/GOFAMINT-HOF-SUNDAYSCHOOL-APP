@@ -32,7 +32,7 @@ export async function createStaffLogin(params: { email: string; password: string
   return { success: true, uid: result.data.uid, isApproved: result.data.isApproved, message: result.data.message };
 }
 
-export async function approveStaffUser(params: { targetUid?: string; email?: string; roleType?: string; approverName?: string }): Promise<{ success: boolean; error?: string; message?: string }> {
+export async function approveStaffUser(params: { targetUid: string }): Promise<{ success: boolean; error?: string; message?: string }> {
   const result = await request('/api/admin/approve-user', { method: 'POST', body: JSON.stringify(params) });
   return result.ok ? { success: true, message: result.data.message } : { success: false, error: result.data.error || `Request failed (${result.status})` };
 }
@@ -54,7 +54,18 @@ export async function logOversightAccess(params: { targetPortal: string; targetC
 
 export async function getSystemStatus(): Promise<{ initialized: boolean; schemaVersion: number }> {
   const result = await request('/api/system/status', { method: 'GET' }, false);
-  return { initialized: result.ok && result.data.initialized === true, schemaVersion: result.ok ? result.data.schemaVersion || 0 : 0 };
+  if (!result.ok) {
+    throw new Error(result.data.error || `Could not verify system initialization (${result.status || 'network error'}).`);
+  }
+  return { initialized: result.data.initialized === true, schemaVersion: result.data.schemaVersion || 0 };
+}
+
+export async function updateStaffLogin(targetUid: string, params: { displayName?: string; email?: string; password?: string }): Promise<{ success: boolean; error?: string; message?: string }> {
+  const result = await request(`/api/admin/users/${encodeURIComponent(targetUid)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(params),
+  });
+  return result.ok ? { success: true, message: result.data.message } : { success: false, error: result.data.error || `Request failed (${result.status})` };
 }
 
 export async function bootstrapSystem(params: { bootstrapSecret: string; churchName: string; superintendent?: { email: string; password: string; displayName: string }; secretary?: { email: string; password: string; displayName: string } }): Promise<{ success: boolean; error?: string; message?: string }> {
@@ -95,7 +106,7 @@ export async function approveClassApi(classId: string, classData?: any): Promise
 }
 
 export async function fetchWorkersDirectoryApi(): Promise<{ success: boolean; workers?: any[]; error?: string }> {
-  const result = await request('/api/workers/directory', { method: 'GET' }, false);
+  const result = await request('/api/workers/directory', { method: 'GET' });
   return result.ok ? { success: true, workers: result.data.workers || [] } : { success: false, error: result.data.error || `Request failed (${result.status})` };
 }
 
@@ -122,6 +133,11 @@ export async function deleteSpecialEventApi(eventId: string): Promise<{ success:
 export async function saveSpecialEventAttendanceApi(records: any[]): Promise<{ success: boolean; count?: number; error?: string }> {
   const result = await request('/api/admin/special-events/attendance', { method: 'POST', body: JSON.stringify({ records }) });
   return result.ok ? { success: true, count: result.data.count } : { success: false, error: result.data.error || `Request failed (${result.status})` };
+}
+
+export async function deleteSpecialEventAttendanceApi(recordId: string): Promise<{ success: boolean; message?: string; error?: string }> {
+  const result = await request(`/api/admin/special-events/attendance/${encodeURIComponent(recordId)}`, { method: 'DELETE' });
+  return result.ok ? { success: true, message: result.data.message } : { success: false, error: result.data.error || `Request failed (${result.status})` };
 }
 
 export async function fetchWorkerPrepAttendanceApi(): Promise<{ success: boolean; records?: any[]; error?: string }> {

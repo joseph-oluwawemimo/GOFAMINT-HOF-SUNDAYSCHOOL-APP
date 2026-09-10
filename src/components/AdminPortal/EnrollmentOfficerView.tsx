@@ -49,6 +49,7 @@ import {
   getAllMembers
 } from '../../db/indexedDB';
 import { GofamintLogo } from '../GofamintLogo';
+import { useDatabaseSync } from '../../hooks/useDatabaseSync';
 
 interface EnrollmentOfficerViewProps {
   currentAdmin: AdminProfile;
@@ -118,6 +119,8 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
       setIsLoading(false);
     }
   };
+
+  useDatabaseSync(loadAllData, ['members', 'grades', 'enrollmentCertifications', 'classes']);
 
   useEffect(() => {
     loadAllData();

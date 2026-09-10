@@ -14,9 +14,10 @@ import {
   BookOpen,
   KeyRound,
   Building,
-  RefreshCw
+  RefreshCw,
+  Pencil
 } from 'lucide-react';
-import { createStaffLogin, listStaffUsers, deleteStaffUser, approveStaffUser } from '../../services/adminUserApi';
+import { createStaffLogin, listStaffUsers, deleteStaffUser, approveStaffUser, updateStaffLogin } from '../../services/adminUserApi';
 import { getAllClassesDirectory } from '../../db/indexedDB';
 import { ClassProfile } from '../../types';
 
@@ -39,7 +40,7 @@ export const CloudUserManagementPanel: React.FC<CloudUserManagementPanelProps> =
   recoveryOnly = false,
   adminRole
 }) => {
-  const canCreateClassLogins = adminRole === 'ASST_GENERAL_SECRETARY' || adminRole === 'GENERAL_SUPERINTENDENT' || adminRole === 'SUPER_ADMIN';
+  const canCreateClassLogins = adminRole === 'ASST_GENERAL_SECRETARY' || adminRole === 'ASSISTANT_GENERAL_SECRETARY';
   const [activeTab, setActiveTab] = useState<'CREATE_STAFF' | 'CREATE_CLASS_LOGIN' | 'LIST'>('CREATE_STAFF');
   const [isOpen, setIsOpen] = useState(false);
 
@@ -68,6 +69,11 @@ export const CloudUserManagementPanel: React.FC<CloudUserManagementPanelProps> =
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteMessage, setDeleteMessage] = useState<string | null>(null);
   const [approvingId, setApprovingId] = useState<string | null>(null);
+  const [editTarget, setEditTarget] = useState<any | null>(null);
+  const [editDisplayName, setEditDisplayName] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [editPassword, setEditPassword] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
 
   const loadClasses = async () => {
     setIsLoadingClasses(true);
@@ -112,13 +118,10 @@ export const CloudUserManagementPanel: React.FC<CloudUserManagementPanelProps> =
     try {
       const res = await approveStaffUser({
         targetUid: u.uid,
-        email: u.email,
-        roleType: u.roleType,
       });
-      if (res.success) {
-        setDeleteMessage(`Approved and activated login for ${u.displayName || u.email}.`);
-        await fetchUsers();
-      }
+      if (!res.success) throw new Error(res.error || 'Approval failed.');
+      setDeleteMessage(`Approved and activated login for ${u.displayName || u.email}.`);
+      await fetchUsers();
     } catch (e: any) {
       alert(e.message || 'Approval failed.');
     } finally {
@@ -237,6 +240,47 @@ export const CloudUserManagementPanel: React.FC<CloudUserManagementPanelProps> =
       setDeleteMessage(err.message || 'Error deleting login.');
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  const openEditLogin = (user: any) => {
+    setEditTarget(user);
+    setEditDisplayName(user.displayName || '');
+    setEditEmail(user.email || '');
+    setEditPassword('');
+    setDeleteMessage(null);
+  };
+
+  const handleEditLogin = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!editTarget || !editDisplayName.trim()) return;
+    const isClassLogin = ['TEACHER', 'CLASS_SECRETARY', 'TEACHER / CLASS_SECRETARY'].includes(editTarget.roleType);
+    if (!isClassLogin && !editEmail.trim()) {
+      setDeleteMessage('A valid staff email is required.');
+      return;
+    }
+    if (editPassword && editPassword.length < 6) {
+      setDeleteMessage('A new password must contain at least 6 characters.');
+      return;
+    }
+
+    setIsEditing(true);
+    try {
+      const response = await updateStaffLogin(editTarget.uid, {
+        displayName: editDisplayName.trim(),
+        email: isClassLogin ? undefined : editEmail.trim(),
+        password: editPassword || undefined,
+      });
+      if (!response.success) throw new Error(response.error || 'Login update failed.');
+      setDeleteMessage(response.message || 'Staff login details updated successfully.');
+      setEditTarget(null);
+      setEditPassword('');
+      await fetchUsers();
+    } catch (error: any) {
+      console.error('Failed to update staff login:', error);
+      setDeleteMessage(error?.message || 'Failed to update staff login.');
+    } finally {
+      setIsEditing(false);
     }
   };
 
@@ -662,6 +706,15 @@ export const CloudUserManagementPanel: React.FC<CloudUserManagementPanelProps> =
                               )}
                               <button
                                 type="button"
+                                onClick={() => openEditLogin(u)}
+                                className="px-2.5 py-1 text-blue-800 hover:bg-blue-50 rounded-lg text-xs font-bold flex items-center gap-1 transition"
+                                title="Edit staff details or reset the password"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                                <span>Edit Login</span>
+                              </button>
+                              <button
+                                type="button"
                                 onClick={() => setDeleteTarget(u)}
                                 className="px-2.5 py-1 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg text-xs font-bold flex items-center gap-1 transition"
                                 title="Delete this login identity"
@@ -701,6 +754,16 @@ export const CloudUserManagementPanel: React.FC<CloudUserManagementPanelProps> =
                               </p>
                             </div>
 
+                            <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => openEditLogin(u)}
+                              className="px-2.5 py-1 text-blue-800 hover:bg-blue-50 rounded-lg text-xs font-bold flex items-center gap-1 transition"
+                              title="Edit class display name or reset the password"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                              <span>Edit Login</span>
+                            </button>
                             <button
                               type="button"
                               onClick={() => setDeleteTarget(u)}
@@ -710,6 +773,7 @@ export const CloudUserManagementPanel: React.FC<CloudUserManagementPanelProps> =
                               <Trash2 className="w-3.5 h-3.5" />
                               <span>Delete</span>
                             </button>
+                            </div>
                           </div>
                         ))}
                       {staffUsers.filter(u => u.roleType === 'TEACHER' || u.roleType === 'CLASS_SECRETARY').length === 0 && (
@@ -721,6 +785,39 @@ export const CloudUserManagementPanel: React.FC<CloudUserManagementPanelProps> =
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {editTarget && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4">
+          <form onSubmit={handleEditLogin} className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 text-left border border-slate-200">
+            <div>
+              <h3 className="text-base font-bold text-slate-900">Edit Login Details</h3>
+              <p className="text-xs text-slate-500 mt-1">{String(editTarget.roleType || '').replace(/_/g, ' ')}</p>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Full / Display Name</label>
+              <input value={editDisplayName} onChange={e => setEditDisplayName(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" disabled={isEditing} />
+            </div>
+            {!['TEACHER', 'CLASS_SECRETARY', 'TEACHER / CLASS_SECRETARY'].includes(editTarget.roleType) && (
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Login Email</label>
+                <input type="email" value={editEmail} onChange={e => setEditEmail(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" disabled={isEditing} />
+              </div>
+            )}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">New Password</label>
+              <input type="password" value={editPassword} onChange={e => setEditPassword(e.target.value)} placeholder="Leave blank to keep the current password" className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" disabled={isEditing} />
+              <p className="text-[11px] text-slate-500 mt-1">Minimum 6 characters when changing the password.</p>
+            </div>
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button type="button" onClick={() => setEditTarget(null)} disabled={isEditing} className="px-4 py-2 text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl text-xs font-bold">Cancel</button>
+              <button type="submit" disabled={isEditing || !editDisplayName.trim()} className="px-4 py-2 bg-blue-950 hover:bg-blue-900 disabled:opacity-60 text-white rounded-xl text-xs font-bold flex items-center gap-2">
+                {isEditing ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4 text-amber-300" />}
+                <span>{isEditing ? 'Saving…' : 'Save Login Changes'}</span>
+              </button>
+            </div>
+          </form>
         </div>
       )}
 

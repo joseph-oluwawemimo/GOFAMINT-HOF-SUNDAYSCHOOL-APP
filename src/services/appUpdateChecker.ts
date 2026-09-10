@@ -7,39 +7,36 @@
 let initialVersion: string | null = null;
 let isChecking = false;
 let updateTriggered = false;
+let disposeUpdateChecker: (() => void) | null = null;
 
-export async function initAppUpdateChecker() {
-  if (typeof window === 'undefined') return;
+export function initAppUpdateChecker(): () => void {
+  if (typeof window === 'undefined') return () => {};
+  if (disposeUpdateChecker) return disposeUpdateChecker;
 
-  try {
-    const res = await fetch('/api/version', { cache: 'no-store' });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.version) {
-        initialVersion = String(data.version);
-        console.log('[AppUpdateChecker] Initial client version baseline:', initialVersion);
+  void (async () => {
+    try {
+      const res = await fetch('/api/version', { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.version) {
+          initialVersion = String(data.version);
+          console.log('[AppUpdateChecker] Initial client version baseline:', initialVersion);
+        }
       }
+    } catch {
+      // Non-blocking in offline or development mode.
     }
-  } catch {
-    // Non-blocking in offline or dev mode
-  }
+  })();
 
-  // 1. Check on window focus (user switches tabs back to this app)
-  window.addEventListener('focus', () => {
-    checkForAppUpdate();
-  });
+  // Check quietly in the background. Never reload merely because the user
+  // returns to the browser; an operator may be entering attendance or finance data.
+  const intervalId = window.setInterval(() => void checkForAppUpdate(), 5 * 60 * 1000);
 
-  // 2. Check on visibility change (mobile browser wake up or tab foreground)
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      checkForAppUpdate();
-    }
-  });
-
-  // 3. Periodic background check every 60 seconds
-  setInterval(() => {
-    checkForAppUpdate();
-  }, 60 * 1000);
+  disposeUpdateChecker = () => {
+    window.clearInterval(intervalId);
+    disposeUpdateChecker = null;
+  };
+  return disposeUpdateChecker;
 }
 
 export async function checkForAppUpdate(): Promise<boolean> {
@@ -66,9 +63,11 @@ export async function checkForAppUpdate(): Promise<boolean> {
     }
 
     if (currentServerVersion && initialVersion && currentServerVersion !== initialVersion) {
-      console.log(`[AppUpdateChecker] New version detected! Current: ${initialVersion}, Server: ${currentServerVersion}. Enforcing auto-update...`);
+      console.info(`[AppUpdateChecker] New version detected (current: ${initialVersion}, server: ${currentServerVersion}). It will be applied on the next user-initiated refresh.`);
       updateTriggered = true;
-      await purgeCachesAndReload();
+      window.dispatchEvent(new CustomEvent('gofamint:update-available', {
+        detail: { currentVersion: initialVersion, serverVersion: currentServerVersion }
+      }));
       return true;
     }
   } catch (err) {

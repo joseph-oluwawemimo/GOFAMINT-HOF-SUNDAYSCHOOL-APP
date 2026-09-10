@@ -32,6 +32,7 @@ import {
   auditOfferingRecord,
   bulkAuditOfferings
 } from '../../db/indexedDB';
+import { useDatabaseSync } from '../../hooks/useDatabaseSync';
 
 interface TreasurerViewProps {
   currentAdmin: AdminProfile;
@@ -132,6 +133,8 @@ export const TreasurerView: React.FC<TreasurerViewProps> = ({
       setIsLoading(false);
     }
   };
+
+  useDatabaseSync(loadTreasuryData, ['offerings', 'treasuryExpenditures']);
 
   useEffect(() => {
     loadTreasuryData();

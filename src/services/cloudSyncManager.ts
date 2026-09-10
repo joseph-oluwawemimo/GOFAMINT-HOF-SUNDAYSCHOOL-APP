@@ -124,6 +124,7 @@ let lastHydrationError: string | null = null;
 let activeUnsubscribes: (() => void)[] = [];
 let currentActiveScopeKey: string | null = null;
 let syncDebounceTimer: number | null = null;
+const pendingSyncStores = new Set<string>();
 
 export function getLastHydrationError(): string | null {
   return lastHydrationError;
@@ -493,18 +494,24 @@ export function startRealtimeCloudSync(scope: SyncScope, onSyncCallback: () => v
   currentActiveScopeKey = scopeKey;
 
   const notifyChange = (store?: string) => {
+    if (store) pendingSyncStores.add(store);
     if (syncDebounceTimer) {
       window.clearTimeout(syncDebounceTimer);
     }
     syncDebounceTimer = window.setTimeout(() => {
       try {
         if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('gofamint:sync-update', { detail: { store } }));
-          if (!store || ['workers', 'workerAttendance', 'workerPrepAttendance', 'specialEvents', 'specialEventAttendance', 'workerCategories', 'clockInConfig'].includes(store)) {
-            window.dispatchEvent(new CustomEvent('gofamint:worker-sync', { detail: { store } }));
+          const stores = Array.from(pendingSyncStores);
+          pendingSyncStores.clear();
+          const detail = { store: stores.length === 1 ? stores[0] : undefined, stores, source: 'remote' };
+          window.dispatchEvent(new CustomEvent('gofamint:sync-update', { detail }));
+          if (stores.length === 0 || stores.some(changedStore => ['workers', 'workerAttendance', 'workerPrepAttendance', 'specialEvents', 'specialEventAttendance', 'workerCategories', 'clockInConfig'].includes(changedStore))) {
+            window.dispatchEvent(new CustomEvent('gofamint:worker-sync', { detail }));
           }
         }
-      } catch {}
+      } catch (error) {
+        console.error('[RealtimeSync] Failed to notify the active views:', error);
+      }
       onSyncCallback();
     }, 80);
   };

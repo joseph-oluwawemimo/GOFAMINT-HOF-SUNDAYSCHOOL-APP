@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   ArrowRight,
   Shield,
@@ -25,6 +25,7 @@ import {
   saveClassProfile
 } from '../db/indexedDB';
 import { ApplicationProfile } from '../services/profileService';
+import { isExactClassAssignment } from '../utils/accessControl';
 
 interface OpeningFlowViewProps {
   classProfile: ClassProfile | null;
@@ -62,7 +63,8 @@ const ROLE_FORMATTED_NAMES: Record<string, string> = {
   RECORD_OFFICER: 'Record Officer',
   ENROLLMENT_OFFICER: 'Enrollment Officer',
   TEACHER: 'Class Teacher',
-  SECRETARY: 'Class Secretary',
+  CLASS_SECRETARY: 'Class Secretary',
+  'TEACHER / CLASS_SECRETARY': 'Class Teacher / Secretary',
   WORKER: 'Sunday School Worker',
   SUPER_ADMIN: 'Executive Council Leader'
 };
@@ -82,6 +84,7 @@ export const OpeningFlowView: React.FC<OpeningFlowViewProps> = ({
   const [workersList, setWorkersList] = useState<WorkerProfile[]>([]);
   const [allClassesList, setAllClassesList] = useState<ClassProfile[]>([]);
   const [authErrorModalMessage, setAuthErrorModalMessage] = useState<string | null>(null);
+  const [directoryLoadError, setDirectoryLoadError] = useState<string | null>(null);
 
   // Registering a class modal state
   const [registeringClass, setRegisteringClass] = useState<ClassProfile | null>(null);
@@ -108,39 +111,40 @@ export const OpeningFlowView: React.FC<OpeningFlowViewProps> = ({
 
   // Specific assigned class for class isolation (Item 11)
   const assignedClassId =
-    currentUserProfile?.classId ||
-    (cloudUser?.email?.includes('@') && !isAdmin ? cloudUser.email.split('@')[0].toUpperCase() : null);
+    currentUserProfile?.classId || null;
 
   const [isLoadingClasses, setIsLoadingClasses] = useState(false);
 
   const refreshClassesAndWorkers = async (forceCloud = false) => {
     try {
       setIsLoadingClasses(true);
+      setDirectoryLoadError(null);
       const [workers, classes] = await Promise.all([
-        getAllWorkers(true),
+        getAllWorkers(forceCloud || workersList.length === 0),
         getAllClassesDirectory(forceCloud || allClassesList.length === 0)
       ]);
       setWorkersList(workers || []);
       setAllClassesList(classes || []);
     } catch (err) {
       console.error('Error loading classes or workers:', err);
+      const message = err instanceof Error ? err.message : String(err);
+      setDirectoryLoadError(`The class directory could not be loaded: ${message}`);
     } finally {
       setIsLoadingClasses(false);
     }
   };
 
-  useEffect(() => {
-    refreshClassesAndWorkers(true);
-  }, []);
-
   // Check if class user is authorized to access a given class
   const isAuthorizedForClass = (cls: ClassProfile) => {
     if (userRole === 'GENERAL_SUPERINTENDENT' || userRole === 'SUPER_ADMIN') return true;
     if (!assignedClassId) return false;
-    const targetIdNorm = cls.id.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const assignedIdNorm = assignedClassId.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    return targetIdNorm === assignedIdNorm || targetIdNorm.includes(assignedIdNorm) || assignedIdNorm.includes(targetIdNorm);
+    return isExactClassAssignment(assignedClassId, cls.id);
   };
+
+  const isClassPortalUser = ['TEACHER', 'CLASS_SECRETARY', 'TEACHER / CLASS_SECRETARY'].includes(userRole);
+  const visibleClasses = isClassPortalUser
+    ? allClassesList.filter(isAuthorizedForClass)
+    : allClassesList;
 
   // Handle Admin Portal click (Item 9)
   const handleAdminPortalClick = () => {
@@ -473,7 +477,7 @@ export const OpeningFlowView: React.FC<OpeningFlowViewProps> = ({
                 <button
                   id="btn-portal-select-teacher"
                   onClick={() => {
-                    refreshClassesAndWorkers(true);
+                    void refreshClassesAndWorkers(true);
                     setCurrentStep('TEACHER_PORTAL_HOME');
                   }}
                   className="w-full py-3 bg-blue-900 hover:bg-blue-800 active:scale-[0.98] text-white rounded-xl text-xs font-black flex items-center justify-center gap-2 shadow-md transition cursor-pointer"
@@ -554,7 +558,7 @@ export const OpeningFlowView: React.FC<OpeningFlowViewProps> = ({
                 </h4>
               </div>
               <span className="text-xs font-bold text-slate-500">
-                {allClassesList.length} Total Classes
+                {visibleClasses.length} Available {visibleClasses.length === 1 ? 'Class' : 'Classes'}
               </span>
             </div>
 
@@ -564,14 +568,25 @@ export const OpeningFlowView: React.FC<OpeningFlowViewProps> = ({
                 <p className="font-bold text-slate-800">Loading Sunday School Classes...</p>
                 <p className="text-[11px] text-slate-500">Connecting to cloud directory</p>
               </div>
-            ) : allClassesList.length === 0 ? (
+            ) : directoryLoadError ? (
+              <div role="alert" className="bg-rose-50 border border-rose-300 rounded-xl p-6 text-center text-rose-800 text-xs space-y-3">
+                <p className="font-bold">{directoryLoadError}</p>
+                <button
+                  type="button"
+                  onClick={() => void refreshClassesAndWorkers(true)}
+                  className="px-4 py-2 rounded-lg bg-blue-900 text-white font-bold"
+                >
+                  Retry directory load
+                </button>
+              </div>
+            ) : visibleClasses.length === 0 ? (
               <div className="bg-slate-50 border border-dashed border-slate-300 rounded-xl p-8 text-center text-slate-500 text-xs space-y-1">
-                <p className="font-bold">No classes created yet in the directory.</p>
-                <p>The Assistant General Secretary must create class profiles in the Admin Portal first.</p>
+                <p className="font-bold">No class is assigned to this account.</p>
+                <p>Ask an administrator to assign the correct class ID to your approved profile.</p>
               </div>
             ) : (
               <div className="space-y-3">
-                {allClassesList.map((cls) => {
+                {visibleClasses.map((cls) => {
                   const status = cls.approvalStatus || 'PENDING_REGISTRATION';
                   const isPendingReg = status === 'PENDING_REGISTRATION';
                   const isPendingApproval = status === 'PENDING_APPROVAL';

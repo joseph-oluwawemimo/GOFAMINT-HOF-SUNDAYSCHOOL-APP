@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { AdminProfile, ClassProfile, DepartmentType, SundaySchoolYear } from '../../types';
 import { createBatchClasses, deleteClassFromDirectory, getAllWorkers } from '../../db/indexedDB';
+import { useDatabaseSync } from '../../hooks/useDatabaseSync';
 
 interface AsstGeneralSecretaryViewProps {
   currentAdmin: AdminProfile;
@@ -64,10 +65,18 @@ export const AsstGeneralSecretaryView: React.FC<AsstGeneralSecretaryViewProps> =
     { id: '1', department: 'Adult', className: 'Adult A', uniqueId: 'ADULT_A', password: 'password123' }
   ]);
 
+  const refreshWorkerCount = async () => {
+    const workers = await getAllWorkers();
+    setTotalWorkersCount(workers.length);
+  };
+
+  useDatabaseSync(refreshWorkerCount, ['workers']);
+
   useEffect(() => {
-    getAllWorkers()
-      .then(workers => setTotalWorkersCount(workers.length))
-      .catch(() => setTotalWorkersCount(0));
+    refreshWorkerCount().catch(error => {
+      console.error('Could not load the worker count:', error);
+      setTotalWorkersCount(0);
+    });
   }, []);
 
   const safeYear = sundaySchoolYear || {

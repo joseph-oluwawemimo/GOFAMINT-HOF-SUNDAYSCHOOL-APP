@@ -42,12 +42,15 @@ export function calculateCategoryScore(
   eligibleLessons: number
 ): CategoryReportStats {
   const maxObtainable = maxPerLesson * Math.max(0, eligibleLessons);
-  const rawPercentage = maxObtainable > 0 ? (scoreObtained / maxObtainable) * 100 : 0;
+  const normalizedScore = Number.isFinite(scoreObtained)
+    ? Math.min(maxObtainable, Math.max(0, scoreObtained))
+    : 0;
+  const rawPercentage = maxObtainable > 0 ? (normalizedScore / maxObtainable) * 100 : 0;
   // Round to 2 decimal places (e.g. 83.33%, 88.89%)
   const percentage = Math.round(rawPercentage * 100) / 100;
 
   return {
-    scoreObtained,
+    scoreObtained: normalizedScore,
     maxObtainable,
     eligibleLessons,
     percentage
@@ -117,10 +120,14 @@ export function calculateMemberStats(
 
     if (grade && grade.attendance === 'PRESENT') {
       attendedWeeks++;
-      const pScore = Number(grade.punctuality) || 0;
-      const mvScore = Number(grade.memoryVerse) || 0;
-      const partScore = Number(grade.classParticipation) || 0;
-      const totScore = Number(grade.lessonTotal) || (pScore + mvScore + partScore);
+      const clampScore = (value: unknown, maximum: number) => {
+        const numeric = Number(value);
+        return Number.isFinite(numeric) ? Math.min(maximum, Math.max(0, numeric)) : 0;
+      };
+      const pScore = clampScore(grade.punctuality, 15);
+      const mvScore = clampScore(grade.memoryVerse, 15);
+      const partScore = clampScore(grade.classParticipation, 20);
+      const totScore = pScore + mvScore + partScore;
 
       sumPunctuality += pScore;
       sumMemoryVerse += mvScore;

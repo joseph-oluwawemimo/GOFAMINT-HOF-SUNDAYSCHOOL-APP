@@ -39,6 +39,7 @@ import {
 } from '../../types';
 import { getRealRecordOfficerCollation, getAllMembers, getAllGrades } from '../../db/indexedDB';
 import { GofamintLogo } from '../GofamintLogo';
+import { useDatabaseSync } from '../../hooks/useDatabaseSync';
 
 interface RecordOfficerViewProps {
   currentAdmin: AdminProfile;
@@ -107,6 +108,8 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
       setIsLoading(false);
     }
   };
+
+  useDatabaseSync(loadCollationData, ['members', 'grades', 'offerings', 'absenceLogs', 'classes']);
 
   useEffect(() => {
     loadCollationData();

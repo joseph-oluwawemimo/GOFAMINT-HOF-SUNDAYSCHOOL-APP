@@ -40,6 +40,7 @@ import {
   saveLessonTopic,
   clearAllDatabaseData,
   getAllAdminComments,
+  getAllClassesDirectory,
   saveAdminComment,
   deleteAdminComment,
   performLocalFactoryReset,
@@ -80,6 +81,7 @@ import { logOversightAccess } from './services/adminUserApi';
 import { loadCurrentProfile, type ApplicationProfile } from './services/profileService';
 import { initAppUpdateChecker } from './services/appUpdateChecker';
 import type { User } from '@supabase/supabase-js';
+import { isApprovedClassStatus, isExactClassAssignment } from './utils/accessControl';
 
 const ADMIN_PORTAL_ROLES = new Set([
   'GENERAL_SUPERINTENDENT',
@@ -103,6 +105,7 @@ export default function App() {
   const [currentUserProfile, setCurrentUserProfile] = useState<ApplicationProfile | null>(null);
   const [profileResolution, setProfileResolution] = useState<ProfileResolutionState>('idle');
   const [profileResolutionError, setProfileResolutionError] = useState<string | null>(null);
+  const resolvingProfileUserRef = useRef<string | null>(null);
 
   // Profile Lock State (survives page refresh via sessionStorage, preserves Supabase session)
   const [isProfileLocked, setIsProfileLocked] = useState<boolean>(() => {
@@ -117,6 +120,8 @@ export default function App() {
   } | null>(null);
 
   const resolveAuthenticatedProfile = async (user: User) => {
+    if (resolvingProfileUserRef.current === user.id) return;
+    resolvingProfileUserRef.current = user.id;
     setProfileResolution('loading');
     setProfileResolutionError(null);
     setCurrentUserProfile(null);
@@ -135,27 +140,6 @@ export default function App() {
         setProfileResolution('invalid');
         setProfileResolutionError(`Your account has an unsupported role configuration${role ? ` (${role})` : ''}.`);
         return;
-      }
-
-      // Supplementary resilience check: If profile is not marked approved, check local IndexedDB
-      if (!profile.isApproved) {
-        try {
-          const { getAllAdminProfiles } = await import('./db/indexedDB');
-          const localAdmins = await getAllAdminProfiles();
-          const match = localAdmins.find(a =>
-            a.id === user.id ||
-            (user.email && a.username?.toLowerCase() === user.email.toLowerCase()) ||
-            a.roleType === profile?.role
-          );
-          if (match && match.isApproved) {
-            profile = {
-              ...profile,
-              isApproved: true,
-              approvedBy: match.approvedBy || profile.approvedBy,
-              approvedAt: match.approvedAt || profile.approvedAt,
-            };
-          }
-        } catch {}
       }
 
       setCurrentUserProfile(profile);
@@ -187,10 +171,28 @@ export default function App() {
         setShowWorkersModule(false);
         setShowOpeningPage(false);
       } else if (savedPortal === 'CLASS_REGISTER' && profile.classId) {
+        const assignedClass = (await getAllClassesDirectory(true)).find(
+          cls => isExactClassAssignment(profile.classId, cls.id)
+        );
+        if (!assignedClass || !isApprovedClassStatus(assignedClass.approvalStatus)) {
+          sessionStorage.removeItem('gofamint_active_portal');
+          sessionStorage.removeItem('gofamint_unlocked');
+          sessionStorage.removeItem('gofamint_unlocked_class_id');
+          setShowOpeningPage(true);
+          setShowAdminPortal(false);
+          setShowWorkersModule(false);
+          setIsUnlocked(false);
+          return;
+        }
+        await putInStore<ClassProfile>('classProfile', assignedClass, true);
+        setClassProfile(assignedClass);
         setShowAdminPortal(false);
         setShowWorkersModule(false);
         setShowOpeningPage(false);
         setIsUnlocked(true);
+        sessionStorage.setItem('gofamint_unlocked', 'true');
+        sessionStorage.setItem('gofamint_unlocked_class_id', assignedClass.id);
+        await loadClassQuarterData(assignedClass.id, selectedQuarter);
       } else {
         // Fresh sign-in or no active portal session: Always route through the official branded Welcome Screen & Portal Destination
         setShowOpeningPage(true);
@@ -202,12 +204,14 @@ export default function App() {
       console.warn('Could not load Supabase user profile on auth:', err);
       setProfileResolution('error');
       setProfileResolutionError(err?.message || 'The account role could not be loaded. Check your connection and try again.');
+    } finally {
+      if (resolvingProfileUserRef.current === user.id) resolvingProfileUserRef.current = null;
     }
   };
 
   useEffect(() => {
     let isMounted = true;
-    void initAppUpdateChecker();
+    const disposeUpdates = initAppUpdateChecker();
 
     // Check existing stored session immediately on mount
     getCurrentUser()
@@ -241,6 +245,7 @@ export default function App() {
     return () => {
       isMounted = false;
       unsubscribe();
+      disposeUpdates();
     };
   }, []);
 
@@ -287,6 +292,39 @@ export default function App() {
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // Protect in-progress form entry from an accidental browser refresh/close.
+  // A successful durable database write emits sync-update and clears the guard;
+  // a failed save leaves the warning active so the operator can retry.
+  useEffect(() => {
+    let hasUnsavedInput = false;
+    const markDirty = (event: Event) => {
+      const target = event.target;
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
+        const isReadOnly = target instanceof HTMLSelectElement ? false : target.readOnly;
+        if (!target.disabled && !isReadOnly) hasUnsavedInput = true;
+      }
+    };
+    const markPersisted = (event: Event) => {
+      if ((event as CustomEvent).detail?.source === 'local') hasUnsavedInput = false;
+    };
+    const guardUnload = (event: BeforeUnloadEvent) => {
+      if (!hasUnsavedInput) return;
+      event.preventDefault();
+      event.returnValue = true;
+    };
+
+    document.addEventListener('input', markDirty, true);
+    document.addEventListener('change', markDirty, true);
+    window.addEventListener('gofamint:sync-update', markPersisted);
+    window.addEventListener('beforeunload', guardUnload);
+    return () => {
+      document.removeEventListener('input', markDirty, true);
+      document.removeEventListener('change', markDirty, true);
+      window.removeEventListener('gofamint:sync-update', markPersisted);
+      window.removeEventListener('beforeunload', guardUnload);
     };
   }, []);
 
@@ -358,8 +396,11 @@ export default function App() {
     try {
       const status = await getSystemStatus();
       setIsSystemInitialized(status.initialized);
-    } catch {
-      setIsSystemInitialized(false);
+    } catch (error) {
+      // Never expose first-run bootstrap merely because the status service is
+      // temporarily unreachable on an installation that may contain data.
+      console.error('Could not verify system initialization; using the normal sign-in flow:', error);
+      setIsSystemInitialized(true);
     }
 
     try {
@@ -391,7 +432,9 @@ export default function App() {
   // authenticated user, so this only runs once
   // Supabase Auth has confirmed a signed-in user (cloudUser).
   const syncWithCloud = async (silent = true) => {
-    if (!cloudUser || profileResolution !== 'ready' || !currentUserProfile?.role) return;
+    if (!cloudUser || profileResolution !== 'ready' || !currentUserProfile?.role) {
+      return { ok: false, error: 'An approved signed-in profile is required for cloud sync.', pendingRetries: 0 };
+    }
     if (!silent) {
       setIsSyncing(true);
       setSyncStatusText('Syncing with central database…');
@@ -414,9 +457,12 @@ export default function App() {
       } else {
         setSyncStatusText(`Cloud sync issue: ${result.error || getLastHydrationError() || 'unknown error'}`);
       }
+      return result;
     } catch (err: any) {
       console.error('Cloud sync cycle failed:', err);
-      setSyncStatusText(`Cloud sync issue: ${err?.message || 'unknown error'}`);
+      const message = err?.message || 'unknown error';
+      setSyncStatusText(`Cloud sync issue: ${message}`);
+      return { ok: false, error: message, pendingRetries: 0 };
     } finally {
       if (!silent) setIsSyncing(false);
     }
@@ -459,6 +505,22 @@ export default function App() {
       }
     });
 
+    // Same-tab writes do not need to wait for a Supabase round-trip before
+    // every portal sees them. Coalesce rapid bulk writes, then reload React
+    // state from the already-committed local database without navigating.
+    let localRefreshTimer: number | undefined;
+    const handleLocalStoreChange = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (detail?.source !== 'local') return;
+      window.clearTimeout(localRefreshTimer);
+      localRefreshTimer = window.setTimeout(() => {
+        void refreshStateFromLocalDB().catch(error => {
+          console.error('Could not render a locally saved database change:', error);
+        });
+      }, 50);
+    };
+    window.addEventListener('gofamint:sync-update', handleLocalStoreChange);
+
     // Throttled sync: Only sync on focus if at least 15 minutes have passed since last sync.
     // Realtime WebSocket listeners already keep the app updated in real-time without constant refetches.
     let lastFocusSyncTime = Date.now();
@@ -475,6 +537,8 @@ export default function App() {
 
     return () => {
       unsubscribeRealtime();
+      window.clearTimeout(localRefreshTimer);
+      window.removeEventListener('gofamint:sync-update', handleLocalStoreChange);
       window.removeEventListener('focus', handleFocus);
       window.removeEventListener('online', handleOnlineReconnect);
     };
@@ -536,6 +600,14 @@ export default function App() {
   // Opening Page & Auth Navigation Handlers
   const handleEnterClassFromWelcome = async (selectedProfile?: ClassProfile) => {
     const target = selectedProfile || classProfile;
+    if (
+      target &&
+      CLASS_PORTAL_ROLES.has(currentUserProfile?.role || '') &&
+      !isExactClassAssignment(currentUserProfile?.classId, target.id)
+    ) {
+      alert('Access denied: this class is not assigned to your signed-in account.');
+      return;
+    }
     if (selectedProfile) {
       await putInStore<ClassProfile>('classProfile', selectedProfile, true);
       setClassProfile(selectedProfile);
@@ -543,8 +615,8 @@ export default function App() {
     if (!target) {
       setIsRegisteringNew(true);
       setIsAuthModalOpen(true);
-    } else if (target.approvalStatus === 'PENDING_APPROVAL') {
-      alert(`Class "${target.className}" is pending approval from the General Superintendent or General Secretary. Once approved in the Admin Portal, access will be granted.`);
+    } else if (!isApprovedClassStatus(target.approvalStatus)) {
+      alert(`Class "${target.className}" is not approved for register access. A General Secretary or General Superintendent must approve it first.`);
     } else {
       const currentUnlockedId = sessionStorage.getItem('gofamint_unlocked_class_id');
       if (isUnlocked && currentUnlockedId === target.id) {
@@ -642,8 +714,15 @@ export default function App() {
   };
 
   const handleUnlockConsole = (inputPassword: string): boolean => {
-    if (classProfile?.approvalStatus === 'PENDING_APPROVAL') {
-      alert(`Class "${classProfile.className}" is pending authorization from the General Superintendent or General Secretary. Please have an administrator approve it in the Admin Portal first.`);
+    if (!classProfile || !isApprovedClassStatus(classProfile.approvalStatus)) {
+      alert('This class is not approved for register access. Please ask a General Secretary or General Superintendent to approve it first.');
+      return false;
+    }
+    if (
+      CLASS_PORTAL_ROLES.has(currentUserProfile?.role || '') &&
+      !isExactClassAssignment(currentUserProfile?.classId, classProfile.id)
+    ) {
+      alert('Access denied: this class is not assigned to your signed-in account.');
       return false;
     }
 
@@ -935,6 +1014,7 @@ export default function App() {
 
   // Sync Push & Pull Logic
   const handlePushSync = async () => {
+    let hostError: Error | null = null;
     setIsSyncing(true);
     setSyncStatusText('Pushing mutations to Host Server...');
     try {
@@ -956,9 +1036,13 @@ export default function App() {
         await clearSyncQueue();
         setSyncQueue([]);
         setSyncStatusText('Synced with Host Laptop');
+      } else {
+        hostError = new Error(res.error || 'Host server rejected the sync request.');
+        setSyncStatusText(`Host sync failed: ${hostError.message}`);
       }
     } catch (err: any) {
-      console.warn('Sync push notification:', err.message);
+      hostError = err instanceof Error ? err : new Error(err?.message || 'Host sync failed.');
+      console.warn('Sync push notification:', hostError.message);
       setSyncStatusText('Offline - Changes Queued');
     } finally {
       setIsSyncing(false);
@@ -966,10 +1050,15 @@ export default function App() {
     // Always also retry/flush anything pending to the central Supabase database —
     // this is the sync path that actually reaches every other device, regardless
     // of whether the optional local-network Host Server above was reachable.
-    await syncWithCloud(false);
+    const cloudResult = await syncWithCloud(false);
+    if (hostError) {
+      const cloudNote = cloudResult.ok ? ' Central Supabase sync succeeded.' : ` Central Supabase sync also failed: ${cloudResult.error}`;
+      throw new Error(`${hostError.message}${cloudNote}`);
+    }
   };
 
   const handlePullSync = async () => {
+    let hostError: Error | null = null;
     setIsSyncing(true);
     setSyncStatusText('Pulling from Host Server...');
     try {
@@ -998,9 +1087,13 @@ export default function App() {
           await loadClassQuarterData(classProfile.id, selectedQuarter);
         }
         setSyncStatusText('Pulled Latest from Host');
+      } else {
+        hostError = new Error(result.error || 'Host server did not return a sync payload.');
+        setSyncStatusText(`Host pull failed: ${hostError.message}`);
       }
     } catch (err: any) {
-      console.warn('Sync pull notification:', err.message);
+      hostError = err instanceof Error ? err : new Error(err?.message || 'Host pull failed.');
+      console.warn('Sync pull notification:', hostError.message);
       setSyncStatusText('Offline Mode (Local IndexedDB)');
     } finally {
       setIsSyncing(false);
@@ -1008,7 +1101,11 @@ export default function App() {
     // Always also pull the latest state from the central Supabase database —
     // this is what actually picks up changes made on other devices, regardless
     // of whether the optional local-network Host Server above was reachable.
-    await syncWithCloud(false);
+    const cloudResult = await syncWithCloud(false);
+    if (hostError) {
+      const cloudNote = cloudResult.ok ? ' Central Supabase refresh succeeded.' : ` Central Supabase refresh also failed: ${cloudResult.error}`;
+      throw new Error(`${hostError.message}${cloudNote}`);
+    }
   };
 
   // Full Backup Import

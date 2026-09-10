@@ -114,52 +114,16 @@ export const SpecialEventsView: React.FC<SpecialEventsViewProps> = ({
   const animationFrameId = useRef<number | null>(null);
   const lastScannedTokenRef = useRef<{ token: string; time: number } | null>(null);
 
-  // Load Data with Dual-Layer LocalStorage Safeguard (Complaint 1)
+  // Load the authoritative local/cloud-backed event stores. The generic
+  // database layer already provides durable fallback storage; a second custom
+  // backup previously resurrected events after they were deleted.
   const loadData = useCallback(async () => {
     try {
       setIsLoading(true);
-      let [allEvts, allAtt] = await Promise.all([
-        getAllSpecialEvents(true),
-        getAllSpecialEventAttendance(true)
-      ]);
-
-      // Dual-layer backup check for Events
-      if (allEvts.length === 0) {
-        const cachedEvts = localStorage.getItem('gofamint_specialEvents_backup');
-        if (cachedEvts) {
-          try {
-            const parsed = JSON.parse(cachedEvts);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              allEvts = parsed;
-              for (const ev of parsed) {
-                await saveSpecialEvent(ev);
-              }
-            }
-          } catch {
-            // ignore
-          }
-        }
-      } else {
-        localStorage.setItem('gofamint_specialEvents_backup', JSON.stringify(allEvts));
-      }
-
-      // Dual-layer backup check for Attendance (Complaint 1: Ctrl + Shift + R hard refresh persistence)
-      if (allAtt.length === 0) {
-        const cachedAtt = localStorage.getItem('gofamint_specialAttendance_backup');
-        if (cachedAtt) {
-          try {
-            const parsed = JSON.parse(cachedAtt);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              allAtt = parsed;
-              await recordBulkSpecialEventAttendance(parsed);
-            }
-          } catch {
-            // ignore
-          }
-        }
-      } else {
-        localStorage.setItem('gofamint_specialAttendance_backup', JSON.stringify(allAtt));
-      }
+      // One server request returns both events and attendance; the event loader
+      // refreshes both local stores before the attendance read below.
+      const allEvts = await getAllSpecialEvents(true);
+      const allAtt = await getAllSpecialEventAttendance(false);
 
       setEvents(allEvts);
       setAttendance(allAtt);
@@ -206,11 +170,15 @@ export const SpecialEventsView: React.FC<SpecialEventsViewProps> = ({
       updatedAt: new Date().toISOString()
     };
 
-    await saveSpecialEvent(updated);
-    const updatedEvts = events.map(e => e.id === evt.id ? updated : e);
-    setEvents(updatedEvts);
-    localStorage.setItem('gofamint_specialEvents_backup', JSON.stringify(updatedEvts));
-    setSelectedEventId(evt.id);
+    try {
+      await saveSpecialEvent(updated);
+      setEvents(events.map(e => e.id === evt.id ? updated : e));
+      setSelectedEventId(evt.id);
+      setEventArchiveTab(isArchived ? 'ACTIVE' : 'ARCHIVED');
+    } catch (error: any) {
+      console.error('Failed to change the special event archive status:', error);
+      alert(`Could not ${isArchived ? 'restore' : 'archive'} the event: ${error?.message || 'Unknown error'}`);
+    }
   };
 
   // Toggle Inclusion in Punctuality Honors (Complaint 6 & 7)
@@ -221,10 +189,13 @@ export const SpecialEventsView: React.FC<SpecialEventsViewProps> = ({
       updatedAt: new Date().toISOString()
     };
 
-    await saveSpecialEvent(updated);
-    const updatedEvts = events.map(e => e.id === evt.id ? updated : e);
-    setEvents(updatedEvts);
-    localStorage.setItem('gofamint_specialEvents_backup', JSON.stringify(updatedEvts));
+    try {
+      await saveSpecialEvent(updated);
+      setEvents(events.map(e => e.id === evt.id ? updated : e));
+    } catch (error: any) {
+      console.error('Failed to change event honors inclusion:', error);
+      alert(`Could not update punctuality honors: ${error?.message || 'Unknown error'}`);
+    }
   };
 
   // If activeEvent changes and selectedDate is not in daySchedules, adjust selectedDate
@@ -403,6 +374,7 @@ export const SpecialEventsView: React.FC<SpecialEventsViewProps> = ({
       }
     } catch (err) {
       console.error('Failed to delete special event:', err);
+      alert(`Could not delete the event: ${(err as any)?.message || 'Unknown error'}`);
     } finally {
       setEventToDelete(null);
     }
@@ -1565,10 +1537,13 @@ export const SpecialEventsView: React.FC<SpecialEventsViewProps> = ({
                           {rec ? (
                             <button
                               onClick={async () => {
-                                await deleteSpecialEventAttendance(rec.id);
-                                const updated = attendance.filter(a => a.id !== rec.id);
-                                setAttendance(updated);
-                                localStorage.setItem('gofamint_specialAttendance_backup', JSON.stringify(updated));
+                                try {
+                                  await deleteSpecialEventAttendance(rec.id);
+                                  setAttendance(attendance.filter(a => a.id !== rec.id));
+                                } catch (error: any) {
+                                  console.error('Failed to remove special-event attendance:', error);
+                                  alert(`Could not remove attendance: ${error?.message || 'Unknown error'}`);
+                                }
                               }}
                               className="text-red-600 hover:text-red-800 text-[11px] font-bold cursor-pointer"
                             >

@@ -1,14 +1,60 @@
 import express, { type Request, type Response } from 'express';
 import path from 'path';
 import fs from 'fs';
+import { GoogleGenAI } from '@google/genai';
 import { GOFAMINT_ROLES, getBearerToken, getSupabaseAdmin, provisionSupabaseUserProfile, type GofamintRole } from './supabaseAdmin.js';
+import { hasInitializedSystem } from '../utils/systemInitialization.js';
 
 const EXEC: GofamintRole[] = ['SUPER_ADMIN', 'GENERAL_SUPERINTENDENT', 'GENERAL_SECRETARY'];
 const APPROVERS: GofamintRole[] = ['SUPER_ADMIN', 'GENERAL_SUPERINTENDENT', 'GENERAL_SECRETARY'];
 const ADMIN_PROFILES = new Set<GofamintRole>([...EXEC, 'ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY', 'TREASURER', 'RECORD_OFFICER', 'ENROLLMENT_OFFICER']);
 const CLASS_ADMINS: GofamintRole[] = ['SUPER_ADMIN', 'GENERAL_SUPERINTENDENT', 'GENERAL_SECRETARY', 'ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY'];
+const CLASS_CREATORS: GofamintRole[] = ['ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY'];
+const CLASS_PORTAL_ROLES: GofamintRole[] = ['TEACHER', 'CLASS_SECRETARY', 'TEACHER / CLASS_SECRETARY'];
 const WORKER_DIRECTORATE_ROLES = new Set<GofamintRole>([...ADMIN_PROFILES, 'WORKER']);
-type Caller = { id: string; email: string | null; role: GofamintRole };
+const WORKER_DIRECTORY_READERS = new Set<GofamintRole>([...WORKER_DIRECTORATE_ROLES, ...CLASS_PORTAL_ROLES]);
+type Caller = { id: string; email: string | null; role: GofamintRole; classId: string | null };
+
+function limitedText(value: unknown, maxLength: number): string {
+  return typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
+}
+
+function buildAssistantPrompt(body: Record<string, unknown>): string {
+  const type = limitedText(body.type, 40);
+  if (type === 'CHAT') {
+    const prompt = limitedText(body.prompt, 4_000);
+    if (!prompt) throw new Error('A non-empty assistant prompt is required.');
+    const history = Array.isArray(body.history)
+      ? body.history.slice(-10).map((item: any) => `${limitedText(item?.role, 20)}: ${limitedText(item?.content, 1_000)}`).join('\n')
+      : '';
+    const context = body.contextData == null ? '' : limitedText(JSON.stringify(body.contextData), 12_000);
+    return [
+      'You are the GOFAMINT House of Favour Sunday School administrative assistant. Be concise, pastoral, accurate, and never invent attendance or financial records.',
+      history ? `Recent conversation:\n${history}` : '',
+      context ? `Application context:\n${context}` : '',
+      `Current request:\n${prompt}`,
+    ].filter(Boolean).join('\n\n');
+  }
+
+  const memberName = limitedText(body.memberName, 120) || 'Beloved in Christ';
+  const lessonTopic = limitedText(body.lessonTopic, 300) || 'Walking with God';
+  const memoryVerse = limitedText(body.memoryVerse, 500);
+  const memoryVerseRef = limitedText(body.memoryVerseRef, 120);
+  const prayerRequest = limitedText(body.prayerRequest, 500);
+  const teacherName = limitedText(body.teacherName, 120) || 'Sunday School Secretary';
+  const weeksAbsent = Number.isFinite(Number(body.weeksAbsent)) ? Math.max(0, Math.min(52, Number(body.weeksAbsent))) : 0;
+
+  if (type === 'WHATSAPP_FOLLOWUP') {
+    return `Write a warm, concise WhatsApp pastoral follow-up for ${memberName}, absent for ${weeksAbsent} week(s). Lesson: ${lessonTopic}. Memory verse: ${memoryVerseRef} ${memoryVerse}. Prayer request: ${prayerRequest || 'not provided'}. Sign as ${teacherName}. Do not claim that contact or prayer already occurred.`;
+  }
+  if (type === 'PASTORAL_REPORT') {
+    return `Write a concise pastoral care report for ${memberName}. Status: ${limitedText(body.status, 100)}. Consecutive weeks absent: ${weeksAbsent}. Prayer request: ${prayerRequest || 'not provided'}. Use only these facts and clearly label any recommended next action.`;
+  }
+  if (type === 'LESSON_INSIGHTS') {
+    return `Provide concise, biblically grounded Sunday School teaching insights for the topic "${lessonTopic}". Scripture/memory verse: ${memoryVerseRef} ${memoryVerse}. Include three discussion prompts and one practical application.`;
+  }
+  throw new Error('Unsupported assistant request type.');
+}
 
 async function caller(req: Request, res: Response, allowed?: GofamintRole[]): Promise<Caller | null> {
   const token = getBearerToken(req.headers.authorization);
@@ -16,9 +62,9 @@ async function caller(req: Request, res: Response, allowed?: GofamintRole[]): Pr
   const db = getSupabaseAdmin();
   const { data: auth, error: authError } = await db.auth.getUser(token);
   if (authError || !auth.user) { res.status(401).json({ error: 'Invalid or expired sign-in token.' }); return null; }
-  const { data: p, error } = await db.from('profiles').select('id,email,role,is_approved').eq('id', auth.user.id).maybeSingle();
+  const { data: p, error } = await db.from('profiles').select('id,email,role,is_approved,class_id').eq('id', auth.user.id).maybeSingle();
   if (error || !p || !p.is_approved || !GOFAMINT_ROLES.includes(p.role as GofamintRole)) { res.status(403).json({ error: 'An approved application profile is required.' }); return null; }
-  const result = { id: p.id, email: p.email || auth.user.email || null, role: p.role as GofamintRole };
+  const result = { id: p.id, email: p.email || auth.user.email || null, role: p.role as GofamintRole, classId: p.class_id || null };
   if (allowed && !allowed.includes(result.role)) { res.status(403).json({ error: 'You do not have permission for this operation.' }); return null; }
   return result;
 }
@@ -30,6 +76,24 @@ function email(raw: string) { const v = String(raw || '').trim(); return v.inclu
 function initialYear(id: string) {
   const names = ['First Quarter', 'Second Quarter', 'Third Quarter', 'Fourth Quarter'];
   return { id, yearName: `${new Date().getFullYear()}–${new Date().getFullYear() + 1}`, overallTheme: '', startDate: '', endDate: '', activeQuarterNumber: 1, isInitialized: false, departments: [], updatedAt: new Date().toISOString(), quarters: [1,2,3,4].map(n => ({ id: `Q${n}_${id}`, quarterNumber:n, quarterName:names[n-1], quarterTheme:'', startDate:'', endDate:'', sharingAdmonitionDate:'', totalLessonWeeks:12, hasSharingAdmonitionWeek:true, status:n===1?'ACTIVE':'UPCOMING', isDistributed:false, lessons:[], updatedAt:new Date().toISOString() })) };
+}
+
+async function readSystemInitializationState(db: ReturnType<typeof getSupabaseAdmin>): Promise<{ initialized: boolean; schemaVersion: number; inferredFromExistingData: boolean }> {
+  const { data: config, error: configError } = await db.from('system_config')
+    .select('initialized,schema_version').eq('id', 'initialization').maybeSingle();
+  if (configError) throw configError;
+  if (config?.initialized === true) {
+    return { initialized: true, schemaVersion: config.schema_version || 0, inferredFromExistingData: false };
+  }
+
+  const checks = await Promise.all([
+    db.from('profiles').select('id', { count: 'exact', head: true }),
+    db.from('sunday_school_years').select('id', { count: 'exact', head: true }),
+    db.from('classes').select('id', { count: 'exact', head: true }),
+  ]);
+  for (const check of checks) if (check.error) throw check.error;
+  const inferred = hasInitializedSystem(false, checks.map(check => check.count || 0));
+  return { initialized: inferred, schemaVersion: config?.schema_version || 0, inferredFromExistingData: inferred };
 }
 
 export function createApp() {
@@ -44,15 +108,35 @@ export function createApp() {
       timestamp: Date.now()
     });
   });
+  app.post('/api/gemini/assistant', async (req, res) => {
+    try {
+      const c = await caller(req, res);
+      if (!c) return;
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) return res.status(503).json({ error: 'The Gemini assistant is not configured on this server.' });
+      const contents = buildAssistantPrompt(req.body || {});
+      const ai = new GoogleGenAI({ apiKey });
+      const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+      const response = await ai.models.generateContent({ model, contents });
+      const generatedText = response.text?.trim();
+      if (!generatedText) throw new Error('Gemini returned an empty response.');
+      res.json({ text: generatedText, model });
+    } catch (e: any) {
+      const message = e?.message || 'The Gemini assistant request failed.';
+      const status = message.includes('required') || message.includes('Unsupported') ? 400 : 502;
+      console.error('[Server] Gemini assistant error:', message);
+      res.status(status).json({ error: message });
+    }
+  });
   app.get('/api/system/status', async (_q, r) => {
-    try { const { data, error } = await getSupabaseAdmin().from('system_config').select('initialized,schema_version').eq('id','initialization').maybeSingle(); if (error) throw error; r.json({ initialized: data?.initialized === true, schemaVersion: data?.schema_version || 0 }); }
+    try { r.json(await readSystemInitializationState(getSupabaseAdmin())); }
     catch (e:any) { r.status(500).json({ error: e.message || 'Could not read system status.' }); }
   });
   app.post('/api/admin/bootstrap', async (req, r) => {
     const db = getSupabaseAdmin(); let userId: string | null = null; let bootstrapLockClaimed = false;
     try {
-      const { data: state, error } = await db.from('system_config').select('initialized').eq('id','initialization').maybeSingle(); if (error) throw error;
-      if (state?.initialized) return r.status(409).json({ error: 'System has already been initialized.' });
+      const state = await readSystemInitializationState(db);
+      if (state.initialized) return r.status(409).json({ error: 'System has already been initialized or contains existing records.' });
       const { bootstrapSecret, churchName, superintendent } = req.body || {}; const officer = superintendent; const role: GofamintRole = 'GENERAL_SUPERINTENDENT';
       if (!process.env.BOOTSTRAP_SECRET || bootstrapSecret !== process.env.BOOTSTRAP_SECRET) return r.status(401).json({ error: 'Invalid bootstrap secret.' });
       if (!String(churchName || '').trim() || !officer?.email || !officer?.password || !officer?.displayName || officer.password.length < 6) return r.status(400).json({ error: 'Church name, officer email, password (minimum 6 characters), and full name are required.' });
@@ -124,36 +208,31 @@ export function createApp() {
     try {
       const c = await caller(req, r, APPROVERS);
       if (!c) return;
-      const id = req.body?.targetUid;
-      const emailVal = req.body?.email ? String(req.body.email).trim().toLowerCase() : undefined;
-      const roleType = req.body?.roleType ? String(req.body.roleType).trim() : undefined;
-      if (!id && !emailVal && !roleType) return r.status(400).json({ error: 'targetUid, email, or roleType is required.' });
+      const id = limitedText(req.body?.targetUid, 100);
+      if (!id) return r.status(400).json({ error: 'A specific targetUid is required.' });
       const now = new Date().toISOString();
       const db = getSupabaseAdmin();
+      const { data: target, error: targetError } = await db.from('profiles').select('id,email,role').eq('id', id).maybeSingle();
+      if (targetError) throw targetError;
+      if (!target) return r.status(404).json({ error: 'Target user identity not found.' });
 
-      // 1. Update profiles table (admin credentials have service role bypass)
-      if (id) {
-        await db.from('profiles').update({ is_approved: true, approved_by: c.id, approved_at: now, updated_at: now }).eq('id', id);
-      }
-      if (emailVal) {
-        await db.from('profiles').update({ is_approved: true, approved_by: c.id, approved_at: now, updated_at: now }).eq('email', emailVal);
-      }
-      if (roleType) {
-        await db.from('profiles').update({ is_approved: true, approved_by: c.id, approved_at: now, updated_at: now }).eq('role', roleType);
-      }
+      const { data: updatedProfiles, error: profileError } = await db.from('profiles')
+        .update({ is_approved: true, approved_by: c.id, approved_at: now, updated_at: now })
+        .eq('id', id)
+        .select('id');
+      if (profileError) throw profileError;
+      if (updatedProfiles?.length !== 1) throw new Error('The target application profile was not updated.');
 
-      // 2. Update admin_profiles table
-      if (id) {
-        await db.from('admin_profiles').update({ is_approved: true, approved_by: c.id, approved_at: now, updated_at: now }).or(`id.eq.${id},profile_id.eq.${id}`);
-      }
-      if (emailVal) {
-        await db.from('admin_profiles').update({ is_approved: true, approved_by: c.id, approved_at: now, updated_at: now }).eq('username', emailVal);
-      }
-      if (roleType) {
-        await db.from('admin_profiles').update({ is_approved: true, approved_by: c.id, approved_at: now, updated_at: now }).eq('role_type', roleType);
+      if (ADMIN_PROFILES.has(target.role as GofamintRole)) {
+        const { data: updatedAdmins, error: adminError } = await db.from('admin_profiles')
+          .update({ is_approved: true, approved_by: c.id, approved_at: now, updated_at: now })
+          .or(`id.eq.${id},profile_id.eq.${id}`)
+          .select('id');
+        if (adminError) throw adminError;
+        if (updatedAdmins?.length !== 1) throw new Error('The matching administrative profile was not updated.');
       }
 
-      await audit(c, 'APPROVE_STAFF_LOGIN', { targetUserId: id, email: emailVal, roleType }, 'profiles', id || emailVal || roleType || 'staff').catch(() => {});
+      await audit(c, 'APPROVE_STAFF_LOGIN', { targetUserId: id, targetEmail: target.email, targetRole: target.role }, 'profiles', id);
       r.json({ success: true, message: 'Officer profile approved and activated.' });
     } catch (e: any) {
       console.error('[Server] Approve user error:', e);
@@ -161,6 +240,74 @@ export function createApp() {
     }
   });
   app.post('/api/admin/delete-user',async(req,r)=>{try{const c=await caller(req,r,EXEC);if(!c)return;const id=req.body?.targetUid;if(!id||id===c.id)return r.status(400).json({error:'A different targetUid is required.'});const db=getSupabaseAdmin();const {data:t,error}=await db.from('profiles').select('email,role').eq('id',id).maybeSingle();if(error||!t)return r.status(404).json({error:'Target user identity not found.'});if(c.role==='GENERAL_SECRETARY'&&['GENERAL_SUPERINTENDENT','GENERAL_SECRETARY'].includes(t.role))return r.status(403).json({error:'Only the General Superintendent can delete executive officer identities.'});const x=await db.auth.admin.deleteUser(id);if(x.error)throw x.error;await audit(c,'DELETE_STAFF_IDENTITY',{targetUserId:id,targetEmail:t.email,targetRole:t.role},'profiles',id);r.json({success:true,message:'Staff login deleted; organizational data was preserved.'});}catch(e:any){r.status(500).json({error:e.message||'Failed to delete user.'});}});
+  app.patch('/api/admin/users/:id', async (req, r) => {
+    const db = getSupabaseAdmin();
+    try {
+      const c = await caller(req, r, EXEC); if (!c) return;
+      const targetId = limitedText(req.params.id, 100);
+      const { data: target, error: targetError } = await db.from('profiles')
+        .select('id,email,display_name,role').eq('id', targetId).maybeSingle();
+      if (targetError) throw targetError;
+      if (!target) return r.status(404).json({ error: 'Staff login was not found.' });
+      if (c.role === 'GENERAL_SECRETARY' && ['SUPER_ADMIN', 'GENERAL_SUPERINTENDENT', 'GENERAL_SECRETARY'].includes(target.role)) {
+        return r.status(403).json({ error: 'Only the General Superintendent can edit executive officer logins.' });
+      }
+
+      const displayName = req.body?.displayName === undefined ? undefined : limitedText(req.body.displayName, 160);
+      const requestedEmail = req.body?.email === undefined ? undefined : limitedText(req.body.email, 320).toLowerCase();
+      const password = req.body?.password === undefined ? undefined : String(req.body.password);
+      const isClassLogin = CLASS_PORTAL_ROLES.includes(target.role as GofamintRole);
+      if (displayName !== undefined && !displayName) return r.status(400).json({ error: 'Full name cannot be empty.' });
+      if (requestedEmail !== undefined && (!requestedEmail.includes('@') || isClassLogin)) {
+        return r.status(400).json({ error: isClassLogin ? 'Class login IDs cannot be changed here; only their display name and password can be updated.' : 'A valid email address is required.' });
+      }
+      if (password !== undefined && password.length < 6) return r.status(400).json({ error: 'A new password must contain at least 6 characters.' });
+      if (displayName === undefined && requestedEmail === undefined && password === undefined) return r.status(400).json({ error: 'Provide at least one login detail to update.' });
+
+      const now = new Date().toISOString();
+      const profilePatch: Record<string, unknown> = { updated_at: now };
+      if (displayName !== undefined) profilePatch.display_name = displayName;
+      if (requestedEmail !== undefined) profilePatch.email = requestedEmail;
+      const { error: profileError } = await db.from('profiles').update(profilePatch).eq('id', targetId);
+      if (profileError) throw profileError;
+
+      if (ADMIN_PROFILES.has(target.role as GofamintRole)) {
+        const adminPatch: Record<string, unknown> = { updated_at: now };
+        if (displayName !== undefined) adminPatch.profile_name = displayName;
+        if (requestedEmail !== undefined) adminPatch.username = requestedEmail;
+        const { error: adminError } = await db.from('admin_profiles').update(adminPatch).or(`id.eq.${targetId},profile_id.eq.${targetId}`);
+        if (adminError) {
+          await db.from('profiles').update({ email: target.email, display_name: target.display_name, updated_at: now }).eq('id', targetId);
+          throw adminError;
+        }
+      }
+
+      const authPatch: Record<string, unknown> = {};
+      if (displayName !== undefined) authPatch.user_metadata = { display_name: displayName };
+      if (requestedEmail !== undefined) { authPatch.email = requestedEmail; authPatch.email_confirm = true; }
+      if (password !== undefined) authPatch.password = password;
+      const { error: authError } = await db.auth.admin.updateUserById(targetId, authPatch);
+      if (authError) {
+        await db.from('profiles').update({ email: target.email, display_name: target.display_name, updated_at: now }).eq('id', targetId);
+        if (ADMIN_PROFILES.has(target.role as GofamintRole)) {
+          await db.from('admin_profiles').update({ username: target.email, profile_name: target.display_name || target.email, updated_at: now }).or(`id.eq.${targetId},profile_id.eq.${targetId}`);
+        }
+        throw authError;
+      }
+
+      await audit(c, 'UPDATE_STAFF_LOGIN', {
+        targetUserId: targetId,
+        targetRole: target.role,
+        emailChanged: requestedEmail !== undefined,
+        displayNameChanged: displayName !== undefined,
+        passwordReset: password !== undefined,
+      }, 'profiles', targetId);
+      r.json({ success: true, message: 'Staff login details updated successfully.' });
+    } catch (e: any) {
+      console.error('[Server] update staff login error:', e);
+      r.status(500).json({ error: e.message || 'Failed to update staff login.' });
+    }
+  });
   app.post('/api/admin/log-oversight',async(req,r)=>{try{const c=await caller(req,r,APPROVERS);if(!c)return;const {targetPortal,targetClassId,action}=req.body||{};await audit(c,'OVERSIGHT_ACCESS',{targetPortal:targetPortal||'DIRECTORATE',targetClassId:targetClassId||null,details:action||'Entered Oversight Mode'},'oversight',targetClassId);r.json({success:true,timestamp:new Date().toISOString()});}catch(e:any){r.status(500).json({error:e.message||'Failed to log oversight access.'});}});
   app.post('/api/admin/reset-year', async (req, r) => {
     try {
@@ -188,7 +335,7 @@ export function createApp() {
   app.post('/api/admin/classes/mass-create', async (req, r) => {
     const db = getSupabaseAdmin();
     try {
-      const c = await caller(req, r, CLASS_ADMINS);
+      const c = await caller(req, r, CLASS_CREATORS);
       if (!c) return;
       const { department, suffixes, classes: customClasses } = req.body || {};
       const currentYear = new Date().getFullYear();
@@ -409,13 +556,18 @@ export function createApp() {
     try {
       const c = await caller(req, r);
       if (!c) return;
-      const { data, error } = await db.from('classes').select('*').order('id');
+      let query = db.from('classes').select('*').order('id');
+      if (CLASS_PORTAL_ROLES.includes(c.role)) {
+        if (!c.classId) return r.json({ success: true, classes: [] });
+        query = query.eq('id', c.classId);
+      }
+      const { data, error } = await query;
       if (error) throw error;
       const classes = (data || []).map((row: any) => ({
         ...(row.data && typeof row.data === 'object' ? row.data : {}),
         id: row.id,
         department: row.data?.department || row.department_id || 'Adult',
-        approvalStatus: row.data?.approvalStatus || 'APPROVED',
+        approvalStatus: row.data?.approvalStatus || 'PENDING_REGISTRATION',
         approvedBy: row.data?.approvedBy || undefined,
         approvedAt: row.data?.approvedAt || undefined,
         createdAt: row.created_at || row.data?.createdAt,
@@ -459,9 +611,11 @@ export function createApp() {
       r.status(500).json({ error: e.message || 'Failed to delete worker.' });
     }
   });
-  app.get('/api/workers/directory', async (_req, r) => {
+  app.get('/api/workers/directory', async (req, r) => {
     const db = getSupabaseAdmin();
     try {
+      const c = await caller(req, r, Array.from(WORKER_DIRECTORY_READERS));
+      if (!c) return;
       const { data, error } = await db.from('workers').select('*').order('created_at');
       if (error) throw error;
       const workers = (data || []).map((row: any) => ({
@@ -556,9 +710,11 @@ export function createApp() {
       const eventId = req.params.id;
       if (!eventId) return r.status(400).json({ error: 'Event ID is required.' });
 
-      await db.from('special_event_attendance').delete().eq('event_id', eventId);
-      const { error } = await db.from('special_events').delete().eq('id', eventId);
+      const { error: attendanceError } = await db.from('special_event_attendance').delete().eq('event_id', eventId);
+      if (attendanceError) throw attendanceError;
+      const { data: deleted, error } = await db.from('special_events').delete().eq('id', eventId).select('id');
       if (error) throw error;
+      if (!deleted?.length) return r.status(404).json({ error: 'Special event was not found or was already deleted.' });
 
       await audit(c, 'DELETE_SPECIAL_EVENT', { eventId }, 'special_events', eventId);
       r.json({ success: true, message: `Event ${eventId} deleted successfully.` });
@@ -655,6 +811,35 @@ export function createApp() {
     }
   });
 
-  app.get('/api/schema',(_q,r)=>{const file=path.join(process.cwd(),'src','db','schema.sql');return fs.existsSync(file)?r.type('text/plain').send(fs.readFileSync(file,'utf8')):r.status(404).send('Schema file not found.');});
+  if (process.env.NODE_ENV !== 'production') {
+    app.get('/api/schema',(_q,r)=>{const file=path.join(process.cwd(),'src','db','schema.sql');return fs.existsSync(file)?r.type('text/plain').send(fs.readFileSync(file,'utf8')):r.status(404).send('Schema file not found.');});
+  }
+  app.delete('/api/admin/special-events/attendance/:id', async (req, r) => {
+    const db = getSupabaseAdmin();
+    try {
+      const c = await caller(req, r, Array.from(ADMIN_PROFILES));
+      if (!c) return;
+      const recordId = limitedText(req.params.id, 200);
+      if (!recordId) return r.status(400).json({ error: 'Attendance record ID is required.' });
+      const { data: deleted, error } = await db.from('special_event_attendance').delete().eq('id', recordId).select('id');
+      if (error) throw error;
+      if (!deleted?.length) return r.status(404).json({ error: 'Attendance record was not found or was already deleted.' });
+      await audit(c, 'DELETE_SPECIAL_EVENT_ATTENDANCE', { recordId }, 'special_event_attendance', recordId);
+      r.json({ success: true, message: 'Special-event attendance removed.' });
+    } catch (e: any) {
+      console.error('[Server] delete special event attendance error:', e);
+      r.status(500).json({ error: e.message || 'Failed to delete special-event attendance.' });
+    }
+  });
+  app.use('/api', (req, res) => {
+    res.status(404).json({ error: `API route not found: ${req.method} ${req.originalUrl}` });
+  });
+  app.use((error: any, _req: Request, res: Response, _next: express.NextFunction) => {
+    const isInvalidJson = error instanceof SyntaxError && 'body' in error;
+    console.error('[Server] Request handling error:', error?.message || error);
+    res.status(isInvalidJson ? 400 : 500).json({
+      error: isInvalidJson ? 'Request body must be valid JSON.' : 'Unexpected server error.',
+    });
+  });
   return app;
 }
