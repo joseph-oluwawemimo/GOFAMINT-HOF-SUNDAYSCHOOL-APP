@@ -66,7 +66,7 @@ export const AsstGeneralSecretaryView: React.FC<AsstGeneralSecretaryViewProps> =
   ]);
 
   const refreshWorkerCount = async () => {
-    const workers = await getAllWorkers();
+    const workers = await getAllWorkers(true);
     setTotalWorkersCount(workers.length);
   };
 

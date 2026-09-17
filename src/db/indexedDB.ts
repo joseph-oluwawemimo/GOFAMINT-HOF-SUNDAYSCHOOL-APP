@@ -632,7 +632,7 @@ export async function initializeDatabase(): Promise<{
     // Schema version gate: only run a fresh-system wipe when the local DB
     // has never been opened under this schema version. This prevents both
     // the first-ever open AND post-factory-reset from carrying stale data.
-    const CURRENT_SCHEMA = 'gofamint_schema_v6';
+    const CURRENT_SCHEMA = 'gofamint_schema_v7';
     if (localStorage.getItem(CURRENT_SCHEMA) !== 'true') {
       await resetToFreshCleanSystem('UNINITIALIZED_BLANK');
       localStorage.setItem(CURRENT_SCHEMA, 'true');
@@ -3896,6 +3896,7 @@ export async function performLocalFactoryReset(): Promise<void> {
   await resetToFreshCleanSystem('UNINITIALIZED_BLANK');
   
   // 2. Clear the schema version flag so next init starts fresh
+  localStorage.removeItem('gofamint_schema_v7');
   localStorage.removeItem('gofamint_schema_v6');
   // Also remove legacy flag
   localStorage.removeItem('gofamint_clean_zero_init_v5');
