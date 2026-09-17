@@ -24,12 +24,14 @@ import { ClassProfile } from '../../types';
 const ASSIGNABLE_ADMIN_ROLES = [
   { value: 'GENERAL_SUPERINTENDENT', label: 'General Superintendent (Chief Executive)' },
   { value: 'GENERAL_SECRETARY', label: 'General Secretary' },
+  { value: 'DEPARTMENT_SUPERINTENDENT', label: 'Departmental Superintendent (Read-only Analytics)' },
   { value: 'ASST_GENERAL_SECRETARY', label: 'Asst. General Secretary (Workers Directorate)' },
   { value: 'TREASURER', label: 'Treasurer (Finance & Collections)' },
   { value: 'RECORD_OFFICER', label: 'Record Officer (Sunday School Collation)' },
   { value: 'ENROLLMENT_OFFICER', label: 'Enrollment Officer (Student Registration)' },
   { value: 'WORKER', label: 'Worker (Directorate Member)' },
 ];
+const isClassAccount = (roleType?: string) => ['TEACHER', 'CLASS_SECRETARY', 'TEACHER / CLASS_SECRETARY'].includes(roleType || '');
 
 interface CloudUserManagementPanelProps {
   recoveryOnly?: boolean;
@@ -49,13 +51,14 @@ export const CloudUserManagementPanel: React.FC<CloudUserManagementPanelProps> =
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [roleType, setRoleType] = useState('ASST_GENERAL_SECRETARY');
+  const [departmentId, setDepartmentId] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   // Class login form state
   const [availableClasses, setAvailableClasses] = useState<ClassProfile[]>([]);
   const [selectedClassId, setSelectedClassId] = useState('');
-  const [classPassword, setClassPassword] = useState('123456');
+  const [classPassword, setClassPassword] = useState('');
   const [customClassId, setCustomClassId] = useState('');
   const [customClassName, setCustomClassName] = useState('');
   const [customClassDept, setCustomClassDept] = useState('Adult');
@@ -84,6 +87,8 @@ export const CloudUserManagementPanel: React.FC<CloudUserManagementPanelProps> =
         if (!selectedClassId || !cls.some(c => c.id === selectedClassId)) {
           setSelectedClassId(cls[0].id);
         }
+        const departments = Array.from(new Set(cls.map(c => String(c.department || '').trim()).filter(Boolean))).sort();
+        if (!departmentId || !departments.includes(departmentId)) setDepartmentId(departments[0] || '');
       }
     } catch (e) {
       console.warn('Could not load classes directory:', e);
@@ -101,13 +106,19 @@ export const CloudUserManagementPanel: React.FC<CloudUserManagementPanelProps> =
 
   const fetchUsers = async () => {
     setIsLoadingUsers(true);
+    setDeleteMessage(null);
     try {
       const res = await listStaffUsers();
       if (res.success && res.users) {
         setStaffUsers(res.users);
+      } else {
+        setStaffUsers([]);
+        setDeleteMessage(res.error || 'The account directory could not be loaded.');
       }
-    } catch (e) {
-      console.warn('Failed to load users:', e);
+    } catch (e: any) {
+      console.error('Failed to load users:', e);
+      setStaffUsers([]);
+      setDeleteMessage(e?.message || 'The account directory could not be loaded.');
     } finally {
       setIsLoadingUsers(false);
     }
@@ -142,13 +153,18 @@ export const CloudUserManagementPanel: React.FC<CloudUserManagementPanelProps> =
       setResult({ ok: false, message: 'Password must be at least 6 characters.' });
       return;
     }
+    if (roleType === 'DEPARTMENT_SUPERINTENDENT' && !departmentId) {
+      setResult({ ok: false, message: 'Select the department this superintendent will oversee.' });
+      return;
+    }
 
     setIsSubmitting(true);
     const params: any = {
       email: identifier.trim(),
       password,
       roleType,
-      displayName: displayName.trim() || undefined
+      displayName: displayName.trim() || undefined,
+      departmentId: roleType === 'DEPARTMENT_SUPERINTENDENT' ? departmentId : undefined
     };
 
     const res = await createStaffLogin(params);
@@ -216,6 +232,7 @@ export const CloudUserManagementPanel: React.FC<CloudUserManagementPanelProps> =
         setCustomClassId('');
         setCustomClassName('');
       }
+      setClassPassword('');
       loadClasses();
       fetchUsers();
     } else {
@@ -254,7 +271,7 @@ export const CloudUserManagementPanel: React.FC<CloudUserManagementPanelProps> =
   const handleEditLogin = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!editTarget || !editDisplayName.trim()) return;
-    const isClassLogin = ['TEACHER', 'CLASS_SECRETARY', 'TEACHER / CLASS_SECRETARY'].includes(editTarget.roleType);
+    const isClassLogin = isClassAccount(editTarget.roleType);
     if (!isClassLogin && !editEmail.trim()) {
       setDeleteMessage('A valid staff email is required.');
       return;
@@ -393,6 +410,25 @@ export const CloudUserManagementPanel: React.FC<CloudUserManagementPanelProps> =
                   </select>
                 </div>
               </div>
+
+              {roleType === 'DEPARTMENT_SUPERINTENDENT' && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Assigned Department</label>
+                  <select
+                    value={departmentId}
+                    onChange={(e) => setDepartmentId(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-amber-400 outline-hidden font-medium"
+                    disabled={isSubmitting || availableClasses.length === 0}
+                  >
+                    {Array.from(new Set(availableClasses.map(c => String(c.department || '').trim()).filter(Boolean))).sort().map(department => (
+                      <option key={department} value={department}>{department}</option>
+                    ))}
+                  </select>
+                  {availableClasses.length === 0 && <p className="mt-1 text-xs text-red-700">No department is available. Create its classes first.</p>}
+                  <p className="mt-1 text-xs text-slate-500">This account can only read analytics for classes and records in the selected department.</p>
+                </div>
+              )}
 
               <div className="grid sm:grid-cols-2 gap-3.5">
                 <div>
@@ -600,7 +636,7 @@ export const CloudUserManagementPanel: React.FC<CloudUserManagementPanelProps> =
                   Class Access Password (for Teachers & Secretary) <span className="text-purple-600">*</span>
                 </label>
                 <input
-                  type="text"
+                  type="password"
                   value={classPassword}
                   onChange={(e) => setClassPassword(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-600 outline-hidden font-mono"
@@ -669,7 +705,7 @@ export const CloudUserManagementPanel: React.FC<CloudUserManagementPanelProps> =
                     </h4>
                     <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden bg-white">
                       {staffUsers
-                        .filter(u => u.roleType !== 'TEACHER' && u.roleType !== 'CLASS_SECRETARY')
+                        .filter(u => !isClassAccount(u.roleType))
                         .map((u) => (
                           <div key={u.uid} className="p-3.5 flex items-center justify-between hover:bg-slate-50 transition">
                             <div className="space-y-0.5">
@@ -736,7 +772,7 @@ export const CloudUserManagementPanel: React.FC<CloudUserManagementPanelProps> =
                     </h4>
                     <div className="divide-y divide-slate-100 border border-indigo-200 rounded-xl overflow-hidden bg-white">
                       {staffUsers
-                        .filter(u => u.roleType === 'TEACHER' || u.roleType === 'CLASS_SECRETARY')
+                        .filter(u => isClassAccount(u.roleType))
                         .map((u) => (
                           <div key={u.uid} className="p-3.5 flex items-center justify-between hover:bg-indigo-50/50 transition">
                             <div className="space-y-0.5">
@@ -776,7 +812,7 @@ export const CloudUserManagementPanel: React.FC<CloudUserManagementPanelProps> =
                             </div>
                           </div>
                         ))}
-                      {staffUsers.filter(u => u.roleType === 'TEACHER' || u.roleType === 'CLASS_SECRETARY').length === 0 && (
+                      {staffUsers.filter(u => isClassAccount(u.roleType)).length === 0 && (
                         <p className="p-4 text-xs text-slate-500 text-center">No class logins provisioned yet.</p>
                       )}
                     </div>
@@ -799,7 +835,7 @@ export const CloudUserManagementPanel: React.FC<CloudUserManagementPanelProps> =
               <label className="block text-xs font-bold text-slate-700 mb-1">Full / Display Name</label>
               <input value={editDisplayName} onChange={e => setEditDisplayName(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" disabled={isEditing} />
             </div>
-            {!['TEACHER', 'CLASS_SECRETARY', 'TEACHER / CLASS_SECRETARY'].includes(editTarget.roleType) && (
+            {!isClassAccount(editTarget.roleType) && (
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Login Email</label>
                 <input type="email" value={editEmail} onChange={e => setEditEmail(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" disabled={isEditing} />

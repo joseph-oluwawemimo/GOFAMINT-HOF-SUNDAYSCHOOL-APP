@@ -49,15 +49,11 @@ export interface ParsedMemberRow {
   validationError?: string;
 }
 
-const SAMPLE_CSV_TEXT = `Name, Phone Number, Type (Optional)
-Bro. John Adebayo, 08012345678, Student
-Sis. Mary Johnson, 08023456789, Student
-Bro. Peter James, 08034567890, Student
-Sister Blessing Adeleke, 08051234567, Visitor
-Bro. Timothy Kolawole, 08092223344, Student
-Sis. Grace Olatunji, 07031122334, Visitor
-Deacon Sunday Ogundipe, 08145566778, Student
-Sis. Comfort Eze, 09067788990, Student`;
+const SAMPLE_CSV_TEXT = `Name, Phone Number
+Bro. John Adebayo, 08012345678
+Sis. Mary Johnson, 08023456789
+Bro. Peter James, 08034567890
+Sister Blessing Adeleke, 08051234567`;
 
 // Robust line parser that supports tabs, commas, pipes, semicolons, and quotes
 function parseDelimitedLine(line: string): string[] {
@@ -147,7 +143,6 @@ export const BulkMemberImportModal: React.FC<BulkMemberImportModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'PASTE' | 'UPLOAD'>('PASTE');
   const [pasteText, setPasteText] = useState(SAMPLE_CSV_TEXT);
-  const [defaultMemberType, setDefaultMemberType] = useState<MemberType>('STUDENT');
   const [defaultStartWeek, setDefaultStartWeek] = useState<number>(currentWeek || 1);
   const [skipDuplicates, setSkipDuplicates] = useState(true);
   const [isImporting, setIsImporting] = useState(false);
@@ -187,7 +182,6 @@ export const BulkMemberImportModal: React.FC<BulkMemberImportModalProps> = ({
       let sn = `${idx + 1}`;
       let fullName = '';
       let rawPhone = '';
-      let rawType = '';
       let rawWeek = '';
       let rawAddress = '';
       let rawOccupation = '';
@@ -197,14 +191,12 @@ export const BulkMemberImportModal: React.FC<BulkMemberImportModalProps> = ({
         sn = parts[0];
         fullName = parts[1] || '';
         rawPhone = parts[2] || '';
-        rawType = parts[3] || '';
         rawWeek = parts[4] || '';
       }
       // Pattern 2: Name, Phone, Type, Week/Address
       else if (parts.length >= 2) {
         fullName = parts[0] || '';
         rawPhone = parts[1] || '';
-        rawType = parts[2] || '';
         rawWeek = parts[3] || '';
         rawAddress = parts[4] || '';
       }
@@ -224,15 +216,6 @@ export const BulkMemberImportModal: React.FC<BulkMemberImportModalProps> = ({
       fullName = fullName.replace(/^\d+[\.\)\-]\s*/, '').trim();
 
       const phone = cleanPhoneNumber(rawPhone);
-
-      // Determine Member Type
-      let memberType: MemberType = defaultMemberType;
-      const typeLower = (rawType || '').toLowerCase().trim();
-      if (typeLower.includes('visit') || typeLower.includes('guest') || typeLower === 'v') {
-        memberType = 'VISITOR';
-      } else if (typeLower.includes('stud') || typeLower.includes('member') || typeLower === 's') {
-        memberType = 'STUDENT';
-      }
 
       // Determine First Lesson Week
       const parsedWeek = Number(rawWeek);
@@ -262,7 +245,7 @@ export const BulkMemberImportModal: React.FC<BulkMemberImportModalProps> = ({
         sn,
         fullName,
         phone,
-        memberType,
+        memberType: 'VISITOR' as const,
         gender: detectGender(fullName),
         firstLessonWeek,
         address: rawAddress || '',
@@ -274,14 +257,13 @@ export const BulkMemberImportModal: React.FC<BulkMemberImportModalProps> = ({
         validationError
       };
     });
-  }, [pasteText, defaultMemberType, defaultStartWeek, existingMembers, isManualMode, manualRows]);
+  }, [pasteText, defaultStartWeek, existingMembers, isManualMode, manualRows]);
 
   // Summary counts
   const totalCount = parsedRows.length;
   const validRows = parsedRows.filter(r => r.isValid && (!skipDuplicates || !r.isDuplicate));
   const duplicateCount = parsedRows.filter(r => r.isDuplicate).length;
   const invalidCount = parsedRows.filter(r => !r.isValid).length;
-  const studentCount = validRows.filter(r => r.memberType === 'STUDENT').length;
   const visitorCount = validRows.filter(r => r.memberType === 'VISITOR').length;
 
   // Handle File Upload (.csv, .tsv, .txt)
@@ -304,12 +286,10 @@ export const BulkMemberImportModal: React.FC<BulkMemberImportModalProps> = ({
   // Download Sample Template CSV
   const handleDownloadTemplate = () => {
     const csvContent =
-      'Name,Phone Number,Type (Student or Visitor)\n' +
-      'Bro. Emmanuel Okafor,08031234567,Student\n' +
-      'Sis. Grace Adeleke,08123456789,Student\n' +
-      'Sister Blessing Eze,07011223344,Visitor\n' +
-      'Bro. David Oladipo,09087654321,Student\n' +
-      'Sis. Funke Babatunde,08055667788,Visitor\n';
+      'Name,Phone Number\n' +
+      'Bro. Emmanuel Okafor,08031234567\n' +
+      'Sis. Grace Adeleke,08123456789\n' +
+      'Sister Blessing Eze,07011223344\n';
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -353,7 +333,7 @@ export const BulkMemberImportModal: React.FC<BulkMemberImportModalProps> = ({
       sn: `${current.length + 1}`,
       fullName: '',
       phone: '',
-      memberType: defaultMemberType,
+      memberType: 'VISITOR',
       firstLessonWeek: defaultStartWeek,
       isValid: false,
       validationError: 'Enter member full name'
@@ -382,7 +362,7 @@ export const BulkMemberImportModal: React.FC<BulkMemberImportModalProps> = ({
           address: r.address?.trim() || '',
           occupation: r.occupation?.trim() || '',
           gender: r.gender,
-          memberType: r.memberType,
+          memberType: 'VISITOR',
           status: 'ACTIVE',
           firstLessonWeek: r.firstLessonWeek || 1,
           prayerRequests: '',
@@ -402,7 +382,9 @@ export const BulkMemberImportModal: React.FC<BulkMemberImportModalProps> = ({
           spread: 70,
           origin: { y: 0.6 }
         });
-      } catch {}
+      } catch (celebrationError) {
+        console.warn('Member import succeeded, but the celebration animation failed:', celebrationError);
+      }
 
       setIsImporting(false);
       onClose();
@@ -547,7 +529,7 @@ export const BulkMemberImportModal: React.FC<BulkMemberImportModalProps> = ({
                   setPasteText(e.target.value);
                   setIsManualMode(false);
                 }}
-                placeholder="Paste lines here... e.g.&#10;Bro. John Adebayo, 08012345678&#10;Sis. Mary Johnson, 08023456789, Student&#10;Sister Blessing Adeleke, 08051234567, Visitor"
+                placeholder="Paste lines here... e.g.&#10;Bro. John Adebayo, 08012345678&#10;Sis. Mary Johnson, 08023456789"
                 className="w-full font-mono text-xs p-3.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600 text-slate-900"
               />
             </div>
@@ -587,20 +569,9 @@ export const BulkMemberImportModal: React.FC<BulkMemberImportModalProps> = ({
               <label className="font-bold text-slate-700 block mb-1">
                 Default Roster Type:
               </label>
-              <select
-                value={defaultMemberType}
-                onChange={(e) => {
-                  const newType = e.target.value as MemberType;
-                  setDefaultMemberType(newType);
-                  if (isManualMode) {
-                    setManualRows(manualRows.map(r => ({ ...r, memberType: newType })));
-                  }
-                }}
-                className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 font-semibold focus:outline-none focus:border-blue-600"
-              >
-                <option value="STUDENT">Student (Full Class Member)</option>
-                <option value="VISITOR">Visitor (First-time / Guest)</option>
-              </select>
+              <div className="w-full bg-purple-50 border border-purple-200 rounded-lg px-2.5 py-1.5 text-xs text-purple-900 font-bold">
+                Visitor — Enrollment Officer approval required for Student status
+              </div>
             </div>
 
             <div>
@@ -653,9 +624,9 @@ export const BulkMemberImportModal: React.FC<BulkMemberImportModalProps> = ({
             </div>
 
             <div className="p-3 bg-purple-50 border border-purple-200 rounded-xl">
-              <span className="text-[10px] font-bold text-purple-700 uppercase">Students / Visitors</span>
+              <span className="text-[10px] font-bold text-purple-700 uppercase">Visitors</span>
               <p className="text-xl font-black text-purple-950 mt-0.5">
-                {studentCount} <span className="text-xs font-normal text-purple-700">/ {visitorCount}</span>
+                {visitorCount}
               </p>
             </div>
 
@@ -759,24 +730,11 @@ export const BulkMemberImportModal: React.FC<BulkMemberImportModalProps> = ({
                             </div>
                           </td>
 
-                          {/* Member Type Selector */}
+                          {/* New registrations are always Visitors. */}
                           <td className="py-1.5 px-3">
-                            <select
-                              value={row.memberType}
-                              onChange={(e) =>
-                                handleUpdateRow(row.id, {
-                                  memberType: e.target.value as MemberType
-                                })
-                              }
-                              className={`w-full py-1 px-2 rounded-md font-bold text-[11px] border focus:outline-none ${
-                                row.memberType === 'STUDENT'
-                                  ? 'bg-blue-50 text-blue-900 border-blue-200'
-                                  : 'bg-purple-50 text-purple-900 border-purple-200'
-                              }`}
-                            >
-                              <option value="STUDENT">Student</option>
-                              <option value="VISITOR">Visitor</option>
-                            </select>
+                            <span className="inline-flex w-full py-1 px-2 rounded-md font-bold text-[11px] border bg-purple-50 text-purple-900 border-purple-200">
+                              Visitor
+                            </span>
                           </td>
 
                           {/* First Lesson Week */}

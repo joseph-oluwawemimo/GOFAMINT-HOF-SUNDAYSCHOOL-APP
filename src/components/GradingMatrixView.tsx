@@ -68,11 +68,11 @@ interface GradingMatrixViewProps {
   selectedQuarter?: number;
   onOpenQuarterTransition?: () => void;
   onToggleNoRecordWeek?: (weekNumber: number) => void;
-  onUpdateGrade: (grade: WeeklyGradeRecord) => void;
-  onUpdateOffering: (offering: WeeklyOfferingRecord) => void;
-  onUpdateLessonTopic?: (weekNumber: number, topic: string) => void;
+  onUpdateGrade: (grade: WeeklyGradeRecord) => void | Promise<void>;
+  onUpdateOffering: (offering: WeeklyOfferingRecord) => void | Promise<void>;
+  onUpdateLessonTopic?: (weekNumber: number, topic: string) => void | Promise<void>;
   onOpenAddVisitorWithReferral: (sponsorMemberId: string) => void;
-  onQuickAddMember?: (fullName: string, phone: string, memberType: 'STUDENT' | 'VISITOR') => void;
+  onQuickAddMember?: (fullName: string, phone: string, memberType: 'STUDENT' | 'VISITOR') => void | Promise<void>;
   onConvertVisitorToStudent?: (memberId: string) => void;
   onNavigateToRoster?: () => void;
   currencySymbol?: string;
@@ -200,7 +200,19 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
   const [showOfficialPrintModal, setShowOfficialPrintModal] = useState(false);
   const [copiedReturn, setCopiedReturn] = useState(false);
   const [showRemitConfirmModal, setShowRemitConfirmModal] = useState(false);
+  const [isRemitting, setIsRemitting] = useState(false);
   const [showMoreActions, setShowMoreActions] = useState(false);
+  const [persistenceError, setPersistenceError] = useState<string | null>(null);
+
+  const persistWithoutBlockingInput = (label: string, operation: () => void | Promise<void>) => {
+    setPersistenceError(null);
+    void Promise.resolve()
+      .then(operation)
+      .catch((error: any) => {
+        console.error(`Could not save ${label}:`, error);
+        setPersistenceError(`Could not save ${label}: ${error?.message || 'Unknown database error.'}`);
+      });
+  };
 
   const currentOffering: WeeklyOfferingRecord = offerings.find(o => o.weekNumber === selectedWeek) || {
     id: `week_${selectedWeek}`,
@@ -226,21 +238,29 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
     } else {
       // Toggle offering & grade records
       const newStatus = !isCurrentWeekNoRecord;
-      onUpdateOffering({
+      persistWithoutBlockingInput('the no-record setting', () => onUpdateOffering({
         ...currentOffering,
         isNoRecordWeek: newStatus,
         updatedAt: new Date().toISOString()
-      });
+      }));
     }
   };
 
   const weekSummary = calculateWeekSummary(selectedWeek, members, grades, offerings);
 
-  const handleSaveTopic = () => {
-    if (onUpdateLessonTopic) {
-      onUpdateLessonTopic(selectedWeek, topicDraft);
+  const handleSaveTopic = async () => {
+    if (!onUpdateLessonTopic) {
+      setIsEditingTopic(false);
+      return;
     }
-    setIsEditingTopic(false);
+    setPersistenceError(null);
+    try {
+      await onUpdateLessonTopic(selectedWeek, topicDraft);
+      setIsEditingTopic(false);
+    } catch (error: any) {
+      console.error('Could not save the lesson topic:', error);
+      setPersistenceError(`Could not save the lesson topic: ${error?.message || 'Unknown database error.'}`);
+    }
   };
 
   const handleStartEditTopic = () => {
@@ -248,19 +268,24 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
     setIsEditingTopic(true);
   };
 
-  const handleQuickAddSubmit = (e: React.FormEvent) => {
+  const handleQuickAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isWeekLocked) {
       alert(`Week ${selectedWeek} register is locked because the offering has been remitted.`);
       return;
     }
     if (!newVisitorName.trim()) return;
-    if (onQuickAddMember) {
-      onQuickAddMember(newVisitorName.trim(), newVisitorPhone.trim(), 'VISITOR');
+    if (!onQuickAddMember) return;
+    setPersistenceError(null);
+    try {
+      await onQuickAddMember(newVisitorName.trim(), newVisitorPhone.trim(), 'VISITOR');
+      setNewVisitorName('');
+      setNewVisitorPhone('');
+      setShowQuickAdd(false);
+    } catch (error: any) {
+      console.error('Could not add the visitor:', error);
+      setPersistenceError(`Could not add the visitor: ${error?.message || 'Unknown database error.'}`);
     }
-    setNewVisitorName('');
-    setNewVisitorPhone('');
-    setShowQuickAdd(false);
   };
 
   // Filtered members list
@@ -319,7 +344,7 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
       updated.lessonTotal = 0;
     }
 
-    onUpdateGrade(updated);
+    persistWithoutBlockingInput('attendance', () => onUpdateGrade(updated));
   };
 
   const handleScoreChange = (
@@ -336,7 +361,7 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
       attendance: 'PRESENT' as AttendanceStatus,
       [field]: clamped
     };
-    onUpdateGrade(updated);
+    persistWithoutBlockingInput(`${field} score`, () => onUpdateGrade(updated));
   };
 
   const handleChecklistChange = (
@@ -346,10 +371,10 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
   ) => {
     if (isWeekLocked) return;
     const current = getMemberGrade(memberId);
-    onUpdateGrade({
+    persistWithoutBlockingInput('weekly checklist', () => onUpdateGrade({
       ...current,
       [field]: val
-    });
+    }));
   };
 
   const handleBatchScorePreset = (punct: number, verse: number, part: number) => {
@@ -358,14 +383,14 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
     for (const member of members) {
       if (selectedWeek >= (member.firstLessonWeek || 1)) {
         const current = getMemberGrade(member.id);
-        onUpdateGrade({
+        persistWithoutBlockingInput('batch scores', () => onUpdateGrade({
           ...current,
           attendance: 'PRESENT',
           punctuality: punct,
           memoryVerse: verse,
           classParticipation: part,
           lessonTotal: total
-        });
+        }));
       }
     }
   };
@@ -374,14 +399,14 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
     if (isWeekLocked) return;
     const current = getMemberGrade(memberId);
     const total = punct + verse + part;
-    onUpdateGrade({
+    persistWithoutBlockingInput('score preset', () => onUpdateGrade({
       ...current,
       attendance: 'PRESENT',
       punctuality: punct,
       memoryVerse: verse,
       classParticipation: part,
       lessonTotal: total
-    });
+    }));
   };
 
   const [remitSuccessMsg, setRemitSuccessMsg] = useState<string | null>(null);
@@ -389,15 +414,19 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
   const handleOfferingAmountChange = (val: number) => {
     if (isRemittedOrAudited || isReadOnly) return;
     const rawAmt = isNaN(val) ? 0 : val;
-    onUpdateOffering({
+    persistWithoutBlockingInput('the weekly offering', () => onUpdateOffering({
       ...currentOffering,
       amount: rawAmt,
       remittanceStatus: currentOffering.remittanceStatus === 'AUDITED' ? 'AUDITED' : (rawAmt > 0 ? (currentOffering.remittanceStatus || 'PENDING_REMITTANCE') : undefined),
       updatedAt: new Date().toISOString()
-    });
+    }));
   };
 
   const handleRemitOffering = () => {
+    if (isWeekLocked) {
+      setPersistenceError(`Week ${selectedWeek} offering cannot be remitted while this quarter is ${quarterStatus.toLowerCase()} or the week is already locked.`);
+      return;
+    }
     const rawAmt = Number(currentOffering.amount) || 0;
     if (rawAmt <= 0) {
       alert('Please enter a valid weekly offering amount before remitting to the Sunday School Treasurer.');
@@ -407,6 +436,11 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
   };
 
   const executeRemitOffering = async () => {
+    if (isWeekLocked) {
+      setShowRemitConfirmModal(false);
+      setPersistenceError(`Week ${selectedWeek} offering cannot be remitted while this quarter is ${quarterStatus.toLowerCase()} or the week is already locked.`);
+      return;
+    }
     const rawAmt = Number(currentOffering.amount) || 0;
     const secretaryTitle = classProfile?.secretaryName || classProfile?.className || 'Class Secretary';
     const updatedOffering: WeeklyOfferingRecord = {
@@ -418,7 +452,17 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
       updatedAt: new Date().toISOString()
     };
 
-    onUpdateOffering(updatedOffering);
+    setPersistenceError(null);
+    setIsRemitting(true);
+    let notificationSaved = true;
+    try {
+      await onUpdateOffering(updatedOffering);
+    } catch (error: any) {
+      console.error('Could not persist offering remittance:', error);
+      setPersistenceError(`Could not remit this offering: ${error?.message || 'Unknown database error.'}`);
+      setIsRemitting(false);
+      return;
+    }
 
     try {
       await saveAdminComment({
@@ -436,11 +480,16 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
         isResolved: false,
         responseStatus: 'UNRESPONDED'
       });
-    } catch (e) {
-      console.warn('Could not post remit comment:', e);
+    } catch (notificationError) {
+      notificationSaved = false;
+      console.error('Offering was remitted, but its Treasury notification could not be saved:', notificationError);
     }
 
-    setRemitSuccessMsg(`Week ${selectedWeek} offering of ${currencySymbol}${rawAmt.toLocaleString()} successfully marked as REMITTED! The Sunday School Treasurer has been notified for physical verification.`);
+    setShowRemitConfirmModal(false);
+    setIsRemitting(false);
+    setRemitSuccessMsg(notificationSaved
+      ? `Week ${selectedWeek} offering of ${currencySymbol}${rawAmt.toLocaleString()} successfully marked as REMITTED! The Sunday School Treasurer has been notified for physical verification.`
+      : `Week ${selectedWeek} offering was remitted, but the Treasurer notification could not be saved.`);
     setTimeout(() => setRemitSuccessMsg(null), 6000);
   };
 
@@ -518,6 +567,18 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
 
   return (
     <div className="space-y-5 animate-fade-in print:bg-white print:text-black">
+      {persistenceError && (
+        <div role="alert" className="print:hidden flex items-start justify-between gap-3 rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-900 shadow-sm">
+          <span>{persistenceError}</span>
+          <button
+            type="button"
+            onClick={() => setPersistenceError(null)}
+            className="shrink-0 rounded-md px-2 py-1 text-xs font-bold text-red-800 hover:bg-red-100"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       
       {/* Archive & Upcoming Status Banners */}
       {quarterStatus === 'ARCHIVED' && (
@@ -949,7 +1010,7 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                   isRemittedOrAudited ? 'bg-slate-100 text-slate-500 cursor-not-allowed border-slate-300 pr-16' : ''
                 }`}
               />
-              {isRemittedOrAudited && (
+              {(isRemittedOrAudited || isReadOnly) && (
                 <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 flex items-center gap-1 text-[10px] font-bold bg-slate-200/90 px-1.5 py-0.5 rounded shadow-2xs">
                   <Lock className="w-3 h-3 text-slate-600" />
                   <span>Locked</span>
@@ -990,8 +1051,9 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                   id="btn-remit-offering"
                   type="button"
                   onClick={handleRemitOffering}
-                  className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-lg font-black text-[11px] transition shadow-xs flex items-center gap-1 cursor-pointer active:scale-95 shrink-0"
-                  title="Hand over cash and mark as Remitted to Sunday School Treasurer"
+                  disabled={isWeekLocked}
+                  className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-lg font-black text-[11px] transition shadow-xs flex items-center gap-1 cursor-pointer active:scale-95 shrink-0 disabled:opacity-45 disabled:cursor-not-allowed disabled:hover:bg-amber-500"
+                  title={isWeekLocked ? 'This quarter or week is locked read-only.' : 'Hand over cash and mark as Remitted to Sunday School Treasurer'}
                 >
                   <HandCoins className="w-3 h-3" />
                   <span>REMIT {currencySymbol}{Number(currentOffering.amount).toLocaleString()}</span>
@@ -1387,9 +1449,12 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                     {/* Evangelism Referral Button */}
                     <button
                       id={`btn-referral-${member.id}`}
-                      onClick={() => onOpenAddVisitorWithReferral(member.id)}
-                      className="flex items-center gap-1.5 px-2.5 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded-lg text-xs font-bold transition shrink-0"
-                      title="Register a new visitor introduced by this student"
+                      onClick={() => {
+                        if (!isWeekLocked) onOpenAddVisitorWithReferral(member.id);
+                      }}
+                      disabled={isWeekLocked}
+                      className="flex items-center gap-1.5 px-2.5 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded-lg text-xs font-bold transition shrink-0 disabled:opacity-45 disabled:cursor-not-allowed disabled:hover:bg-purple-50"
+                      title={isWeekLocked ? 'This quarter or week is locked read-only.' : 'Register a new visitor introduced by this student'}
                     >
                       <UserPlus className="w-3.5 h-3.5 text-purple-600" />
                       <span>+ Brought Visitor ({member.evangelismReferralCount || 0})</span>
@@ -1497,20 +1562,19 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
               <button
                 type="button"
                 onClick={() => setShowRemitConfirmModal(false)}
-                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
+                disabled={isRemitting}
+                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer disabled:cursor-wait disabled:opacity-60"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 id="btn-confirm-remit-offering"
-                onClick={() => {
-                  setShowRemitConfirmModal(false);
-                  executeRemitOffering();
-                }}
-                className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow-md transition cursor-pointer"
+                onClick={() => void executeRemitOffering()}
+                disabled={isRemitting}
+                className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow-md transition cursor-pointer disabled:cursor-wait disabled:opacity-60"
               >
-                Yes, Remit {currencySymbol}{Number(currentOffering.amount).toLocaleString()}
+                {isRemitting ? 'Saving Remittance…' : `Yes, Remit ${currencySymbol}${Number(currentOffering.amount).toLocaleString()}`}
               </button>
             </div>
           </div>

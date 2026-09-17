@@ -47,7 +47,7 @@ import {
 } from '../services/dataBackupService';
 import { cloudGetSundaySchoolYear } from '../services/supabaseDatabase';
 import { resetYearOnServer } from '../services/resetYearApi';
-import { factoryReset } from '../services/adminUserApi';
+import { downloadDatabaseArchive, factoryReset, listDatabaseArchives, stagedReset, type DatabaseArchiveMetadata } from '../services/adminUserApi';
 import { hydrateLocalFromCloud } from '../services/cloudSyncManager';
 import { performLocalFactoryReset } from '../db/indexedDB';
 import { signOutUser } from '../services/authService';
@@ -142,8 +142,30 @@ export const DatabaseBackupModal: React.FC<DatabaseBackupModalProps> = ({
   const [newYearName, setNewYearName] = useState('');
   const [newOverallTheme, setNewOverallTheme] = useState('');
   const [factoryResetConfirm, setFactoryResetConfirm] = useState('');
+  const [fullResetConfirm, setFullResetConfirm] = useState('');
   const [isFactoryResetting, setIsFactoryResetting] = useState(false);
   const [factoryResetError, setFactoryResetError] = useState('');
+  const [stagedResetSuccess, setStagedResetSuccess] = useState('');
+  const [stagedResetScope, setStagedResetScope] = useState<'CLASSES' | 'WORKERS' | 'ADMINS'>('CLASSES');
+  const [serverArchives, setServerArchives] = useState<DatabaseArchiveMetadata[]>([]);
+  const [archiveListError, setArchiveListError] = useState('');
+  const [isLoadingArchives, setIsLoadingArchives] = useState(false);
+
+  const loadServerArchives = async () => {
+    if (!canAccessReset) return;
+    setIsLoadingArchives(true);
+    setArchiveListError('');
+    try {
+      const result = await listDatabaseArchives();
+      if (!result.success) throw new Error(result.error || 'Archive list request failed.');
+      setServerArchives(result.archives || []);
+    } catch (error) {
+      console.error('[Database Control] Could not load server archives:', error);
+      setArchiveListError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsLoadingArchives(false);
+    }
+  };
 
   // Refresh DB stats and local snapshots
   const refreshData = async () => {
@@ -201,9 +223,14 @@ export const DatabaseBackupModal: React.FC<DatabaseBackupModalProps> = ({
       setConfirmDeleteSnapshotId(null);
       setNewYearName('');
       setNewOverallTheme('');
+      setFactoryResetConfirm('');
+      setFullResetConfirm('');
+      setFactoryResetError('');
+      setStagedResetSuccess('');
       refreshData();
       if (canAccessReset) {
         loadCurrentYearForReset();
+        void loadServerArchives();
       }
     }
   }, [isOpen, initialTab, canAccessReset]);
@@ -482,6 +509,51 @@ export const DatabaseBackupModal: React.FC<DatabaseBackupModalProps> = ({
       setFileError(`Reset failed: ${err.message || 'Unknown error'}. No changes were applied — your data is intact.`);
     } finally {
       setIsResetting(false);
+    }
+  };
+
+  const handleStagedReset = async () => {
+    const expected = `RESET ${stagedResetScope}`;
+    if (factoryResetConfirm.trim().toUpperCase() !== expected) {
+      setFactoryResetError(`Type ${expected} exactly.`);
+      return;
+    }
+    setIsFactoryResetting(true);
+    setFactoryResetError('');
+    try {
+      const result = await stagedReset(stagedResetScope, expected);
+      if (!result.success) throw new Error(result.error || 'The server rejected the staged reset.');
+      await hydrateLocalFromCloud();
+      setStagedResetSuccess(`${result.message} Recovery archive: ${result.archiveId || 'created by server'}.`);
+      setFactoryResetConfirm('');
+      await refreshData();
+      await loadServerArchives();
+      onDatabaseRestored?.();
+    } catch (error) {
+      console.error(`[Database Control] ${stagedResetScope} reset failed:`, error);
+      setFactoryResetError(`${error instanceof Error ? error.message : String(error)} No unarchived reset is reported as successful.`);
+    } finally {
+      setIsFactoryResetting(false);
+    }
+  };
+
+  const handleFullFactoryReset = async () => {
+    if (fullResetConfirm !== 'FACTORY RESET GOFAMINT') {
+      setFactoryResetError('Type FACTORY RESET GOFAMINT exactly.');
+      return;
+    }
+    setIsFactoryResetting(true);
+    setFactoryResetError('');
+    try {
+      const result = await factoryReset(fullResetConfirm);
+      if (!result.success) throw new Error(result.error || 'The server rejected the full reset.');
+      await performLocalFactoryReset();
+      await signOutUser();
+      window.location.reload();
+    } catch (error) {
+      console.error('[Database Control] Full factory reset failed:', error);
+      setFactoryResetError(error instanceof Error ? error.message : String(error));
+      setIsFactoryResetting(false);
     }
   };
 
@@ -1145,14 +1217,14 @@ export const DatabaseBackupModal: React.FC<DatabaseBackupModalProps> = ({
                       <li>Worker Sunday & preparatory-class attendance</li>
                       <li>Special events and their attendance</li>
                       <li>Treasury expenditures and the lesson curriculum</li>
-                      <li>Which secretary & teachers are on each class, AND that class's password — the next person to open the class will be asked to set up a brand-new password (the outgoing secretary's password stops working)</li>
+                      <li>Teacher/Class Secretary login identities and each class's annual teacher, secretary, and password assignment — new class logins must be provisioned for the new year</li>
                       <li>Each worker's assigned class, duty, and category roles (cleared for reassignment — their directory profile stays, so you can still add new workers or remove departing ones separately in the Workers Directory)</li>
                     </ul>
                   </div>
                   <div>
                     <div className="font-bold text-emerald-800">Will NOT be touched:</div>
                     <ul className="list-disc pl-5 space-y-0.5 text-slate-600">
-                      <li>User logins, admin officers, and roles</li>
+                      <li>General Superintendent, administrative officer, and worker login identities and roles</li>
                       <li>The list of classes and departments</li>
                       <li>The worker directory (names, phone, QR code, status) and worker categories/clock-in settings</li>
                       <li>The outgoing year — it is archived, not deleted, along with who held each class/duty this past year</li>
@@ -1307,6 +1379,60 @@ export const DatabaseBackupModal: React.FC<DatabaseBackupModalProps> = ({
                       <span>Reset {currentYearName || 'Current Year'} & Start New Year</span>
                     </button>
                   </div>
+                </div>
+              )}
+
+              {!isResetting && !resetSuccess && (
+                <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-5 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div><h4 className="font-black text-blue-950">Historical Server Archives</h4><p className="text-xs text-blue-800">Metadata is lightweight; full archive data downloads only when requested.</p></div>
+                    <button type="button" onClick={() => void loadServerArchives()} disabled={isLoadingArchives} className="rounded-lg border border-blue-300 bg-white px-3 py-1.5 text-xs font-bold text-blue-900 disabled:opacity-50"><RefreshCw className={`inline h-3.5 w-3.5 mr-1 ${isLoadingArchives ? 'animate-spin' : ''}`} />Refresh</button>
+                  </div>
+                  {archiveListError && <div className="rounded-lg border border-red-200 bg-red-50 p-2.5 text-xs text-red-800">Archive list failed: {archiveListError}</div>}
+                  <div className="max-h-44 space-y-2 overflow-y-auto">
+                    {serverArchives.map(archive => <div key={archive.id} className="flex items-center justify-between gap-3 rounded-xl border border-blue-100 bg-white p-3"><div className="min-w-0"><div className="truncate text-xs font-black text-slate-900">{archive.scope} • {archive.archive_type.replace(/_/g, ' ')}</div><div className="text-[11px] text-slate-500">{new Date(archive.archived_at).toLocaleString()} • {archive.id}</div></div><button type="button" onClick={() => void downloadDatabaseArchive(archive.id).catch(error => setArchiveListError(error instanceof Error ? error.message : String(error)))} className="shrink-0 rounded-lg bg-blue-900 px-3 py-1.5 text-xs font-bold text-white"><Download className="inline h-3.5 w-3.5 mr-1" />Download</button></div>)}
+                    {!isLoadingArchives && serverArchives.length === 0 && !archiveListError && <p className="py-3 text-center text-xs text-slate-500">No server archive has been created yet.</p>}
+                  </div>
+                </div>
+              )}
+
+              {!isResetting && !resetSuccess && (
+                <div className="rounded-2xl border-2 border-red-300 bg-red-50 p-5 space-y-4">
+                  <div className="flex items-start gap-3">
+                    <ShieldCheck className="w-6 h-6 text-red-700 shrink-0" />
+                    <div>
+                      <h4 className="font-black text-red-950">Staged Database Reset Controls</h4>
+                      <p className="mt-1 text-xs leading-relaxed text-red-800">Every operation first writes a complete server-side recovery archive in the same database transaction. Only the General Superintendent can execute these controls.</p>
+                    </div>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    {([
+                      ['CLASSES', 'Classes DB', 'Class logins, classes, rosters and linked class records'],
+                      ['WORKERS', 'Workers DB', 'Worker logins, directory, attendance, events and settings'],
+                      ['ADMINS', 'Admin DB', 'Administrative accounts except the General Superintendent'],
+                    ] as const).map(([scope, label, description]) => (
+                      <button key={scope} type="button" onClick={() => { setStagedResetScope(scope); setFactoryResetConfirm(''); setFactoryResetError(''); }} className={`rounded-xl border p-3 text-left transition ${stagedResetScope === scope ? 'border-red-700 bg-white ring-2 ring-red-200' : 'border-red-200 bg-red-50/50 hover:bg-white'}`}>
+                        <span className="block text-xs font-black text-red-950">{label}</span>
+                        <span className="mt-1 block text-[11px] text-slate-600">{description}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-bold text-red-950">Type <code>RESET {stagedResetScope}</code> exactly:</label>
+                    <input value={factoryResetConfirm} onChange={event => { setFactoryResetConfirm(event.target.value); setFactoryResetError(''); }} className="w-full rounded-xl border-2 border-red-300 bg-white px-3.5 py-2.5 font-mono text-xs text-slate-950 focus:border-red-600 outline-hidden" />
+                  </div>
+                  <button type="button" onClick={() => void handleStagedReset()} disabled={isFactoryResetting || factoryResetConfirm.trim().toUpperCase() !== `RESET ${stagedResetScope}`} className="w-full rounded-xl bg-red-700 py-3 text-xs font-black text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-40">
+                    {isFactoryResetting ? 'Archiving and resetting…' : `Archive & Reset ${stagedResetScope}`}
+                  </button>
+
+                  <div className="border-t-2 border-red-200 pt-4 space-y-3">
+                    <div className="text-xs font-black uppercase tracking-wide text-red-950">Full reset to first-time initialization</div>
+                    <p className="text-xs text-red-800">Use only after all demo testing is complete and immediately before real deployment. The server keeps this disabled unless <code>FACTORY_RESET_ENABLED=true</code>.</p>
+                    <input value={fullResetConfirm} onChange={event => { setFullResetConfirm(event.target.value); setFactoryResetError(''); }} placeholder="FACTORY RESET GOFAMINT" className="w-full rounded-xl border-2 border-red-400 bg-white px-3.5 py-2.5 font-mono text-xs text-slate-950 outline-hidden" />
+                    <button type="button" onClick={() => void handleFullFactoryReset()} disabled={isFactoryResetting || fullResetConfirm !== 'FACTORY RESET GOFAMINT'} className="w-full rounded-xl bg-slate-950 py-3 text-xs font-black text-white hover:bg-black disabled:cursor-not-allowed disabled:opacity-40">Archive & Return Entire System to Initialization</button>
+                  </div>
+                  {factoryResetError && <div className="rounded-xl border border-red-300 bg-white p-3 text-xs font-bold text-red-800">{factoryResetError}</div>}
+                  {stagedResetSuccess && <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-3 text-xs font-bold text-emerald-900">{stagedResetSuccess}</div>}
                 </div>
               )}
 

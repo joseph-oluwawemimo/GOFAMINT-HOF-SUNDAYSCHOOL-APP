@@ -4,19 +4,25 @@ import fs from 'fs';
 import { GoogleGenAI } from '@google/genai';
 import { GOFAMINT_ROLES, getBearerToken, getSupabaseAdmin, provisionSupabaseUserProfile, type GofamintRole } from './supabaseAdmin.js';
 import { hasInitializedSystem } from '../utils/systemInitialization.js';
+import { normalizeClassLoginIdentifier } from '../utils/loginIdentifier.js';
 
 const EXEC: GofamintRole[] = ['SUPER_ADMIN', 'GENERAL_SUPERINTENDENT', 'GENERAL_SECRETARY'];
 const APPROVERS: GofamintRole[] = ['SUPER_ADMIN', 'GENERAL_SUPERINTENDENT', 'GENERAL_SECRETARY'];
-const ADMIN_PROFILES = new Set<GofamintRole>([...EXEC, 'ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY', 'TREASURER', 'RECORD_OFFICER', 'ENROLLMENT_OFFICER']);
+const ADMIN_PROFILES = new Set<GofamintRole>([...EXEC, 'DEPARTMENT_SUPERINTENDENT', 'ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY', 'TREASURER', 'RECORD_OFFICER', 'ENROLLMENT_OFFICER']);
 const CLASS_ADMINS: GofamintRole[] = ['SUPER_ADMIN', 'GENERAL_SUPERINTENDENT', 'GENERAL_SECRETARY', 'ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY'];
 const CLASS_CREATORS: GofamintRole[] = ['ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY'];
 const CLASS_PORTAL_ROLES: GofamintRole[] = ['TEACHER', 'CLASS_SECRETARY', 'TEACHER / CLASS_SECRETARY'];
-const WORKER_DIRECTORATE_ROLES = new Set<GofamintRole>([...ADMIN_PROFILES, 'WORKER']);
-const WORKER_DIRECTORY_READERS = new Set<GofamintRole>([...WORKER_DIRECTORATE_ROLES, ...CLASS_PORTAL_ROLES]);
-type Caller = { id: string; email: string | null; role: GofamintRole; classId: string | null };
+const WORKER_MANAGERS = new Set<GofamintRole>([...EXEC, 'ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY']);
+const WORKER_EVENT_READERS = new Set<GofamintRole>([...WORKER_MANAGERS, 'RECORD_OFFICER', 'WORKER']);
+const WORKER_DIRECTORY_READERS = new Set<GofamintRole>([...WORKER_EVENT_READERS, ...CLASS_PORTAL_ROLES]);
+type Caller = { id: string; email: string | null; role: GofamintRole; classId: string | null; departmentId: string | null };
 
 function limitedText(value: unknown, maxLength: number): string {
   return typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
+}
+
+function canonicalClassId(value: unknown): string {
+  return limitedText(value, 120).toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
 function buildAssistantPrompt(body: Record<string, unknown>): string {
@@ -61,10 +67,34 @@ async function caller(req: Request, res: Response, allowed?: GofamintRole[]): Pr
   if (!token) { res.status(401).json({ error: 'Missing sign-in token.' }); return null; }
   const db = getSupabaseAdmin();
   const { data: auth, error: authError } = await db.auth.getUser(token);
-  if (authError || !auth.user) { res.status(401).json({ error: 'Invalid or expired sign-in token.' }); return null; }
-  const { data: p, error } = await db.from('profiles').select('id,email,role,is_approved,class_id').eq('id', auth.user.id).maybeSingle();
+  if (authError || !auth.user) {
+    let tokenIssuer: string | null = null;
+    try {
+      const payload = JSON.parse(Buffer.from(token.split('.')[1] || '', 'base64url').toString('utf8'));
+      tokenIssuer = typeof payload?.iss === 'string' ? payload.iss : null;
+    } catch (decodeError) {
+      console.error('[Server] Bearer token payload could not be decoded:', decodeError);
+    }
+    console.error('[Server] Supabase bearer validation failed:', {
+      operation: `${req.method} ${req.path}`,
+      reason: authError?.message || 'Supabase returned no authenticated user.',
+      tokenIssuer,
+      configuredProjectHost: process.env.SUPABASE_URL ? new URL(process.env.SUPABASE_URL).hostname : null,
+    });
+    const developmentReason = process.env.NODE_ENV !== 'production' && authError?.message
+      ? ` (${authError.message})`
+      : '';
+    res.status(401).json({ error: `Invalid or expired sign-in token${developmentReason}.` });
+    return null;
+  }
+  let { data: p, error } = await db.from('profiles').select('id,email,role,is_approved,class_id,department_id').eq('id', auth.user.id).maybeSingle();
+  if (error && /department_id/i.test(error.message || '')) {
+    const fallback = await db.from('profiles').select('id,email,role,is_approved,class_id').eq('id', auth.user.id).maybeSingle();
+    p = fallback.data ? { ...fallback.data, department_id: null } as any : null;
+    error = fallback.error;
+  }
   if (error || !p || !p.is_approved || !GOFAMINT_ROLES.includes(p.role as GofamintRole)) { res.status(403).json({ error: 'An approved application profile is required.' }); return null; }
-  const result = { id: p.id, email: p.email || auth.user.email || null, role: p.role as GofamintRole, classId: p.class_id || null };
+  const result = { id: p.id, email: p.email || auth.user.email || null, role: p.role as GofamintRole, classId: p.class_id || null, departmentId: p.department_id || null };
   if (allowed && !allowed.includes(result.role)) { res.status(403).json({ error: 'You do not have permission for this operation.' }); return null; }
   return result;
 }
@@ -130,7 +160,10 @@ export function createApp() {
   });
   app.get('/api/system/status', async (_q, r) => {
     try { r.json(await readSystemInitializationState(getSupabaseAdmin())); }
-    catch (e:any) { r.status(500).json({ error: e.message || 'Could not read system status.' }); }
+    catch (e:any) {
+      console.error('[Server] system status error:', e);
+      r.status(500).json({ error: e.message || 'Could not read system status.' });
+    }
   });
   app.post('/api/admin/bootstrap', async (req, r) => {
     const db = getSupabaseAdmin(); let userId: string | null = null; let bootstrapLockClaimed = false;
@@ -155,16 +188,43 @@ export function createApp() {
       ])) if (result.error) throw result.error;
       await audit(null, 'SYSTEM_BOOTSTRAP', { officerId:userId, role, yearId:year.id }, 'system_config', 'initialization');
       r.json({ success:true, uid:userId, roleType:role, yearId:year.id, message:'System initialized successfully.' });
-    } catch (e:any) { if (userId) await db.auth.admin.deleteUser(userId).catch(()=>{}); if (bootstrapLockClaimed) await db.from('system_config').delete().eq('id', 'bootstrap_lock'); r.status(500).json({ error:e.message || 'Bootstrap failed.' }); }
+    } catch (e:any) {
+      console.error('[Server] system bootstrap error:', e);
+      if (userId) {
+        await db.auth.admin.deleteUser(userId).catch(cleanupError => {
+          console.error('[Server] failed to remove partially-created bootstrap user:', cleanupError);
+        });
+      }
+      if (bootstrapLockClaimed) {
+        const { error: cleanupError } = await db.from('system_config').delete().eq('id', 'bootstrap_lock');
+        if (cleanupError) console.error('[Server] failed to release bootstrap lock:', cleanupError);
+      }
+      r.status(500).json({ error:e.message || 'Bootstrap failed.' });
+    }
   });
   app.get('/api/admin/list-users', async (req,r) => {
-    try { const c=await caller(req,r,EXEC); if(!c)return; const {data,error}=await getSupabaseAdmin().from('profiles').select('id,email,display_name,role,class_id,worker_id,is_approved,created_at,approved_by,approved_at').order('created_at'); if(error)throw error; r.json({success:true,users:(data||[]).map(p=>({uid:p.id,email:p.email,displayName:p.display_name,roleType:p.role,classId:p.class_id,workerId:p.worker_id,isApproved:p.is_approved,createdAt:p.created_at,approvedBy:p.approved_by,approvedAt:p.approved_at}))}); } catch(e:any){r.status(500).json({error:e.message||'Failed to list users.'});}
+    try {
+      const c=await caller(req,r,EXEC); if(!c)return;
+      const db = getSupabaseAdmin();
+      let { data, error } = await db.from('profiles').select('id,email,display_name,role,class_id,worker_id,department_id,is_approved,created_at,approved_by,approved_at').order('created_at');
+      if (error && /department_id/i.test(error.message || '')) {
+        const fallback = await db.from('profiles').select('id,email,display_name,role,class_id,worker_id,is_approved,created_at,approved_by,approved_at').order('created_at');
+        data = fallback.data?.map(profile => ({ ...profile, department_id: null })) as any;
+        error = fallback.error;
+      }
+      if(error)throw error;
+      r.json({success:true,users:(data||[]).map(p=>({uid:p.id,email:p.email,displayName:p.display_name,roleType:p.role,classId:p.class_id,workerId:p.worker_id,departmentId:p.department_id,isApproved:p.is_approved,createdAt:p.created_at,approvedBy:p.approved_by,approvedAt:p.approved_at}))});
+    } catch(e:any){r.status(500).json({error:e.message||'Failed to list users.'});}
   });
   app.post('/api/admin/create-user', async (req,r) => {
     const db=getSupabaseAdmin(); let userId:string|null=null;
-    try { const c=await caller(req,r,EXEC); if(!c)return; const {email:raw,password,roleType,displayName,classId,workerId}=req.body||{};
+    try { const c=await caller(req,r); if(!c)return; const {email:raw,password,roleType,displayName,classId,workerId}=req.body||{}; const departmentId=limitedText(req.body?.departmentId,120);
       if(!raw||!password||password.length<6||!GOFAMINT_ROLES.includes(roleType)) return r.status(400).json({error:'Valid email/login ID, password (minimum 6 characters), and roleType are required.'});
-      if (['TEACHER', 'CLASS_SECRETARY', 'TEACHER / CLASS_SECRETARY'].includes(roleType) && !classId) return r.status(400).json({ error: 'A class assignment is required for teacher and class secretary accounts.' });
+      const isClassLogin = CLASS_PORTAL_ROLES.includes(roleType);
+      const mayProvision = isClassLogin ? CLASS_CREATORS.includes(c.role) : EXEC.includes(c.role);
+      if (!mayProvision) return r.status(403).json({ error: isClassLogin ? 'Only the Assistant General Secretary can create class logins.' : 'Only an executive administrator can create staff logins.' });
+      if (isClassLogin && !classId) return r.status(400).json({ error: 'A class assignment is required for teacher and class secretary accounts.' });
+      if (roleType === 'DEPARTMENT_SUPERINTENDENT' && !departmentId) return r.status(400).json({ error: 'A department assignment is required for a Departmental Superintendent.' });
       const { count: superintendentCount, error: superintendentCountError } = await db.from('profiles').select('*', { count: 'exact', head: true }).eq('role', 'GENERAL_SUPERINTENDENT');
       if (superintendentCountError) throw superintendentCountError;
       // Both executive roles may provision ordinary staff.  Bootstrap roles
@@ -174,8 +234,17 @@ export function createApp() {
         return r.status(403).json({ error: 'General Secretaries may create non-bootstrap staff accounts only.' });
       }
       if(roleType==='GENERAL_SUPERINTENDENT' && superintendentCount)return r.status(409).json({error:'A General Superintendent account already exists.'});
-      const pending=['ASST_GENERAL_SECRETARY','ASSISTANT_GENERAL_SECRETARY','TREASURER','RECORD_OFFICER','ENROLLMENT_OFFICER'].includes(roleType);
-      const provisioned=await provisionSupabaseUserProfile({email:email(raw),password,displayName,role:roleType,isApproved:!pending,classId:classId||null,workerId:workerId||null,createdBy:c.id,approvedBy:pending?null:c.id});userId=provisioned.userId;
+      if (roleType === 'DEPARTMENT_SUPERINTENDENT') {
+        const [{ data: department, error: departmentError }, { count: assignedCount, error: assignedError }] = await Promise.all([
+          db.from('departments').select('id').eq('id', departmentId).maybeSingle(),
+          db.from('profiles').select('*', { count: 'exact', head: true }).eq('role', roleType).eq('department_id', departmentId),
+        ]);
+        if (departmentError || assignedError) throw departmentError || assignedError;
+        if (!department) return r.status(400).json({ error: `Department "${departmentId}" does not exist.` });
+        if (assignedCount) return r.status(409).json({ error: `A Departmental Superintendent is already assigned to ${departmentId}.` });
+      }
+      const pending=['DEPARTMENT_SUPERINTENDENT','ASST_GENERAL_SECRETARY','ASSISTANT_GENERAL_SECRETARY','TREASURER','RECORD_OFFICER','ENROLLMENT_OFFICER'].includes(roleType);
+      const provisioned=await provisionSupabaseUserProfile({email:email(raw),password,displayName,role:roleType,isApproved:!pending,classId:classId||null,workerId:workerId||null,departmentId:departmentId||null,createdBy:c.id,approvedBy:pending?null:c.id});userId=provisioned.userId;
       if(classId){
         const {data:existingClass}=await db.from('classes').select('id').eq('id',classId).maybeSingle();
         if(!existingClass){
@@ -199,10 +268,18 @@ export function createApp() {
         const {error}=await db.from('profile_class_assignments').upsert({profile_id:userId,class_id:classId});
         if(error)throw error;
       }
-      if(ADMIN_PROFILES.has(roleType)){const {error}=await db.from('admin_profiles').insert({id:userId,profile_id:userId,role_type:roleType,title:`${roleType.replace(/_/g,' ')} ID`,profile_name:displayName||email(raw),username:email(raw),is_approved:!pending,approved_by:!pending?c.id:null,approved_at:provisioned.approvedAt});if(error)throw error;}
-      await audit(c,'CREATE_STAFF_LOGIN',{targetUserId:userId,targetEmail:email(raw),targetRole:roleType,isApproved:!pending},'profiles',userId);
+      if(ADMIN_PROFILES.has(roleType)){const {error}=await db.from('admin_profiles').insert({id:userId,profile_id:userId,role_type:roleType,title:roleType==='DEPARTMENT_SUPERINTENDENT'?`${departmentId} Departmental Superintendent`:`${roleType.replace(/_/g,' ')} ID`,profile_name:displayName||email(raw),username:email(raw),department_id:departmentId||null,is_approved:!pending,approved_by:!pending?c.id:null,approved_at:provisioned.approvedAt});if(error)throw error;}
+      await audit(c,'CREATE_STAFF_LOGIN',{targetUserId:userId,targetEmail:email(raw),targetRole:roleType,departmentId:departmentId||null,isApproved:!pending},'profiles',userId);
       r.json({success:true,uid:userId,roleType,isApproved:!pending,message:pending?'Login created pending approval.':'Login created and active.'});
-    }catch(e:any){if(userId)await db.auth.admin.deleteUser(userId).catch(()=>{});r.status(500).json({error:e.message||'Failed to create user.'});}
+    } catch (e:any) {
+      console.error('[Server] create staff login error:', e);
+      if (userId) {
+        await db.auth.admin.deleteUser(userId).catch(cleanupError => {
+          console.error('[Server] failed to remove partially-created staff user:', cleanupError);
+        });
+      }
+      r.status(500).json({error:e.message||'Failed to create user.'});
+    }
   });
   app.post('/api/admin/approve-user', async (req, r) => {
     try {
@@ -318,18 +395,64 @@ export function createApp() {
         p_confirm_year_id: String(confirmYearId), p_new_year_name: String(newYearName).trim(), p_new_overall_theme: String(newOverallTheme || '').trim(), p_actor_id: c.id,
       }).single();
       if (error) throw error;
-      const data = resetData as { new_year_id?: string } | null;
+      const data = resetData as { new_year_id?: string; classes_reassigned?: number; workers_reassigned?: number } | null;
       await audit(c, 'YEAR_RESET', { previousYearId: confirmYearId, newYearId: data?.new_year_id, newYearName }, 'sunday_school_years', data?.new_year_id);
-      r.json({ success: true, newYearId: data?.new_year_id, newYearName, classesReassigned: 0, workersReassigned: 0 });
+      r.json({ success: true, newYearId: data?.new_year_id, newYearName, classesReassigned: data?.classes_reassigned || 0, workersReassigned: data?.workers_reassigned || 0 });
     } catch (e: any) { r.status(500).json({ error: e.message || 'Year reset failed.' }); }
+  });
+  app.post('/api/admin/staged-reset', async (req, r) => {
+    try {
+      const c = await caller(req, r, ['GENERAL_SUPERINTENDENT']); if (!c) return;
+      const scope = limitedText(req.body?.scope, 20).toUpperCase();
+      const confirmation = limitedText(req.body?.confirmPhrase, 80).toUpperCase();
+      const expected: Record<string, string> = { CLASSES: 'RESET CLASSES', WORKERS: 'RESET WORKERS', ADMINS: 'RESET ADMINS' };
+      if (!expected[scope]) return r.status(400).json({ error: 'Reset scope must be CLASSES, WORKERS, or ADMINS.' });
+      if (confirmation !== expected[scope]) return r.status(400).json({ error: `Type ${expected[scope]} exactly to authorize this reset.` });
+      const { data, error } = await getSupabaseAdmin().rpc('gofamint_staged_reset', { p_scope: scope, p_actor_id: c.id });
+      if (error) throw error;
+      await audit(c, `STAGED_RESET_${scope}`, { archiveId: data?.archiveId, preResetCounts: data?.preResetCounts }, 'sunday_school_year_archives', data?.archiveId);
+      r.json({ success: true, ...data, message: `${scope} data was archived and reset successfully.` });
+    } catch (e: any) {
+      console.error('[Server] staged reset error:', e);
+      r.status(500).json({ error: e.message || 'Staged reset failed. The transaction was rolled back.' });
+    }
+  });
+  app.get('/api/admin/year-archives', async (req, r) => {
+    try {
+      const c = await caller(req, r, ['GENERAL_SUPERINTENDENT']); if (!c) return;
+      const { data, error } = await getSupabaseAdmin().rpc('gofamint_list_archive_metadata');
+      if (error) throw error;
+      r.json({ success: true, archives: data || [] });
+    } catch (e: any) {
+      console.error('[Server] archive metadata read failed:', e);
+      r.status(500).json({ error: e.message || 'Could not list database archives.' });
+    }
+  });
+  app.get('/api/admin/year-archives/:id/download', async (req, r) => {
+    try {
+      const c = await caller(req, r, ['GENERAL_SUPERINTENDENT']); if (!c) return;
+      const archiveId = limitedText(req.params.id, 180);
+      if (!archiveId) return r.status(400).json({ error: 'Archive id is required.' });
+      const { data, error } = await getSupabaseAdmin().from('sunday_school_year_archives').select('id,data,archived_at').eq('id', archiveId).maybeSingle();
+      if (error) throw error;
+      if (!data) return r.status(404).json({ error: 'Archive not found.' });
+      r.setHeader('Content-Type', 'application/json');
+      r.setHeader('Content-Disposition', `attachment; filename="${archiveId.replace(/[^a-zA-Z0-9_-]/g, '_')}.json"`);
+      r.setHeader('Cache-Control', 'no-store');
+      r.send(JSON.stringify({ format: 'GOFAMINT_ARCHIVE_V1', ...data }, null, 2));
+    } catch (e: any) {
+      console.error('[Server] archive download failed:', e);
+      r.status(500).json({ error: e.message || 'Could not download database archive.' });
+    }
   });
   app.post('/api/admin/factory-reset', async (req, r) => {
     try {
-      const c = await caller(req, r, ['SUPER_ADMIN', 'GENERAL_SUPERINTENDENT']); if (!c) return;
+      const c = await caller(req, r, ['GENERAL_SUPERINTENDENT']); if (!c) return;
       if (process.env.FACTORY_RESET_ENABLED !== 'true') return r.status(503).json({ error: 'Factory reset is disabled by server configuration.' });
       if (req.body?.confirmPhrase !== 'FACTORY RESET GOFAMINT') return r.status(400).json({ error: 'Exact factory reset confirmation is required.' });
-      await audit(c, 'FACTORY_RESET_REQUESTED', { confirmation: 'accepted' }, 'system_config', 'initialization');
-      return r.status(501).json({ error: 'Factory reset requires a separately reviewed operational runbook and is not enabled by this deployment.' });
+      const { data, error } = await getSupabaseAdmin().rpc('gofamint_staged_reset', { p_scope: 'FULL', p_actor_id: c.id });
+      if (error) throw error;
+      return r.json({ success: true, ...data, message: 'The active database was archived and returned to first-time initialization state.' });
     } catch (e: any) { r.status(500).json({ error: e.message || 'Factory reset request failed.' }); }
   });
   app.post('/api/admin/classes/mass-create', async (req, r) => {
@@ -337,110 +460,131 @@ export function createApp() {
     try {
       const c = await caller(req, r, CLASS_CREATORS);
       if (!c) return;
-      const { department, suffixes, classes: customClasses } = req.body || {};
+      const { classes: customClasses } = req.body || {};
+      if (!Array.isArray(customClasses) || customClasses.length === 0) {
+        return r.status(400).json({ error: 'Provide at least one class with a unique ID and temporary password.' });
+      }
+      if (customClasses.length > 50) {
+        return r.status(400).json({ error: 'A maximum of 50 classes can be created in one request.' });
+      }
       const currentYear = new Date().getFullYear();
       const now = new Date().toISOString();
       const resultClasses: any[] = [];
 
-      if (Array.isArray(customClasses) && customClasses.length > 0) {
-        for (const item of customClasses) {
-          const cleanDept = String(item.department || 'Adult').trim();
-          const className = String(item.className || '').trim();
-          const classId = String(item.classId || className.toUpperCase().replace(/[^A-Z0-9]/g, '_')).trim();
-          const password = String(item.password || '').trim();
+      for (const item of customClasses) {
+        const cleanDept = limitedText(item?.department || 'Adult', 120);
+        const className = limitedText(item?.className, 160);
+        const classId = limitedText(item?.classId || className.toUpperCase().replace(/[^A-Z0-9]/g, '_'), 120)
+          .toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+        const password = String(item?.password || '');
+        if (!cleanDept || !className || !classId) {
+          return r.status(400).json({ error: 'Every class requires a department, name, and unique ID.' });
+        }
+        if (password.length < 6) {
+          return r.status(400).json({ error: `Class ${classId} requires a temporary password of at least 6 characters.` });
+        }
 
-          if (!className || !classId) continue;
-          await db.from('departments').upsert({ id: cleanDept, name: cleanDept, data: {} }, { onConflict: 'id' });
+        const { error: departmentError } = await db.from('departments')
+          .upsert({ id: cleanDept, name: cleanDept, data: {} }, { onConflict: 'id' });
+        if (departmentError) throw departmentError;
 
-          const { data: existing } = await db.from('classes').select('id, department_id, data').eq('id', classId).maybeSingle();
-          if (existing) {
-            resultClasses.push({
+        const { data: existing, error: existingError } = await db.from('classes')
+          .select('id, department_id, data').eq('id', classId).maybeSingle();
+        if (existingError) throw existingError;
+
+        const classData: Record<string, any> = existing
+          ? {
               ...(existing.data && typeof existing.data === 'object' ? existing.data : {}),
               id: existing.id,
               className: existing.data?.className || className,
               department: existing.data?.department || cleanDept,
-            });
-            continue;
-          }
+              updatedAt: now,
+            }
+          : {
+              id: classId,
+              className,
+              department: cleanDept,
+              secretaryName: '',
+              secretaryPhone: '',
+              teachers: [],
+              quarterTitle: 'Quarter 1: Sunday School Curriculum',
+              year: currentYear,
+              currencySymbol: '₦',
+              isSetupComplete: false,
+              approvalStatus: 'PENDING_REGISTRATION',
+              createdAt: now,
+              updatedAt: now,
+            };
+        // Login secrets belong only in Supabase Auth, never in a readable class row.
+        delete classData.password;
 
-          const newClass = {
-            id: classId,
-            className,
-            department: cleanDept,
-            password: password || '123456',
-            secretaryName: '',
-            secretaryPhone: '',
-            teachers: [],
-            quarterTitle: 'Quarter 1: Sunday School Curriculum',
-            year: currentYear,
-            currencySymbol: '₦',
-            isSetupComplete: false,
-            approvalStatus: 'PENDING_REGISTRATION',
-            createdAt: now,
-            updatedAt: now
-          };
-
+        let insertedClass = false;
+        if (existing) {
+          const { error: sanitizeError } = await db.from('classes').update({
+            department_id: cleanDept,
+            data: classData,
+            updated_at: now,
+          }).eq('id', classId);
+          if (sanitizeError) throw sanitizeError;
+        } else {
           const { error: insertError } = await db.from('classes').insert({
             id: classId,
             department_id: cleanDept,
-            data: newClass,
+            data: classData,
             created_at: now,
-            updated_at: now
+            updated_at: now,
           });
           if (insertError) throw insertError;
-
-          resultClasses.push(newClass);
+          insertedClass = true;
         }
-      } else {
-        const cleanDept = String(department || 'Adult').trim();
-        const rawSuffixes: string[] = Array.isArray(suffixes) && suffixes.length > 0 ? suffixes : ['A', 'B', 'C'];
-        await db.from('departments').upsert({ id: cleanDept, name: cleanDept, data: {} }, { onConflict: 'id' });
 
-        for (const suffix of rawSuffixes) {
-          const cleanSuffix = String(suffix).trim().toUpperCase();
-          if (!cleanSuffix) continue;
-          const classId = `${cleanDept.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_${cleanSuffix}`;
-          const className = `${cleanDept} Class ${cleanSuffix}`;
+        try {
+          const loginEmail = normalizeClassLoginIdentifier(classId);
+          const { data: existingLogin, error: loginLookupError } = await db.from('profiles')
+            .select('id,role,class_id,is_approved').eq('email', loginEmail).maybeSingle();
+          if (loginLookupError) throw loginLookupError;
 
-          const { data: existing } = await db.from('classes').select('id, department_id, data').eq('id', classId).maybeSingle();
-          if (existing) {
-            resultClasses.push({
-              ...(existing.data && typeof existing.data === 'object' ? existing.data : {}),
-              id: existing.id,
-              className: existing.data?.className || className,
-              department: existing.data?.department || cleanDept,
+          let loginUserId = existingLogin?.id;
+          if (existingLogin) {
+            if (!CLASS_PORTAL_ROLES.includes(existingLogin.role as GofamintRole) || (existingLogin.class_id && existingLogin.class_id !== classId)) {
+              throw new Error(`Login identifier ${classId} is already assigned to another account.`);
+            }
+            const { error: passwordUpdateError } = await db.auth.admin.updateUserById(existingLogin.id, { password });
+            if (passwordUpdateError) throw passwordUpdateError;
+            const { error: profileUpdateError } = await db.from('profiles').update({
+              class_id: classId,
+              is_approved: true,
+              approved_by: c.id,
+              approved_at: existingLogin.is_approved ? undefined : now,
+              updated_at: now,
+            }).eq('id', existingLogin.id);
+            if (profileUpdateError) throw profileUpdateError;
+          } else {
+            const provisioned = await provisionSupabaseUserProfile({
+              email: loginEmail,
+              password,
+              displayName: `${className} Teacher / Secretary`,
+              role: 'TEACHER / CLASS_SECRETARY',
+              isApproved: true,
+              classId,
+              createdBy: c.id,
+              approvedBy: c.id,
             });
-            continue;
+            loginUserId = provisioned.userId;
           }
 
-          const newClass = {
-            id: classId,
-            className,
-            department: cleanDept,
-            password: 'password123',
-            secretaryName: '',
-            secretaryPhone: '',
-            teachers: [],
-            quarterTitle: 'Quarter 1: Sunday School Curriculum',
-            year: currentYear,
-            currencySymbol: '₦',
-            isSetupComplete: false,
-            approvalStatus: 'PENDING_REGISTRATION',
-            createdAt: now,
-            updatedAt: now
-          };
-
-          const { error: insertError } = await db.from('classes').insert({
-            id: classId,
-            department_id: cleanDept,
-            data: newClass,
-            created_at: now,
-            updated_at: now
-          });
-          if (insertError) throw insertError;
-
-          resultClasses.push(newClass);
+          const { error: assignmentError } = await db.from('profile_class_assignments')
+            .upsert({ profile_id: loginUserId, class_id: classId });
+          if (assignmentError) {
+            if (!existingLogin && loginUserId) await db.auth.admin.deleteUser(loginUserId);
+            throw assignmentError;
+          }
+        } catch (loginError) {
+          if (insertedClass) await db.from('classes').delete().eq('id', classId);
+          throw loginError;
         }
+
+        resultClasses.push(classData);
       }
 
       await audit(c, 'CREATE_CLASSES', { count: resultClasses.length }, 'classes');
@@ -448,6 +592,93 @@ export function createApp() {
     } catch (e: any) {
       console.error('[Server] create classes error:', e);
       r.status(500).json({ error: e.message || 'Failed to create classes.' });
+    }
+  });
+  app.post('/api/classes/:classId/submit-registration', async (req, r) => {
+    const db = getSupabaseAdmin();
+    try {
+      const c = await caller(req, r);
+      if (!c) return;
+      const classId = limitedText(req.params.classId, 120);
+      if (!CLASS_PORTAL_ROLES.includes(c.role) || !c.classId || canonicalClassId(c.classId) !== canonicalClassId(classId)) {
+        return r.status(403).json({ error: 'This class login is not assigned to the requested class.' });
+      }
+
+      const secretaryWorkerId = limitedText(req.body?.secretaryWorkerId, 120);
+      const teacherWorkerIds = Array.from(new Set(
+        (Array.isArray(req.body?.teacherWorkerIds) ? req.body.teacherWorkerIds : [])
+          .map((id: unknown) => limitedText(id, 120))
+          .filter(Boolean)
+      )) as string[];
+      if (!secretaryWorkerId || teacherWorkerIds.length === 0) {
+        return r.status(400).json({ error: 'Select one registered worker as secretary and at least one registered worker as teacher.' });
+      }
+      if (teacherWorkerIds.length > 10) {
+        return r.status(400).json({ error: 'A class registration may contain at most 10 teachers.' });
+      }
+
+      const { data: existingClass, error: classError } = await db.from('classes')
+        .select('id,department_id,data').eq('id', classId).maybeSingle();
+      if (classError) throw classError;
+      if (!existingClass) return r.status(404).json({ error: `Class ${classId} does not exist.` });
+      if (existingClass.data?.approvalStatus === 'APPROVED') {
+        return r.status(409).json({ error: 'This class is already approved. Registration cannot overwrite its approval.' });
+      }
+
+      const requiredWorkerIds = Array.from(new Set([secretaryWorkerId, ...teacherWorkerIds]));
+      const { data: workerRows, error: workerError } = await db.from('workers').select('id,data').in('id', requiredWorkerIds);
+      if (workerError) throw workerError;
+      const workerById = new Map((workerRows || []).map(worker => [worker.id, worker]));
+      const missingWorkerIds = requiredWorkerIds.filter(workerId => !workerById.has(workerId));
+      if (missingWorkerIds.length > 0) {
+        return r.status(400).json({ error: `Selected worker record(s) were not found: ${missingWorkerIds.join(', ')}` });
+      }
+
+      const secretary = workerById.get(secretaryWorkerId)!;
+      const secretaryName = limitedText(secretary.data?.fullName, 160);
+      if (!secretaryName) throw new Error(`Worker ${secretaryWorkerId} has no valid full name.`);
+      const teachers = teacherWorkerIds.map((workerId, index) => {
+        const worker = workerById.get(workerId)!;
+        const name = limitedText(worker.data?.fullName, 160);
+        if (!name) throw new Error(`Worker ${workerId} has no valid full name.`);
+        return {
+          id: worker.id,
+          name,
+          phone: limitedText(worker.data?.phone, 60),
+          isHeadTeacher: index === 0,
+        };
+      });
+
+      const now = new Date().toISOString();
+      const classData: Record<string, any> = {
+        ...(existingClass.data && typeof existingClass.data === 'object' ? existingClass.data : {}),
+        id: existingClass.id,
+        department: existingClass.data?.department || existingClass.department_id || 'Adult',
+        secretaryName,
+        secretaryPhone: limitedText(secretary.data?.phone, 60),
+        teachers,
+        isSetupComplete: true,
+        approvalStatus: 'PENDING_APPROVAL',
+        updatedAt: now,
+      };
+      delete classData.password;
+
+      const { data: updatedClass, error: updateError } = await db.from('classes').update({
+        data: classData,
+        updated_at: now,
+      }).eq('id', classId).select('id,department_id,data,updated_at').maybeSingle();
+      if (updateError) throw updateError;
+      if (!updatedClass) throw new Error('The class registration update did not modify a database row.');
+
+      await audit(c, 'SUBMIT_CLASS_REGISTRATION', {
+        classId,
+        secretaryWorkerId,
+        teacherWorkerIds,
+      }, 'classes', classId);
+      return r.json({ success: true, class: { ...classData, id: updatedClass.id, department: classData.department } });
+    } catch (e: any) {
+      console.error('[Server] submit class registration error:', e);
+      return r.status(500).json({ error: e.message || 'Failed to submit class registration.' });
     }
   });
   app.post('/api/admin/classes/approve', async (req, r) => {
@@ -470,7 +701,11 @@ export function createApp() {
       const now = new Date().toISOString();
 
       if (dept) {
-        try { await db.from('departments').upsert({ id: dept, name: dept, data: {} }, { onConflict: 'id' }); } catch {}
+        const { error: departmentError } = await db.from('departments').upsert(
+          { id: dept, name: dept, data: {} },
+          { onConflict: 'id', ignoreDuplicates: true }
+        );
+        if (departmentError) throw new Error(`Could not verify department "${dept}": ${departmentError.message}`);
       }
 
       const updatedClassData = {
@@ -560,6 +795,9 @@ export function createApp() {
       if (CLASS_PORTAL_ROLES.includes(c.role)) {
         if (!c.classId) return r.json({ success: true, classes: [] });
         query = query.eq('id', c.classId);
+      } else if (c.role === 'DEPARTMENT_SUPERINTENDENT') {
+        if (!c.departmentId) return r.json({ success: true, classes: [] });
+        query = query.eq('department_id', c.departmentId);
       }
       const { data, error } = await query;
       if (error) throw error;
@@ -637,7 +875,7 @@ export function createApp() {
   app.get('/api/admin/special-events', async (req, r) => {
     const db = getSupabaseAdmin();
     try {
-      const c = await caller(req, r, Array.from(ADMIN_PROFILES));
+      const c = await caller(req, r, Array.from(WORKER_EVENT_READERS));
       if (!c) return;
       const [evtsRes, attRes] = await Promise.all([
         db.from('special_events').select('*').order('created_at', { ascending: false }),
@@ -672,7 +910,7 @@ export function createApp() {
   app.post('/api/admin/special-events', async (req, r) => {
     const db = getSupabaseAdmin();
     try {
-      const c = await caller(req, r, Array.from(ADMIN_PROFILES));
+      const c = await caller(req, r, Array.from(WORKER_MANAGERS));
       if (!c) return;
       const { event } = req.body || {};
       if (!event || !event.id || !event.name) {
@@ -705,13 +943,13 @@ export function createApp() {
   app.delete('/api/admin/special-events/:id', async (req, r) => {
     const db = getSupabaseAdmin();
     try {
-      const c = await caller(req, r, Array.from(ADMIN_PROFILES));
+      const c = await caller(req, r, Array.from(WORKER_MANAGERS));
       if (!c) return;
       const eventId = req.params.id;
       if (!eventId) return r.status(400).json({ error: 'Event ID is required.' });
 
-      const { error: attendanceError } = await db.from('special_event_attendance').delete().eq('event_id', eventId);
-      if (attendanceError) throw attendanceError;
+      // The attendance foreign key is ON DELETE CASCADE, so this single
+      // statement removes the event and its attendance atomically.
       const { data: deleted, error } = await db.from('special_events').delete().eq('id', eventId).select('id');
       if (error) throw error;
       if (!deleted?.length) return r.status(404).json({ error: 'Special event was not found or was already deleted.' });
@@ -727,7 +965,7 @@ export function createApp() {
   app.post('/api/admin/special-events/attendance', async (req, r) => {
     const db = getSupabaseAdmin();
     try {
-      const c = await caller(req, r, Array.from(ADMIN_PROFILES));
+      const c = await caller(req, r, Array.from(WORKER_MANAGERS));
       if (!c) return;
       const { records } = req.body || {};
       const list = Array.isArray(records) ? records : (req.body?.record ? [req.body.record] : []);
@@ -759,7 +997,7 @@ export function createApp() {
   app.get('/api/admin/workers/prep-attendance', async (req, r) => {
     const db = getSupabaseAdmin();
     try {
-      const c = await caller(req, r, Array.from(WORKER_DIRECTORATE_ROLES));
+      const c = await caller(req, r, Array.from(WORKER_EVENT_READERS));
       if (!c) return;
       const { data, error } = await db.from('worker_prep_attendance').select('*').order('updated_at', { ascending: false });
       if (error) throw error;
@@ -782,7 +1020,7 @@ export function createApp() {
   app.post('/api/admin/workers/prep-attendance', async (req, r) => {
     const db = getSupabaseAdmin();
     try {
-      const c = await caller(req, r, Array.from(WORKER_DIRECTORATE_ROLES));
+      const c = await caller(req, r, Array.from(WORKER_MANAGERS));
       if (!c) return;
       const { records } = req.body || {};
       const list = Array.isArray(records) ? records : (req.body?.record ? [req.body.record] : []);
@@ -817,7 +1055,7 @@ export function createApp() {
   app.delete('/api/admin/special-events/attendance/:id', async (req, r) => {
     const db = getSupabaseAdmin();
     try {
-      const c = await caller(req, r, Array.from(ADMIN_PROFILES));
+      const c = await caller(req, r, Array.from(WORKER_MANAGERS));
       if (!c) return;
       const recordId = limitedText(req.params.id, 200);
       if (!recordId) return r.status(400).json({ error: 'Attendance record ID is required.' });

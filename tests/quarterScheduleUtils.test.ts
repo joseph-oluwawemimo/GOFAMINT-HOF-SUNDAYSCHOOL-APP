@@ -43,6 +43,19 @@ test('weekly schedules include the mandatory sharing and admonition week', () =>
   assert.equal(schedule[12].isSharingAdmonitionWeek, true);
 });
 
+test('weekly schedules reject a stale sharing date from an older year', () => {
+  const quarter = {
+    id: 'q1', quarterNumber: 1, quarterName: 'First Quarter', quarterTheme: '',
+    startDate: '2026-09-06', week1SundayDate: '2026-09-06',
+    sharingAdmonitionDate: '2025-11-30', totalLessonWeeks: 12,
+    hasSharingAdmonitionWeek: true, status: 'ACTIVE', lessons: [],
+    updatedAt: new Date(0).toISOString(),
+  } as QuarterData;
+  const schedule = getQuarterWeeklySchedule(quarter, 2026);
+  assert.equal(schedule[12].sundayDate, '2026-11-29');
+  assert.equal(schedule[12].prepDate, '2026-11-26');
+});
+
 test('worker metrics exclude inactive workers from active denominators', () => {
   const active = { id: 'active', fullName: 'Active', department: 'Adult', status: 'ACTIVE' } as WorkerProfile;
   const inactive = { id: 'inactive', fullName: 'Inactive', department: 'Adult', status: 'INACTIVE' } as WorkerProfile;

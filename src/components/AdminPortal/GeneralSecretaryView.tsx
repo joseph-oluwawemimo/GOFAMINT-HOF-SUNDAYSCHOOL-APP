@@ -79,6 +79,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
   
   // Quarter edit state
   const currentQuarter = sundaySchoolYear.quarters.find(q => q.quarterNumber === selectedQuarterNumber) || sundaySchoolYear.quarters[0];
+  const isQuarterReadOnly = currentQuarter.status === 'ARCHIVED' && currentQuarter.archiveEditUnlocked !== true;
   const [quarterTheme, setQuarterTheme] = useState(currentQuarter.quarterTheme);
   const [totalLessonWeeks, setTotalLessonWeeks] = useState<12 | 13>(currentQuarter.totalLessonWeeks);
   const [week1ThursdayDate, setWeek1ThursdayDate] = useState<string>(
@@ -233,7 +234,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
   };
 
   const handleSaveQuarterDetails = async () => {
-    if (currentQuarter.status === 'ARCHIVED') {
+    if (isQuarterReadOnly) {
       alert('This quarter is ARCHIVED (Read-Only) and cannot be edited.');
       return;
     }
@@ -278,13 +279,18 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
       updatedAt: new Date().toISOString()
     };
 
-    await onSaveSundaySchoolYear(updatedYear);
-    setFeedback(`Quarter ${selectedQuarterNumber} details & generated schedule saved.`);
-    setTimeout(() => setFeedback(null), 3000);
+    try {
+      await onSaveSundaySchoolYear(updatedYear);
+      setFeedback(`Quarter ${selectedQuarterNumber} details & generated schedule saved.`);
+      setTimeout(() => setFeedback(null), 3000);
+    } catch (error) {
+      console.error(`Quarter ${selectedQuarterNumber} save failed:`, error);
+      alert(error instanceof Error ? error.message : `Quarter ${selectedQuarterNumber} could not be saved.`);
+    }
   };
 
   const handleSaveSingleLesson = async () => {
-    if (currentQuarter.status === 'ARCHIVED') {
+    if (isQuarterReadOnly) {
       alert('This quarter is ARCHIVED (Read-Only) and cannot be modified.');
       return;
     }
@@ -337,7 +343,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
   // Quick Text Batch Paste Parser
   const handleParseAndLoadBatchText = async () => {
     if (!batchLessonText.trim()) return;
-    if (currentQuarter.status === 'ARCHIVED') {
+    if (isQuarterReadOnly) {
       alert('Cannot load lessons into an Archived quarter.');
       return;
     }
@@ -405,6 +411,10 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
   };
 
   const handleDistributeToAllClasses = async () => {
+    if (isQuarterReadOnly) {
+      alert('This archived quarter must be explicitly unlocked before corrected lessons can be distributed.');
+      return;
+    }
     setIsDistributing(true);
     try {
       await onDistributeLessons(selectedQuarterNumber);
@@ -417,10 +427,44 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
 
   const handleArchiveAndTransition = async () => {
     setShowArchiveConfirm(false);
-    await onArchiveAndActivateNextQuarter(sundaySchoolYear.activeQuarterNumber);
-    setFeedback(`Quarter ${sundaySchoolYear.activeQuarterNumber} is now ARCHIVED (Read-Only). Quarter ${Math.min(4, sundaySchoolYear.activeQuarterNumber + 1)} is now ACTIVE!`);
-    setTimeout(() => setFeedback(null), 5000);
-    await onRefreshData();
+    const archivedQuarter = sundaySchoolYear.activeQuarterNumber;
+    const nextQuarter = Math.min(4, archivedQuarter + 1) as QuarterNumber;
+    try {
+      await onArchiveAndActivateNextQuarter(archivedQuarter);
+      handleSelectQuarter(nextQuarter);
+      setFeedback(`Quarter ${archivedQuarter} is now ARCHIVED (Read-Only). Quarter ${nextQuarter} is now ACTIVE!`);
+      setTimeout(() => setFeedback(null), 5000);
+      await onRefreshData();
+    } catch (error) {
+      console.error(`Could not archive Quarter ${archivedQuarter}:`, error);
+      alert(error instanceof Error ? error.message : `Quarter ${archivedQuarter} could not be archived.`);
+    }
+  };
+
+  const handleArchivedEditLock = async (unlock: boolean) => {
+    if (currentQuarter.status !== 'ARCHIVED') return;
+    const now = new Date().toISOString();
+    const updatedYear: SundaySchoolYear = {
+      ...sundaySchoolYear,
+      quarters: sundaySchoolYear.quarters.map(quarter => quarter.quarterNumber === currentQuarter.quarterNumber ? {
+        ...quarter,
+        archiveEditUnlocked: unlock,
+        archiveEditUnlockedAt: unlock ? now : undefined,
+        archiveEditUnlockedBy: unlock ? currentAdmin.profileName : undefined,
+        updatedAt: now,
+      } : quarter),
+      updatedAt: now,
+    };
+    try {
+      await onSaveSundaySchoolYear(updatedYear);
+      setFeedback(unlock
+        ? `Quarter ${currentQuarter.quarterNumber} archive unlocked for authorized corrections.`
+        : `Quarter ${currentQuarter.quarterNumber} corrections saved and archive locked read-only again.`);
+      setTimeout(() => setFeedback(null), 5000);
+    } catch (error) {
+      console.error(`[General Secretary] Could not ${unlock ? 'unlock' : 're-lock'} archived quarter:`, error);
+      alert(error instanceof Error ? error.message : 'The archived-quarter access state could not be changed.');
+    }
   };
 
   const handleCreateDepartment = async (e: React.FormEvent) => {
@@ -454,7 +498,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
 
           <div className="flex items-center gap-3">
             <button
-              disabled={isDistributing}
+              disabled={isDistributing || isQuarterReadOnly}
               onClick={handleDistributeToAllClasses}
               className="px-4 py-3 bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 font-black rounded-xl text-xs flex items-center gap-2 shadow-lg transition"
             >
@@ -608,8 +652,8 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                     {currentQuarter.quarterName} Curriculum Management
                   </h3>
                   {currentQuarter.status === 'ARCHIVED' && (
-                    <span className="px-3 py-0.5 bg-slate-200 text-slate-700 text-xs font-black uppercase rounded-full">
-                      READ-ONLY ARCHIVE
+                    <span className={`px-3 py-0.5 text-xs font-black uppercase rounded-full ${currentQuarter.archiveEditUnlocked ? 'bg-amber-100 text-amber-900' : 'bg-slate-200 text-slate-700'}`}>
+                      {currentQuarter.archiveEditUnlocked ? 'ARCHIVE CORRECTION MODE' : 'READ-ONLY ARCHIVE'}
                     </span>
                   )}
                 </div>
@@ -628,6 +672,16 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                   <span>Archive Quarter & Activate Next</span>
                 </button>
               )}
+              {currentQuarter.status === 'ARCHIVED' && (
+                <button
+                  type="button"
+                  onClick={() => void handleArchivedEditLock(!currentQuarter.archiveEditUnlocked)}
+                  className={`px-4 py-2.5 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition ${currentQuarter.archiveEditUnlocked ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-amber-700 hover:bg-amber-800'}`}
+                >
+                  {currentQuarter.archiveEditUnlocked ? <Archive className="w-4 h-4" /> : <Edit3 className="w-4 h-4" />}
+                  <span>{currentQuarter.archiveEditUnlocked ? 'Save & Re-lock Archive' : 'Unlock for Authorized Correction'}</span>
+                </button>
+              )}
             </div>
 
             {/* Quarter Settings Form */}
@@ -636,7 +690,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                 <label className="text-xs font-bold text-[#0f2b59]">Quarter Theme</label>
                 <input
                   type="text"
-                  disabled={currentQuarter.status === 'ARCHIVED'}
+                  disabled={isQuarterReadOnly}
                   value={quarterTheme}
                   onChange={(e) => setQuarterTheme(e.target.value)}
                   className="w-full px-4 py-2.5 bg-white border-2 border-blue-900/30 rounded-xl text-sm font-bold text-[#0f2b59] placeholder:text-blue-900/40 caret-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden disabled:bg-slate-100 disabled:text-[#0f2b59]/60 shadow-xs"
@@ -647,7 +701,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-[#0f2b59]">Teaching Lessons (12 or 13 Weeks)</label>
                 <select
-                  disabled={currentQuarter.status === 'ARCHIVED'}
+                  disabled={isQuarterReadOnly}
                   value={totalLessonWeeks}
                   onChange={(e) => setTotalLessonWeeks(Number(e.target.value) as 12 | 13)}
                   className="w-full px-4 py-2.5 border-2 border-blue-900/30 rounded-xl text-sm font-bold bg-white text-[#0f2b59] caret-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden disabled:bg-slate-100 shadow-xs"
@@ -680,7 +734,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                   </label>
                   <input
                     type="date"
-                    disabled={currentQuarter.status === 'ARCHIVED'}
+                    disabled={isQuarterReadOnly}
                     value={week1ThursdayDate}
                     onChange={(e) => handleThursdayChange(e.target.value)}
                     className="w-full px-4 py-2.5 bg-white border-2 border-blue-900/30 rounded-xl text-xs font-bold text-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden disabled:bg-slate-100 shadow-xs"
@@ -699,7 +753,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                   </label>
                   <input
                     type="date"
-                    disabled={currentQuarter.status === 'ARCHIVED'}
+                    disabled={isQuarterReadOnly}
                     value={week1SundayDate}
                     onChange={(e) => handleSundayChange(e.target.value)}
                     className="w-full px-4 py-2.5 bg-white border-2 border-blue-900/30 rounded-xl text-xs font-bold text-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden disabled:bg-slate-100 shadow-xs"
@@ -768,7 +822,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
               </div>
             </div>
 
-            {currentQuarter.status !== 'ARCHIVED' && (
+            {!isQuarterReadOnly && (
               <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <button
@@ -860,7 +914,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                     <h5 className="text-xs font-black text-[#0f2b59] uppercase tracking-wider">
                       {editingWeekNumber && editingWeekNumber > totalLessonWeeks ? 'Sharing & Admonition Week' : `Edit Lesson for Week ${editingWeekNumber}`}
                     </h5>
-                    {currentQuarter.status === 'ARCHIVED' && (
+                    {isQuarterReadOnly && (
                       <span className="text-[10px] font-black text-slate-500 uppercase">Read Only</span>
                     )}
                   </div>
@@ -870,7 +924,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                       <label className="text-xs font-bold text-[#0f2b59]">Lesson Topic</label>
                       <input
                         type="text"
-                        disabled={currentQuarter.status === 'ARCHIVED'}
+                        disabled={isQuarterReadOnly}
                         value={lessonTopic}
                         onChange={(e) => setLessonTopic(e.target.value)}
                         className="w-full px-3.5 py-2.5 bg-white border-2 border-blue-900/30 rounded-xl text-xs font-bold text-[#0f2b59] placeholder:text-blue-900/40 caret-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden disabled:bg-slate-100 disabled:text-[#0f2b59]/60 shadow-xs"
@@ -882,7 +936,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                       <label className="text-xs font-bold text-[#0f2b59]">Scripture Reading / Text</label>
                       <input
                         type="text"
-                        disabled={currentQuarter.status === 'ARCHIVED'}
+                        disabled={isQuarterReadOnly}
                         value={scriptureReading}
                         onChange={(e) => setScriptureReading(e.target.value)}
                         className="w-full px-3.5 py-2.5 bg-white border-2 border-blue-900/30 rounded-xl text-xs font-bold text-[#0f2b59] placeholder:text-blue-900/40 caret-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden disabled:bg-slate-100 disabled:text-[#0f2b59]/60 shadow-xs"
@@ -895,7 +949,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                         <label className="text-xs font-bold text-[#0f2b59]">Memory Verse Text</label>
                         <input
                           type="text"
-                          disabled={currentQuarter.status === 'ARCHIVED'}
+                          disabled={isQuarterReadOnly}
                           value={memoryVerse}
                           onChange={(e) => setMemoryVerse(e.target.value)}
                           className="w-full px-3.5 py-2.5 bg-white border-2 border-blue-900/30 rounded-xl text-xs font-semibold text-[#0f2b59] placeholder:text-blue-900/40 caret-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden disabled:bg-slate-100 disabled:text-[#0f2b59]/60 shadow-xs"
@@ -906,7 +960,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                         <label className="text-xs font-bold text-[#0f2b59]">Memory Verse Reference</label>
                         <input
                           type="text"
-                          disabled={currentQuarter.status === 'ARCHIVED'}
+                          disabled={isQuarterReadOnly}
                           value={memoryVerseRef}
                           onChange={(e) => setMemoryVerseRef(e.target.value)}
                           className="w-full px-3.5 py-2.5 bg-white border-2 border-blue-900/30 rounded-xl text-xs font-semibold text-[#0f2b59] placeholder:text-blue-900/40 caret-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden disabled:bg-slate-100 disabled:text-[#0f2b59]/60 shadow-xs"
@@ -919,7 +973,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                       <label className="text-xs font-bold text-[#0f2b59]">Lesson Spiritual Aim / Objective</label>
                       <textarea
                         rows={2}
-                        disabled={currentQuarter.status === 'ARCHIVED'}
+                        disabled={isQuarterReadOnly}
                         value={aim}
                         onChange={(e) => setAim(e.target.value)}
                         className="w-full px-3.5 py-2.5 bg-white border-2 border-blue-900/30 rounded-xl text-xs font-medium text-[#0f2b59] placeholder:text-blue-900/40 caret-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden disabled:bg-slate-100 disabled:text-[#0f2b59]/60 shadow-xs"
@@ -928,7 +982,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                     </div>
                   </div>
 
-                  {currentQuarter.status !== 'ARCHIVED' && (
+                  {!isQuarterReadOnly && (
                     <div className="pt-2 flex justify-end">
                       <button
                         onClick={handleSaveSingleLesson}

@@ -62,7 +62,7 @@ export const AsstGeneralSecretaryView: React.FC<AsstGeneralSecretaryViewProps> =
   // Streamlined Pattern Class Creator State
   const [selectedDept, setSelectedDept] = useState<string>('Adult');
   const [draftClasses, setDraftClasses] = useState<DraftClassItem[]>([
-    { id: '1', department: 'Adult', className: 'Adult A', uniqueId: 'ADULT_A', password: 'password123' }
+    { id: '1', department: 'Adult', className: 'Adult A', uniqueId: 'ADULT_A', password: '' }
   ]);
 
   const refreshWorkerCount = async () => {
@@ -115,7 +115,7 @@ export const AsstGeneralSecretaryView: React.FC<AsstGeneralSecretaryViewProps> =
         department: newDept,
         className: `${newDept} A`,
         uniqueId: `${newDept.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_A`,
-        password: 'password123'
+        password: ''
       }
     ]);
   };
@@ -149,7 +149,7 @@ export const AsstGeneralSecretaryView: React.FC<AsstGeneralSecretaryViewProps> =
         department: selectedDept,
         className: newClassName,
         uniqueId: newUniqueId,
-        password: 'password123'
+        password: ''
       }
     ]);
   };
@@ -179,11 +179,15 @@ export const AsstGeneralSecretaryView: React.FC<AsstGeneralSecretaryViewProps> =
     setIsGenerating(true);
     setGenerationFeedback(null);
     try {
+      const invalidClass = draftClasses.find(d => !d.className.trim() || !d.department.trim() || !d.uniqueId.trim() || d.password.length < 6);
+      if (invalidClass) {
+        throw new Error('Every class requires a name, department, unique ID, and temporary password of at least 6 characters.');
+      }
       const payload = draftClasses.map(d => ({
         className: d.className.trim(),
         department: d.department.trim(),
         classId: d.uniqueId.trim(),
-        password: d.password.trim() || 'password123'
+        password: d.password
       }));
 
       const created = await createBatchClasses(payload);
@@ -203,7 +207,7 @@ export const AsstGeneralSecretaryView: React.FC<AsstGeneralSecretaryViewProps> =
           department: selectedDept,
           className: `${selectedDept} A`,
           uniqueId: `${selectedDept.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_A`,
-          password: 'password123'
+          password: ''
         }
       ]);
     } catch (err: any) {
@@ -395,10 +399,11 @@ export const AsstGeneralSecretaryView: React.FC<AsstGeneralSecretaryViewProps> =
               <div className="col-span-2">
                 <span className="sm:hidden text-[10px] font-bold text-slate-400 block mb-1">Password:</span>
                 <input
-                  type="text"
+                  type="password"
                   value={item.password}
                   onChange={(e) => handleUpdateDraft(item.id, 'password', e.target.value)}
-                  placeholder="password123"
+                  placeholder="Minimum 6 characters"
+                  autoComplete="new-password"
                   className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-medium text-slate-700 outline-none focus:border-indigo-600 font-mono"
                 />
               </div>
@@ -509,11 +514,6 @@ export const AsstGeneralSecretaryView: React.FC<AsstGeneralSecretaryViewProps> =
                         {cls.department}
                       </span>
                       <h4 className="text-sm font-black text-slate-900">{cls.className}</h4>
-                      {cls.password && (
-                        <span className="text-[10px] text-slate-500 font-mono bg-slate-100 px-1.5 py-0.5 rounded">
-                          Pwd: {cls.password}
-                        </span>
-                      )}
                     </div>
 
                     <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1 text-xs text-slate-600">

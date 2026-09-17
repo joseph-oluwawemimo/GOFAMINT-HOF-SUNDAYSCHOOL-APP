@@ -59,6 +59,7 @@ export const SpecialEventsView: React.FC<SpecialEventsViewProps> = ({
   const [eventArchiveTab, setEventArchiveTab] = useState<'ACTIVE' | 'ARCHIVED'>('ACTIVE');
   const [adminTestOverride, setAdminTestOverride] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Deletion Confirmation States (In-UI modals to avoid iframe window.confirm issues)
   const [eventToDelete, setEventToDelete] = useState<SpecialWorkersEvent | null>(null);
@@ -120,6 +121,7 @@ export const SpecialEventsView: React.FC<SpecialEventsViewProps> = ({
   const loadData = useCallback(async () => {
     try {
       setIsLoading(true);
+      setLoadError(null);
       // One server request returns both events and attendance; the event loader
       // refreshes both local stores before the attendance read below.
       const allEvts = await getAllSpecialEvents(true);
@@ -135,6 +137,7 @@ export const SpecialEventsView: React.FC<SpecialEventsViewProps> = ({
       }
     } catch (err) {
       console.error('Error loading special events:', err);
+      setLoadError(err instanceof Error ? err.message : 'Special events could not be loaded from the central database.');
     } finally {
       setIsLoading(false);
     }
@@ -492,8 +495,8 @@ export const SpecialEventsView: React.FC<SpecialEventsViewProps> = ({
         spread: 60,
         origin: { y: 0.75 }
       });
-    } catch {
-      // ignore
+    } catch (error) {
+      console.debug('Special-event celebration effect was unavailable:', error);
     }
 
     setCelebrationWorker({ worker, record });
@@ -643,6 +646,11 @@ export const SpecialEventsView: React.FC<SpecialEventsViewProps> = ({
 
   return (
     <div className="space-y-6 animate-fade-in pb-12">
+      {loadError && (
+        <div role="alert" className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm font-bold text-red-800">
+          Special Events synchronization failed: {loadError}
+        </div>
+      )}
       
       {/* Top Header Banner */}
       <div className="bg-linear-to-r from-blue-950 via-slate-900 to-indigo-950 text-white rounded-3xl p-6 sm:p-8 shadow-xl border-2 border-amber-400/40 relative overflow-hidden">

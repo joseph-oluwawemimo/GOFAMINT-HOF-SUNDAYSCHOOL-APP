@@ -3,6 +3,7 @@ import { getSupabaseClient } from './supabase';
 export type GofamintRole =
   | 'SUPER_ADMIN'
   | 'GENERAL_SUPERINTENDENT'
+  | 'DEPARTMENT_SUPERINTENDENT'
   | 'GENERAL_SECRETARY'
   | 'ASST_GENERAL_SECRETARY'
   | 'ASSISTANT_GENERAL_SECRETARY'
@@ -22,6 +23,7 @@ export interface ApplicationProfile {
   isApproved: boolean;
   classId: string | null;
   workerId: string | null;
+  departmentId: string | null;
   approvedBy: string | null;
   approvedAt: string | null;
   createdAt: string;
@@ -35,9 +37,21 @@ export async function loadCurrentProfile(userId: string): Promise<ApplicationPro
   const client = getSupabaseClient();
   let { data, error } = await client
     .from('profiles')
-    .select('id, email, display_name, role, is_approved, class_id, worker_id, approved_by, approved_at, created_at')
+    .select('id, email, display_name, role, is_approved, class_id, worker_id, department_id, approved_by, approved_at, created_at')
     .eq('id', userId)
     .maybeSingle();
+
+  // Rolling deployments must keep existing officers operational while the
+  // additive department migration is being applied.
+  if (error && /department_id/i.test(error.message || '')) {
+    const fallback = await client
+      .from('profiles')
+      .select('id, email, display_name, role, is_approved, class_id, worker_id, approved_by, approved_at, created_at')
+      .eq('id', userId)
+      .maybeSingle();
+    data = fallback.data ? { ...fallback.data, department_id: null } as any : null;
+    error = fallback.error;
+  }
 
   if (error) throw error;
 
@@ -46,14 +60,25 @@ export async function loadCurrentProfile(userId: string): Promise<ApplicationPro
     try {
       const { data: authUser } = await client.auth.getUser();
       if (authUser?.user?.email) {
-        const { data: byEmail } = await client
+        let { data: byEmail, error: emailLookupError } = await client
           .from('profiles')
-          .select('id, email, display_name, role, is_approved, class_id, worker_id, approved_by, approved_at, created_at')
+          .select('id, email, display_name, role, is_approved, class_id, worker_id, department_id, approved_by, approved_at, created_at')
           .eq('email', authUser.user.email.toLowerCase())
           .maybeSingle();
+        if (emailLookupError && /department_id/i.test(emailLookupError.message || '')) {
+          const fallback = await client.from('profiles')
+            .select('id, email, display_name, role, is_approved, class_id, worker_id, approved_by, approved_at, created_at')
+            .eq('email', authUser.user.email.toLowerCase()).maybeSingle();
+          byEmail = fallback.data ? { ...fallback.data, department_id: null } as any : null;
+          emailLookupError = fallback.error;
+        }
+        if (emailLookupError) throw emailLookupError;
         if (byEmail) data = byEmail;
       }
-    } catch {}
+    } catch (fallbackError) {
+      console.error('Profile email fallback lookup failed:', fallbackError);
+      throw fallbackError;
+    }
   }
 
   if (!data) return null;
@@ -66,6 +91,7 @@ export async function loadCurrentProfile(userId: string): Promise<ApplicationPro
     isApproved: data.is_approved === true,
     classId: data.class_id,
     workerId: data.worker_id,
+    departmentId: data.department_id,
     approvedBy: data.approved_by,
     approvedAt: data.approved_at,
     createdAt: data.created_at,

@@ -26,7 +26,8 @@ import {
   Layers,
   Clock,
   History,
-  Check
+  Check,
+  UserX
 } from 'lucide-react';
 import {
   AdminProfile,
@@ -50,6 +51,7 @@ import {
 } from '../../db/indexedDB';
 import { GofamintLogo } from '../GofamintLogo';
 import { useDatabaseSync } from '../../hooks/useDatabaseSync';
+import { DepartedMembersPanel } from './DepartedMembersPanel';
 
 interface EnrollmentOfficerViewProps {
   currentAdmin: AdminProfile;
@@ -83,12 +85,13 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
   // 2. 'CONSISTENCY_CERTIFICATION' -> Review active visitors & certify consistent learners into Student status
   // 3. 'AUDIT_TRAIL' -> Historical logs of all ratified visitor-to-student conversions
   // 4. 'DEPARTMENTAL_CENSUS' -> Breakdown by department & classes
-  const [activeTab, setActiveTab] = useState<'WEEKLY_ENROLLMENT' | 'CONSISTENCY_CERTIFICATION' | 'AUDIT_TRAIL' | 'DEPARTMENTAL_CENSUS'>('WEEKLY_ENROLLMENT');
+  const [activeTab, setActiveTab] = useState<'WEEKLY_ENROLLMENT' | 'CONSISTENCY_CERTIFICATION' | 'AUDIT_TRAIL' | 'DEPARTMENTAL_CENSUS' | 'DEPARTED_MEMBERS'>('WEEKLY_ENROLLMENT');
 
   // Collation & Data State
   const [collationData, setCollationData] = useState<EnrollmentOfficerWeeklyCollation | null>(null);
   const [eligibleCandidates, setEligibleCandidates] = useState<EligibleVisitorCandidate[]>([]);
   const [allCertifications, setAllCertifications] = useState<EnrollmentCertificationRecord[]>([]);
+  const [allMembersList, setAllMembersList] = useState<Member[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [actionSuccessMessage, setActionSuccessMessage] = useState<string | null>(null);
 
@@ -105,14 +108,16 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
   const loadAllData = async () => {
     setIsLoading(true);
     try {
-      const [collation, candidates, certs] = await Promise.all([
+      const [collation, candidates, certs, loadedMembers] = await Promise.all([
         getRealEnrollmentOfficerCollation(selectedQuarter, selectedWeek),
         getEligibleVisitorCandidates(selectedQuarter, selectedWeek),
-        getAllEnrollmentCertifications()
+        getAllEnrollmentCertifications(),
+        getAllMembers()
       ]);
       setCollationData(collation);
       setEligibleCandidates(candidates);
       setAllCertifications(certs);
+      setAllMembersList(loadedMembers);
     } catch (err) {
       console.error('Failed to load enrollment officer data:', err);
     } finally {
@@ -382,6 +387,21 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
           <Building className="w-4 h-4" />
           <span>Departmental Census Breakdown</span>
         </button>
+
+        <button
+          onClick={() => setActiveTab('DEPARTED_MEMBERS')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 cursor-pointer ${
+            activeTab === 'DEPARTED_MEMBERS'
+              ? 'bg-teal-900 text-amber-300 shadow-sm'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <UserX className="w-4 h-4" />
+          <span>Departed Members</span>
+          <span className="bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full text-[10px]">
+            {allMembersList.filter(member => member.status === 'LEFT_CLASS' || member.exitReviewOutcome === 'PERMANENT_EXIT').length}
+          </span>
+        </button>
       </div>
 
       {/* Control Bar: Quarter, Week, Department, and Search Selectors */}
@@ -512,6 +532,10 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
       {/* ========================================================= */}
       {/* TAB 1: WEEKLY ENROLLMENT TABLE (Standard Layout) */}
       {/* ========================================================= */}
+      {activeTab === 'DEPARTED_MEMBERS' && (
+        <DepartedMembersPanel members={allMembersList} classes={allClasses} />
+      )}
+
       {activeTab === 'WEEKLY_ENROLLMENT' && (
         <div className="space-y-6">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -1239,7 +1263,7 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
                 <div className="space-y-8">
                   <p className="font-bold">Compiled by (Enrollment Officer):</p>
                   <div className="border-b border-slate-400 pb-1">
-                    <span className="font-bold text-slate-800">{currentAdmin.profileName}</span>
+                    <span className="font-bold text-slate-800">Enrollment Officer</span>
                   </div>
                   <span className="text-[10px] text-slate-500 block">Signature & Date</span>
                 </div>
@@ -1247,7 +1271,7 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
                 <div className="space-y-8">
                   <p className="font-bold">Ratified by (General Superintendent):</p>
                   <div className="border-b border-slate-400 pb-1">
-                    <span className="font-bold text-slate-800">Pastor (Dr.) E.O. Abina</span>
+                    <span className="font-bold text-slate-800">General Superintendent</span>
                   </div>
                   <span className="text-[10px] text-slate-500 block">Signature & Date</span>
                 </div>

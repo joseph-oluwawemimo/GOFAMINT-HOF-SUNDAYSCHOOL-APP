@@ -58,8 +58,8 @@ export const Week12AnalyticsView: React.FC<Week12AnalyticsViewProps> = ({
         spread: 70,
         origin: { y: 0.6 }
       });
-    } catch {
-      // safe fallback
+    } catch (error) {
+      console.debug('Awards celebration effect was unavailable:', error);
     }
   };
 

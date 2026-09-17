@@ -16,23 +16,34 @@ interface WorkerMyAttendanceViewProps {
   sundayAttendance: WorkerAttendanceRecord[];
   prepAttendance: WorkerPrepAttendanceRecord[];
   onViewQrPass: (worker: WorkerProfile) => void;
+  lockedWorkerId?: string;
 }
 
 export const WorkerMyAttendanceView: React.FC<WorkerMyAttendanceViewProps> = ({
   workers,
   sundayAttendance,
   prepAttendance,
-  onViewQrPass
+  onViewQrPass,
+  lockedWorkerId
 }) => {
+  const availableWorkers = useMemo(
+    () => lockedWorkerId ? workers.filter(worker => worker.id === lockedWorkerId) : workers,
+    [workers, lockedWorkerId]
+  );
   const [selectedWorkerId, setSelectedWorkerId] = useState<string>(
-    workers[0]?.id || ''
+    lockedWorkerId || availableWorkers[0]?.id || ''
   );
   const [searchFilter, setSearchFilter] = useState('');
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
 
   const selectedWorker = useMemo(() => {
-    return workers.find(w => w.id === selectedWorkerId) || workers[0] || null;
-  }, [workers, selectedWorkerId]);
+    return availableWorkers.find(w => w.id === selectedWorkerId) || availableWorkers[0] || null;
+  }, [availableWorkers, selectedWorkerId]);
+
+  useEffect(() => {
+    const nextId = lockedWorkerId || availableWorkers[0]?.id || '';
+    if (!availableWorkers.some(worker => worker.id === selectedWorkerId)) setSelectedWorkerId(nextId);
+  }, [availableWorkers, lockedWorkerId, selectedWorkerId]);
 
   // Generate QR Code data url for current selected worker
   useEffect(() => {
@@ -82,7 +93,7 @@ export const WorkerMyAttendanceView: React.FC<WorkerMyAttendanceViewProps> = ({
   const prepScore = prepTotal > 0 ? Math.round((prepPresent / prepTotal) * 100) : 100;
 
   const filterTerm = (searchFilter || '').toLowerCase();
-  const filteredWorkerOptions = workers.filter(w => 
+  const filteredWorkerOptions = availableWorkers.filter(w =>
     (w.fullName || '').toLowerCase().includes(filterTerm) ||
     (w.department || '').toLowerCase().includes(filterTerm)
   );
@@ -118,7 +129,7 @@ export const WorkerMyAttendanceView: React.FC<WorkerMyAttendanceViewProps> = ({
         </div>
 
         {/* Worker Switcher Selector */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 bg-slate-50 p-2 border border-slate-200 rounded-2xl">
+        {!lockedWorkerId && <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 bg-slate-50 p-2 border border-slate-200 rounded-2xl">
           <div className="text-xs font-bold text-slate-600 flex items-center gap-1.5 px-2">
             <User className="w-3.5 h-3.5 text-blue-900" />
             <span>Select Worker:</span>
@@ -128,13 +139,13 @@ export const WorkerMyAttendanceView: React.FC<WorkerMyAttendanceViewProps> = ({
             onChange={e => setSelectedWorkerId(e.target.value)}
             className="bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 outline-hidden focus:ring-2 focus:ring-blue-600 cursor-pointer max-w-xs"
           >
-            {workers.map(w => (
+            {filteredWorkerOptions.map(w => (
               <option key={w.id} value={w.id}>
                 {w.fullName} ({w.department})
               </option>
             ))}
           </select>
-        </div>
+        </div>}
       </div>
 
       {/* Main Grid: Left ID Badge Card, Right Stats & Logs */}

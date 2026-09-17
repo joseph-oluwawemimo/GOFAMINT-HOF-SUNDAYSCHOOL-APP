@@ -199,8 +199,8 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
         osc.start();
         osc.stop(ctx.currentTime + 0.25);
       }
-    } catch {
-      // ignore
+    } catch (error) {
+      console.debug('Sunday clock-in sound feedback was unavailable:', error);
     }
   }, [config.autoSoundFeedback]);
 

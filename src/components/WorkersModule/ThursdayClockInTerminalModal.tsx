@@ -125,8 +125,9 @@ export const ThursdayClockInTerminalModal: React.FC<ThursdayClockInTerminalModal
         osc.start();
         osc.stop(ctx.currentTime + 0.4);
       }
-    } catch {
-      // Audio context may be restricted by browser until interaction
+    } catch (error) {
+      // Audio context may be restricted by browser until interaction.
+      console.debug('Thursday clock-in sound feedback was unavailable:', error);
     }
   }, []);
 
@@ -229,8 +230,8 @@ export const ThursdayClockInTerminalModal: React.FC<ThursdayClockInTerminalModal
         spread: 60,
         origin: { y: 0.7 }
       });
-    } catch {
-      // ignore
+    } catch (error) {
+      console.debug('Thursday clock-in celebration effect was unavailable:', error);
     }
 
     setCelebrationWorker({ worker, record: newRecord });

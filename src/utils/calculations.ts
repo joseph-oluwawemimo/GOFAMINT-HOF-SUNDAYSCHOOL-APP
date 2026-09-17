@@ -6,7 +6,8 @@ import {
   CategoryReportStats,
   WeekSummaryMetrics,
   AbsenceUrgency,
-  VisitorQualification
+  VisitorQualification,
+  QuarterNumber
 } from '../types';
 
 export interface AwardWinnerDetails {
@@ -502,7 +503,8 @@ export function checkVisitorQualification(
   member: Member,
   allGrades: WeeklyGradeRecord[],
   currentWeek: number = 12,
-  noRecordWeeks: number[] = []
+  noRecordWeeks: number[] = [],
+  quarterNumber?: QuarterNumber
 ): VisitorQualification {
   if (member.memberType === 'STUDENT') {
     return {
@@ -515,13 +517,27 @@ export function checkVisitorQualification(
     };
   }
 
-  const memberGrades = allGrades.filter(
-    g => g.memberId === member.id && !g.isNoRecordWeek && !noRecordWeeks.includes(g.weekNumber)
+  const effectiveQuarter = quarterNumber ?? allGrades.find(g => g.memberId === member.id)?.quarterNumber;
+  const quarterGrades = allGrades.filter(
+    g => g.memberId === member.id && (effectiveQuarter === undefined || g.quarterNumber === undefined || g.quarterNumber === effectiveQuarter)
+  );
+  const memberGrades = quarterGrades.filter(
+    g => !g.isNoRecordWeek && !noRecordWeeks.includes(g.weekNumber)
   );
   const presentGrades = memberGrades.filter(g => g.attendance === 'PRESENT');
   const attendedWeeks = presentGrades.length;
 
-  const currentConsecutive = getConsecutiveVisits(member.id, currentWeek, allGrades, noRecordWeeks);
+  const currentQuarterConsecutive = getConsecutiveVisits(member.id, currentWeek, quarterGrades, noRecordWeeks);
+  const streakReachesQuarterStart = Array.from({ length: currentWeek }, (_, index) => index + 1)
+    .filter(week => !noRecordWeeks.includes(week))
+    .every(week => {
+      const grade = quarterGrades.find(item => item.weekNumber === week);
+      return grade?.isNoRecordWeek || grade?.attendance === 'PRESENT';
+    });
+  const carriedConsecutive = effectiveQuarter
+    ? member.quarterEnrollments?.[effectiveQuarter]?.consecutiveVisitsCarried || 0
+    : 0;
+  const currentConsecutive = currentQuarterConsecutive + (streakReachesQuarterStart ? carriedConsecutive : 0);
 
   const firstWeek = member.firstLessonWeek || 1;
   const elapsedWeeks = Math.max(1, currentWeek - firstWeek + 1);
@@ -541,14 +557,15 @@ export function checkVisitorQualification(
     };
   }
 
-  // Qualification 2: 50% Attendance over elapsed period with min 3 visits
-  if (attendedWeeks >= 3 && bestPercentage >= 50) {
+  // Qualification 2 is a separate quarter-end review rule. It must never
+  // create an early conversion prompt during Weeks 1–11.
+  if (currentWeek >= 12 && attendedWeeks >= 1 && percentageOverElapsed >= 50) {
     return {
       isQualified: true,
       reason: 'ATTENDANCE_PERCENTAGE',
-      description: `Qualified: ${bestPercentage}% Attendance Achieved (50%+ required)`,
+      description: `Quarter-end review: ${percentageOverElapsed}% attendance in eligible weeks (Enrollment Officer discretion required)`,
       consecutiveVisits: currentConsecutive,
-      attendancePercentage: bestPercentage,
+      attendancePercentage: percentageOverElapsed,
       attendedWeeks
     };
   }
@@ -556,7 +573,9 @@ export function checkVisitorQualification(
   return {
     isQualified: false,
     reason: null,
-    description: `Requires 3 consecutive visits (${currentConsecutive}/3) or 50% attendance (${bestPercentage}%/50%)`,
+    description: currentWeek >= 12
+      ? `Requires 3 consecutive visits (${currentConsecutive}/3), or Enrollment Officer quarter-end review at 50% attendance (${percentageOverElapsed}%/50%)`
+      : `Requires 3 consecutive visits (${currentConsecutive}/3). The 50% attendance review is available only at quarter end.`,
     consecutiveVisits: currentConsecutive,
     attendancePercentage: bestPercentage,
     attendedWeeks

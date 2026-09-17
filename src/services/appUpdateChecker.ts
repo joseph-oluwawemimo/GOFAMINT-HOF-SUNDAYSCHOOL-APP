@@ -23,8 +23,9 @@ export function initAppUpdateChecker(): () => void {
           console.log('[AppUpdateChecker] Initial client version baseline:', initialVersion);
         }
       }
-    } catch {
-      // Non-blocking in offline or development mode.
+    } catch (error) {
+      // Non-blocking in offline or development mode, but still diagnosable.
+      console.debug('[AppUpdateChecker] Initial version check skipped:', error);
     }
   })();
 

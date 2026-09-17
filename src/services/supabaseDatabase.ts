@@ -36,6 +36,7 @@ const TABLES: Record<string, TableConfig> = {
   grades: { table: 'grades', columns: { classId: 'class_id', memberId: 'member_id', quarterNumber: 'quarter_number', weekNumber: 'week_number' }, hasUpdatedAt: true },
   offerings: { table: 'offerings', columns: { classId: 'class_id', quarterNumber: 'quarter_number', weekNumber: 'week_number' }, hasUpdatedAt: true },
   absenceLogs: { table: 'absence_logs', columns: { classId: 'class_id', memberId: 'member_id' }, hasUpdatedAt: true },
+  enrollmentCertifications: { table: 'enrollment_certifications', columns: { classId: 'class_id', memberId: 'member_id', quarterNumber: 'quarter_number', weekNumber: 'week_number' } },
   referrals: { table: 'referrals', columns: { classId: 'class_id' }, hasUpdatedAt: true },
   workers: { table: 'workers', hasUpdatedAt: true },
   workerAttendance: { table: 'worker_attendance', columns: { workerId: 'worker_id', serviceDate: 'service_date' } },
@@ -145,7 +146,7 @@ export async function fetchCollection<T>(collectionName: string): Promise<T[]> {
   const { data, error } = await client.from(config.table).select('*');
   if (error) {
     console.error(`Supabase fetchCollection error [${collectionName}]:`, error);
-    return [];
+    throw error;
   }
   if (collectionName === 'adminProfiles') {
     const ids = (data || []).map((row: Record<string, any>) => row.profile_id).filter(Boolean);
@@ -189,7 +190,9 @@ export async function saveDocument<T extends { id: string }>(collectionName: str
         if (existing.data.approvedBy) row.data.approvedBy = existing.data.approvedBy;
         if (existing.data.approvedAt) row.data.approvedAt = existing.data.approvedAt;
       }
-    } catch {}
+    } catch (approvalLookupError) {
+      console.warn(`Could not verify existing class approval before saving ${document.id}:`, approvalLookupError);
+    }
   }
   const { error } = await getSupabaseClient().from(config.table).upsert(row, { onConflict: 'id' });
   if (error) {
@@ -243,7 +246,7 @@ export async function fetchCollectionScoped<T>(collectionName: string, filters: 
   const { data, error } = await query;
   if (error) {
     console.error(`Supabase fetchCollectionScoped error [${collectionName}]:`, error);
-    return [];
+    throw error;
   }
   return (data || []).map((row: Record<string, any>) => fromRow<T>(collectionName, row));
 }
@@ -279,6 +282,7 @@ export function subscribeToCollection<T>(
   const client = getSupabaseClient();
   let active = true;
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  const pendingRows = new Map<string, Record<string, any>>();
 
   const refresh = async () => {
     try {
@@ -289,10 +293,20 @@ export function subscribeToCollection<T>(
     }
   };
 
-  const debouncedRefresh = () => {
+  const debouncedRefresh = (payload: { new?: Record<string, any> }) => {
+    const row = payload.new;
+    if (row?.id) pendingRows.set(String(row.id), row);
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
-      if (active) void refresh();
+      if (!active) return;
+      if (collectionName === 'adminProfiles') {
+        pendingRows.clear();
+        void refresh();
+        return;
+      }
+      const items = Array.from(pendingRows.values()).map(rowValue => fromRow<T>(collectionName, rowValue));
+      pendingRows.clear();
+      if (items.length > 0) onUpdate(items);
     }, 400);
   };
 
@@ -334,6 +348,7 @@ export function subscribeToCollectionScoped<T>(
   const column = columnFor(collectionName, realtimeFilter.field);
   let active = true;
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  const pendingRows = new Map<string, Record<string, any>>();
 
   const refresh = async () => {
     try {
@@ -344,10 +359,15 @@ export function subscribeToCollectionScoped<T>(
     }
   };
 
-  const debouncedRefresh = () => {
+  const debouncedRefresh = (payload: { new?: Record<string, any> }) => {
+    const row = payload.new;
+    if (row?.id) pendingRows.set(String(row.id), row);
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
-      if (active) void refresh();
+      if (!active) return;
+      const items = Array.from(pendingRows.values()).map(rowValue => fromRow<T>(collectionName, rowValue));
+      pendingRows.clear();
+      if (items.length > 0) onUpdate(items);
     }, 400);
   };
 
@@ -468,7 +488,7 @@ export async function cloudGetAllAdminProfiles(): Promise<AdminProfile[]> {
   const { data, error } = await getSupabaseClient().from('admin_profiles').select('*');
   if (error) {
     console.error('Supabase admin_profiles read failed:', error);
-    return [];
+    throw error;
   }
   return (data || []).map(row => ({
     id: row.id,
@@ -477,6 +497,7 @@ export async function cloudGetAllAdminProfiles(): Promise<AdminProfile[]> {
     profileName: row.profile_name,
     username: row.username,
     photoBase64: row.photo_base64 || undefined,
+    departmentId: row.department_id || undefined,
     isApproved: row.is_approved === true,
     approvedBy: row.approved_by || undefined,
     approvedAt: row.approved_at || undefined,
@@ -493,6 +514,7 @@ export async function cloudSaveAdminProfile(profile: AdminProfile): Promise<Admi
     profile_name: profile.profileName,
     username: profile.username,
     photo_base64: profile.photoBase64 || null,
+    department_id: profile.departmentId || null,
     is_approved: profile.isApproved === true,
     approved_by: profile.approvedBy || null,
     approved_at: profile.approvedAt || null,

@@ -14,6 +14,7 @@ export type DepartmentType =
 export type AdminRoleType =
   | 'SUPER_ADMIN'
   | 'GENERAL_SUPERINTENDENT'
+  | 'DEPARTMENT_SUPERINTENDENT'
   | 'GENERAL_SECRETARY'
   | 'TREASURER'
   | 'RECORD_OFFICER'
@@ -28,6 +29,8 @@ export interface AdminProfile {
   profileName: string; // Name of the officer e.g. 'Pastor Dr. E.O. Abina'
   username: string; // Auto-generated: e.g. 'gs_admin', 'gsec_admin', 'treasurer_admin', 'record_admin', 'enrollment_admin', etc.
   photoBase64?: string;
+  /** Required for a Departmental Superintendent; stores the exact department id/name. */
+  departmentId?: string;
   firebaseUid?: string; // Legacy import field; Supabase profile.id is the active identity.
   isApproved: boolean; // General Superintendent & General Secretary are auto-approved; others require GS approval
   approvedBy?: string;
@@ -67,6 +70,10 @@ export interface QuarterData {
   distributedAt?: string;
   lessons: QuarterLesson[];
   archivedAt?: string;
+  /** Temporary executive override; the quarter remains historically archived while corrections are made. */
+  archiveEditUnlocked?: boolean;
+  archiveEditUnlockedAt?: string;
+  archiveEditUnlockedBy?: string;
   updatedAt: string;
 }
 
@@ -111,6 +118,11 @@ export type EscalationDecision =
   | 'RELEGATED_VISITOR' 
   | 'HIGH_PROBABILITY';
 
+export type ExitReviewOutcome =
+  | 'CONTINUE_MONITORING'
+  | 'TEMPORARY_EXIT'
+  | 'PERMANENT_EXIT';
+
 export interface TeacherInfo {
   id: string;
   name: string;
@@ -127,6 +139,8 @@ export interface MemberQuarterEnrollment {
   exitNote?: string;
   forwardedFromQuarter?: QuarterNumber;
   forwardedAt?: string;
+  /** Consecutive PRESENT attendances carried from the end of the prior quarter. */
+  consecutiveVisitsCarried?: number;
 }
 
 export interface ClassProfile {
@@ -201,6 +215,13 @@ export interface Member {
   certifiedBy?: string;
   certifiedAt?: string;
   exitNote?: string;
+  exitReviewOutcome?: ExitReviewOutcome;
+  exitReviewAt?: string;
+  departureDate?: string;
+  departureQuarter?: QuarterNumber;
+  departureWeek?: number;
+  departureReason?: string;
+  temporaryExitSince?: string;
   conversionStatus?: 'NONE' | 'PENDING_APPROVAL' | 'APPROVED' | 'DENIED';
   conversionRequestedAt?: string;
   conversionRequestedBy?: string;

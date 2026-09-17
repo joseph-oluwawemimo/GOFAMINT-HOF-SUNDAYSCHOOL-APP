@@ -14,7 +14,7 @@ import {
   ArrowLeft
 } from 'lucide-react';
 import { GofamintLogo } from './GofamintLogo';
-import { ClassProfile, SyncState } from '../types';
+import { ClassProfile, QuarterData, QuarterNumber, QuarterStatus, SyncState } from '../types';
 
 interface HeaderProps {
   classProfile: ClassProfile | null;
@@ -31,6 +31,7 @@ interface HeaderProps {
   selectedQuarter?: number;
   onQuarterChange?: (q: number) => void;
   activeQuarterNumber?: number;
+  quarters?: QuarterData[];
   totalWeeksInQuarter?: number;
 }
 
@@ -49,8 +50,17 @@ export const Header: React.FC<HeaderProps> = ({
   selectedQuarter = 1,
   onQuarterChange,
   activeQuarterNumber = 1,
+  quarters = [],
   totalWeeksInQuarter = 12
 }) => {
+  const getQuarterStatus = (quarterNumber: number): QuarterStatus => {
+    const storedStatus = quarters.find(quarter => quarter.quarterNumber === quarterNumber)?.status;
+    if (storedStatus) return storedStatus;
+    if (quarterNumber === activeQuarterNumber) return 'ACTIVE';
+    return quarterNumber < activeQuarterNumber ? 'ARCHIVED' : 'UPCOMING';
+  };
+  const selectedQuarterStatus = getQuarterStatus(selectedQuarter);
+
   return (
     <header className="bg-gradient-to-r from-slate-950 via-indigo-950 to-slate-900 text-white border-b-2 border-indigo-500/40 sticky top-0 z-40 shadow-xl">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3.5">
@@ -97,15 +107,18 @@ export const Header: React.FC<HeaderProps> = ({
                   onChange={(e) => onQuarterChange(Number(e.target.value))}
                   className="bg-blue-900 text-amber-300 font-black text-xs rounded px-1.5 py-0.5 border border-amber-400/40 cursor-pointer focus:outline-none focus:ring-1 focus:ring-amber-300"
                 >
-                  <option value={1}>Q1 {activeQuarterNumber === 1 ? '(Active)' : '(Archived)'}</option>
-                  <option value={2}>Q2 {activeQuarterNumber === 2 ? '(Active)' : (activeQuarterNumber > 2 ? '(Archived)' : '(Upcoming)')}</option>
-                  <option value={3}>Q3 {activeQuarterNumber === 3 ? '(Active)' : (activeQuarterNumber > 3 ? '(Archived)' : '(Upcoming)')}</option>
-                  <option value={4}>Q4 {activeQuarterNumber === 4 ? '(Active)' : '(Upcoming)'}</option>
+                  {([1, 2, 3, 4] as QuarterNumber[]).map(quarterNumber => (
+                    <option key={quarterNumber} value={quarterNumber}>
+                      Q{quarterNumber} ({getQuarterStatus(quarterNumber) === 'ACTIVE' ? 'Active' : getQuarterStatus(quarterNumber) === 'ARCHIVED' ? 'Archived' : 'Upcoming'})
+                    </option>
+                  ))}
                 </select>
-                {selectedQuarter === activeQuarterNumber ? (
+                {selectedQuarterStatus === 'ACTIVE' ? (
                   <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-300 text-[9px] uppercase font-black rounded border border-emerald-400/30">Active</span>
+                ) : selectedQuarterStatus === 'ARCHIVED' ? (
+                  <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-300 text-[9px] uppercase font-black rounded border border-amber-400/30">Archived</span>
                 ) : (
-                  <span className="px-1.5 py-0.5 bg-slate-500/30 text-slate-300 text-[9px] uppercase font-bold rounded">View Only</span>
+                  <span className="px-1.5 py-0.5 bg-slate-500/30 text-slate-300 text-[9px] uppercase font-bold rounded">Upcoming</span>
                 )}
               </div>
             ) : (

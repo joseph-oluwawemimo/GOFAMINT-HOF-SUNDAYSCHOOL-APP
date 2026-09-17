@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   WorkerProfile, 
   WorkerStatus,
@@ -106,11 +106,13 @@ export const WorkerProfileModal: React.FC<WorkerProfileModalProps> = ({
     ) || sundaySchoolYear?.quarters?.[0];
 
     if (activeQuarter) {
-      return getQuarterWeeklySchedule(activeQuarter, 2025);
+      return getQuarterWeeklySchedule(activeQuarter);
     }
 
-    // Default Fallback Schedule based on 04 Sep 2025 (Thursday Prep) & 07 Sep 2025 (Sunday)
-    const baseSunday = new Date(2025, 8, 7, 12, 0, 0); // 07 September 2025
+    // Last-resort preview only; persisted year/quarter dates take precedence.
+    const fallbackYear = Number(sundaySchoolYear?.id?.match(/\d{4}/)?.[0]) || new Date().getFullYear();
+    const baseSunday = new Date(fallbackYear, 8, 1, 12, 0, 0);
+    baseSunday.setDate(1 + ((7 - baseSunday.getDay()) % 7));
     const schedule = [];
     for (let w = 1; w <= 12; w++) {
       const sun = new Date(baseSunday);
@@ -132,8 +134,20 @@ export const WorkerProfileModal: React.FC<WorkerProfileModalProps> = ({
     return schedule;
   }, [sundaySchoolYear]);
 
-  // Synchronize state on modal open
+  const initializedContextRef = useRef<string | null>(null);
+  const newWorkerIdRef = useRef('');
+
+  // Initialize only when the modal opens for a new worker/context. Background
+  // realtime updates must not overwrite fields the operator is currently editing.
   useEffect(() => {
+    if (!isOpen) {
+      initializedContextRef.current = null;
+      return;
+    }
+    const contextKey = worker?.id || 'NEW_WORKER';
+    if (initializedContextRef.current === contextKey) return;
+    initializedContextRef.current = contextKey;
+
     if (worker) {
       setSn(worker.sn !== undefined ? String(worker.sn) : '');
       setFullName(worker.fullName || '');
@@ -198,6 +212,7 @@ export const WorkerProfileModal: React.FC<WorkerProfileModalProps> = ({
       setWorkerPrepRecords(pRecs);
     } else {
       // New worker registration
+      newWorkerIdRef.current = `w_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
       setSn('');
       setFullName('');
       setPhone('');
@@ -420,8 +435,9 @@ export const WorkerProfileModal: React.FC<WorkerProfileModalProps> = ({
     setError(null);
 
     try {
-      const workerId = worker?.id || `w_${Date.now()}`;
-      const qrCode = worker?.qrCodeToken || `GOFAMINT_HOF-WRK-${Date.now().toString().slice(-5)}`;
+      const workerId = worker?.id || newWorkerIdRef.current || `w_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+      newWorkerIdRef.current = workerId;
+      const qrCode = worker?.qrCodeToken || `GOFAMINT_HOF-WRK-${workerId.replace(/[^a-zA-Z0-9]/g, '').slice(-12)}`;
       const effectiveCategories = selectedCategories.length > 0 ? selectedCategories : [duty.trim() || 'Class Teacher'];
 
       const profileToSave: WorkerProfile = {

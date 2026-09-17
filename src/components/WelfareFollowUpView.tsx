@@ -30,7 +30,8 @@ import {
   FollowUpTask,
   FollowUpActionType,
   FollowUpStatus,
-  LessonInfo
+  LessonInfo,
+  ExitReviewOutcome
 } from '../types';
 import { getConsecutiveAbsences, getAbsenceUrgency } from '../utils/calculations';
 import { GOFAMINT_HOF_12_LESSONS } from '../data/mockQuarterLessons';
@@ -43,8 +44,8 @@ interface WelfareFollowUpViewProps {
   classProfile: ClassProfile | null;
   activeLessons?: LessonInfo[];
   selectedQuarterNumber?: number;
-  onSaveAbsenceLog: (log: AbsenceLogRecord) => void;
-  onUpdateMemberStatus: (memberId: string, status: any, exitNote?: string) => void;
+  onSaveAbsenceLog: (log: AbsenceLogRecord) => Promise<void>;
+  onCompleteExitReview: (memberId: string, outcome: ExitReviewOutcome, reason: string) => Promise<void>;
   onRelegateToVisitor: (memberId: string) => void;
   onRestoreToStudent?: (memberId: string) => void;
 }
@@ -69,7 +70,7 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
   activeLessons = GOFAMINT_HOF_12_LESSONS,
   selectedQuarterNumber = 1,
   onSaveAbsenceLog,
-  onUpdateMemberStatus,
+  onCompleteExitReview,
   onRelegateToVisitor,
   onRestoreToStudent
 }) => {
@@ -81,8 +82,10 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
   const [callNotes, setCallNotes] = useState('');
   const [selectedReason, setSelectedReason] = useState<string>(EXIT_REASONS[0]);
   const [customReasonText, setCustomReasonText] = useState('');
-  const [exitDecision, setExitDecision] = useState<'CONTINUE_MONITORING' | 'EXEMPT' | 'LEFT_CLASS' | 'RELEGATED_VISITOR'>('CONTINUE_MONITORING');
+  const [exitDecision, setExitDecision] = useState<ExitReviewOutcome>('CONTINUE_MONITORING');
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [isSavingAction, setIsSavingAction] = useState(false);
 
   // Derive absent members and follow-up status
   const currentLesson = activeLessons.find(l => l.weekNumber === currentWeek) || activeLessons[0] || GOFAMINT_HOF_12_LESSONS[0];
@@ -149,10 +152,11 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
     setCallNotes('');
     setSelectedReason(EXIT_REASONS[0]);
     setCustomReasonText('');
-    setExitDecision(weeksAbsent >= 6 ? 'EXEMPT' : weeksAbsent >= 4 && member.memberType === 'STUDENT' ? 'RELEGATED_VISITOR' : 'CONTINUE_MONITORING');
+    setExitDecision('CONTINUE_MONITORING');
+    setActionError(null);
   };
 
-  const handleCompleteAction = (e: React.FormEvent) => {
+  const handleCompleteAction = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!actioningMember) return;
 
@@ -181,24 +185,29 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
       loggedAt: new Date().toISOString()
     };
 
-    onSaveAbsenceLog(newLog);
-
-    // Apply decision if specified
-    if (exitDecision === 'LEFT_CLASS') {
-      onUpdateMemberStatus(member.id, 'LEFT_CLASS', finalReason);
-      setFeedback(`${member.fullName} marked as Left Class.`);
-    } else if (exitDecision === 'RELEGATED_VISITOR') {
-      onRelegateToVisitor(member.id);
-      setFeedback(`${member.fullName} relegated to Visitor due to extended absence.`);
-    } else if (exitDecision === 'EXEMPT') {
-      onUpdateMemberStatus(member.id, 'EXEMPT', finalReason);
-      setFeedback(`${member.fullName} granted temporary exemption.`);
-    } else {
-      setFeedback(`Follow-up action recorded for ${member.fullName}. Moved to Executed list.`);
+    setIsSavingAction(true);
+    setActionError(null);
+    try {
+      await onSaveAbsenceLog(newLog);
+      if (weeksAbsent >= 6) {
+        await onCompleteExitReview(member.id, exitDecision, finalReason);
+        const label = exitDecision === 'PERMANENT_EXIT'
+          ? 'permanently exited and moved to departed members'
+          : exitDecision === 'TEMPORARY_EXIT'
+          ? 'placed on temporary exit while remaining associated with the class'
+          : 'kept active for continued monitoring';
+        setFeedback(`${member.fullName} ${label}.`);
+      } else {
+        setFeedback(`Follow-up action recorded for ${member.fullName}. Moved to Executed list.`);
+      }
+      setTimeout(() => setFeedback(null), 3500);
+      setActioningMember(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setActionError(`Could not save this welfare action: ${message}`);
+    } finally {
+      setIsSavingAction(false);
     }
-
-    setTimeout(() => setFeedback(null), 3500);
-    setActioningMember(null);
   };
 
   const generateWhatsAppMessage = (member: Member) => {
@@ -218,10 +227,10 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
             </span>
           </div>
           <h2 className="text-lg sm:text-xl font-black text-slate-900 mt-1">
-            Care Workflow, Follow-up Logs & 6-Week Exemption Reviews
+            Care Workflow, Follow-up Logs & 6-Week Exit Reviews
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Systematic pastoral pipeline (Wk 1: WhatsApp → Wk 2: Phone Call → Wk 3: Pastoral Visit → Wk 4: Relegate / WhatsApp → Wk 6: Exit Review).
+            Systematic pastoral pipeline (Wk 1: WhatsApp → Wk 2: Phone Call → Wk 3: Pastoral Visit → Wk 4–5: Continued Care → Wk 6: Exit Review).
           </p>
         </div>
 
@@ -432,7 +441,7 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
                           {isRedAlert && (
                             <div className="mt-2 p-2.5 bg-red-100 border border-red-400 rounded text-xs text-red-900 font-bold flex items-center gap-2">
                               <ShieldAlert className="w-4 h-4 text-red-700 shrink-0" />
-                              <span>PROLONGED 6-WEEK ABSENCE: Mandatory Exemption or Exit Review required for class data integrity.</span>
+                              <span>PROLONGED 6-WEEK ABSENCE: Exit Review required — Continue Monitoring, Temporary Exit, or Permanent Exit.</span>
                             </div>
                           )}
 
@@ -598,8 +607,8 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
                 </div>
               )}
 
-              {/* Status Decision (especially for 4+ and 6+ weeks) */}
-              {(actioningMember.weeksAbsent >= 4 || actioningMember.actionType === 'PROLONGED_EXIT_REVIEW') && (
+              {/* Membership status changes only at the six-week exit review. */}
+              {actioningMember.weeksAbsent >= 6 && (
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
                     Membership Status Decision:
@@ -609,13 +618,16 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
                     onChange={(e) => setExitDecision(e.target.value as any)}
                     className="w-full text-xs p-2.5 rounded-lg border border-slate-300 bg-white font-bold text-slate-800 focus:ring-2 focus:ring-blue-600 focus:outline-none"
                   >
-                    <option value="CONTINUE_MONITORING">Continue Monitoring (Keep on active roster)</option>
-                    <option value="EXEMPT">Mark as Temporarily Exempt (Illness/Exam/Short Travel)</option>
-                    {actioningMember.member.memberType === 'STUDENT' && (
-                      <option value="RELEGATED_VISITOR">Relegate to Visitor Status (Due to extended absence)</option>
-                    )}
-                    <option value="LEFT_CLASS">Mark as Exited / Left Class (Relocated/Transferred/Left)</option>
+                    <option value="CONTINUE_MONITORING">Continue to Monitor (Keep active)</option>
+                    <option value="TEMPORARY_EXIT">Temporary Exit (Keep class association and attendance history)</option>
+                    <option value="PERMANENT_EXIT">Permanent Exit (Move to Departed Members)</option>
                   </select>
+                </div>
+              )}
+
+              {actionError && (
+                <div role="alert" className="rounded-lg border border-red-300 bg-red-50 p-3 text-xs font-bold text-red-800">
+                  {actionError}
                 </div>
               )}
 
@@ -643,10 +655,11 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition shadow-xs"
+                  disabled={isSavingAction}
+                  className="px-4 py-2 bg-blue-900 hover:bg-blue-800 disabled:bg-slate-400 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition shadow-xs"
                 >
                   <CheckCircle2 className="w-3.5 h-3.5 text-amber-300" />
-                  <span>Save Log & Move to Executed</span>
+                  <span>{isSavingAction ? 'Saving…' : 'Save Log & Move to Executed'}</span>
                 </button>
               </div>
 

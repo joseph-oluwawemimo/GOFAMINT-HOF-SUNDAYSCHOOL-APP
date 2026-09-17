@@ -1,15 +1,9 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   Calendar,
   Lock,
   Archive,
-  CheckCircle2,
-  AlertTriangle,
-  FolderArchive,
-  ShieldAlert,
-  ChevronRight,
-  Info,
-  Clock
+  CheckCircle2
 } from 'lucide-react';
 import { QuarterNumber, QuarterStatus, SundaySchoolYear } from '../types';
 
@@ -18,19 +12,14 @@ interface QuarterSelectorBarProps {
   activeQuarterNumber: QuarterNumber;
   sundaySchoolYear: SundaySchoolYear | null;
   onSelectQuarter: (quarter: QuarterNumber) => void;
-  onArchiveQuarter: (quarter: QuarterNumber) => Promise<void>;
 }
 
 export const QuarterSelectorBar: React.FC<QuarterSelectorBarProps> = ({
   selectedQuarter,
   activeQuarterNumber,
   sundaySchoolYear,
-  onSelectQuarter,
-  onArchiveQuarter
+  onSelectQuarter
 }) => {
-  const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
-  const [isArchiving, setIsArchiving] = useState(false);
-
   const quartersList: QuarterNumber[] = [1, 2, 3, 4];
 
   // Helper to determine status of each quarter
@@ -46,18 +35,6 @@ export const QuarterSelectorBar: React.FC<QuarterSelectorBarProps> = ({
   const isSelectedActive = selectedQuarterStatus === 'ACTIVE';
   const isSelectedArchived = selectedQuarterStatus === 'ARCHIVED';
   const isSelectedLocked = selectedQuarterStatus === 'UPCOMING';
-
-  const handleConfirmArchive = async () => {
-    setIsArchiving(true);
-    try {
-      await onArchiveQuarter(selectedQuarter);
-      setShowArchiveConfirm(false);
-    } catch (err) {
-      console.error('Error archiving quarter:', err);
-    } finally {
-      setIsArchiving(false);
-    }
-  };
 
   const currentQuarterData = sundaySchoolYear?.quarters.find(q => q.quarterNumber === selectedQuarter);
 
@@ -127,18 +104,11 @@ export const QuarterSelectorBar: React.FC<QuarterSelectorBarProps> = ({
               </p>
             </div>
 
-            {/* Archive Button for Active Quarter */}
+            {/* Quarter lifecycle is globally owned by the General Secretary. */}
             {isSelectedActive && (
-              <button
-                type="button"
-                id="btn-archive-active-quarter"
-                onClick={() => setShowArchiveConfirm(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600/90 hover:bg-amber-500 text-white text-xs font-semibold shadow-sm transition-colors border border-amber-400/30 whitespace-nowrap"
-                title={`Archive Quarter ${selectedQuarter} to lock historical records`}
-              >
-                <FolderArchive className="w-3.5 h-3.5" />
-                <span>Archive Quarter {selectedQuarter}</span>
-              </button>
+              <span className="text-[10px] font-semibold text-emerald-300">
+                Quarter lifecycle is controlled by the General Secretary.
+              </span>
             )}
           </div>
         </div>
@@ -185,63 +155,6 @@ export const QuarterSelectorBar: React.FC<QuarterSelectorBarProps> = ({
             <p className="text-slate-600 mt-0.5">
               This quarter has not been activated or released by the General Secretary in the Admin Portal. Data entry will be enabled once the General Secretary loads lessons and distributes the quarter.
             </p>
-          </div>
-        </div>
-      )}
-
-      {/* Quarter Archiving Confirmation Modal */}
-      {showArchiveConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95">
-            <div className="flex items-center gap-3 text-amber-600 mb-4">
-              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200">
-                <FolderArchive className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-slate-900">Archive Quarter {selectedQuarter}?</h3>
-                <p className="text-xs text-slate-500">Lock historical records for Quarter {selectedQuarter}</p>
-              </div>
-            </div>
-
-            <div className="space-y-2.5 text-xs text-slate-600 bg-slate-50 p-3.5 rounded-xl border border-slate-200 mb-5">
-              <p className="font-semibold text-slate-800">What happens upon archiving:</p>
-              <ul className="list-disc pl-4 space-y-1">
-                <li>Quarter {selectedQuarter} records will become <strong>permanently Read-Only</strong>.</li>
-                <li>Grades, punctuality, memory verse scores, and offerings cannot be modified.</li>
-                <li>If Quarter {Math.min(4, selectedQuarter + 1)} has been approved by the General Secretary, the Class Register will transition to Quarter {Math.min(4, selectedQuarter + 1)}.</li>
-                <li>If Quarter {Math.min(4, selectedQuarter + 1)} is not yet approved, it will remain Locked until the General Secretary releases it in the Admin Portal.</li>
-              </ul>
-            </div>
-
-            <div className="flex items-center justify-end gap-2.5">
-              <button
-                type="button"
-                onClick={() => setShowArchiveConfirm(false)}
-                disabled={isArchiving}
-                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                id="btn-confirm-archive-quarter"
-                onClick={handleConfirmArchive}
-                disabled={isArchiving}
-                className="inline-flex items-center gap-1.5 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg shadow transition-colors"
-              >
-                {isArchiving ? (
-                  <>
-                    <Clock className="w-3.5 h-3.5 animate-spin" />
-                    <span>Archiving...</span>
-                  </>
-                ) : (
-                  <>
-                    <FolderArchive className="w-3.5 h-3.5" />
-                    <span>Confirm Archive</span>
-                  </>
-                )}
-              </button>
-            </div>
           </div>
         </div>
       )}

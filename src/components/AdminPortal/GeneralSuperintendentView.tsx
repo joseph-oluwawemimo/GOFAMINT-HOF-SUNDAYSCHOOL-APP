@@ -61,6 +61,8 @@ export const GeneralSuperintendentView: React.FC<GeneralSuperintendentViewProps>
 
   const pendingAdmins = localProfiles.filter(p => !p.isApproved && p.roleType !== 'GENERAL_SUPERINTENDENT');
   const approvedAdmins = localProfiles.filter(p => p.isApproved);
+  const authorizedOfficerTotal = new Set(localProfiles.map(p => p.id)).size;
+  const authorizedOfficerApproved = new Set(approvedAdmins.map(p => p.id)).size;
   const pendingClasses = allClasses.filter(c => String(c.approvalStatus || '').trim().toUpperCase() === 'PENDING_APPROVAL');
   const approvedClasses = allClasses.filter(c => String(c.approvalStatus || '').trim().toUpperCase() === 'APPROVED');
 
@@ -300,8 +302,12 @@ export const GeneralSuperintendentView: React.FC<GeneralSuperintendentViewProps>
 
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
               <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Authorized Officers</span>
-              <h3 className="text-xl font-black text-emerald-700 mt-1">{approvedAdmins.length} / 5 Roles</h3>
-              <p className="text-xs text-slate-500 mt-1">One Active Profile per ID</p>
+              <h3 className="text-xl font-black text-emerald-700 mt-1">{authorizedOfficerApproved} / {authorizedOfficerTotal} Profiles</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                {pendingAdmins.length > 0
+                  ? `Awaiting: ${pendingAdmins.map(profile => profile.title).join(', ')}`
+                  : 'Every created officer profile is active'}
+              </p>
             </div>
           </div>
 
@@ -342,7 +348,7 @@ export const GeneralSuperintendentView: React.FC<GeneralSuperintendentViewProps>
           {/* Administrative Hierarchy Cards */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
             <h3 className="text-base font-black text-slate-900 font-['Cinzel',serif]">
-              Administrative Council Status (5 ID Structure)
+              Administrative Council Status ({authorizedOfficerTotal} Created Profiles)
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {adminProfiles.map((profile) => (

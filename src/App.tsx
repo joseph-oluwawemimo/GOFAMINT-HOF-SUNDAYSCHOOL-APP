@@ -12,7 +12,8 @@ import {
   AdminComment,
   SundaySchoolYear,
   QuarterNumber,
-  QuarterStatus
+  QuarterStatus,
+  ExitReviewOutcome
 } from './types';
 import {
   initDB,
@@ -44,13 +45,12 @@ import {
   saveAdminComment,
   deleteAdminComment,
   performLocalFactoryReset,
-  getSundaySchoolYear,
-  archiveQuarterForRegister
+  getSundaySchoolYear
 } from './db/indexedDB';
 import { getSystemStatus } from './services/adminUserApi';
 import { GOFAMINT_HOF_12_LESSONS } from './data/mockQuarterLessons';
 import { pushSyncToServer, pullSyncFromServer } from './services/api';
-import { getConsecutiveAbsences, getConsecutiveVisits } from './utils/calculations';
+import { checkVisitorQualification, getConsecutiveAbsences, getConsecutiveVisits } from './utils/calculations';
 import { runFullCloudSyncCycle, getLastHydrationError, startRealtimeCloudSync, stopRealtimeCloudSync } from './services/cloudSyncManager';
 import type { SyncScope } from './services/cloudSyncManager';
 
@@ -85,6 +85,7 @@ import { isApprovedClassStatus, isExactClassAssignment } from './utils/accessCon
 
 const ADMIN_PORTAL_ROLES = new Set([
   'GENERAL_SUPERINTENDENT',
+  'DEPARTMENT_SUPERINTENDENT',
   'GENERAL_SECRETARY',
   'ASST_GENERAL_SECRETARY',
   'ASSISTANT_GENERAL_SECRETARY',
@@ -155,14 +156,16 @@ export default function App() {
       const savedPortal = sessionStorage.getItem('gofamint_active_portal');
       const savedOversight = sessionStorage.getItem('gofamint_oversight_target');
 
-      if (savedPortal === 'WORKERS' && (ADMIN_PORTAL_ROLES.has(role) || WORKERS_MODULE_ROLES.has(role))) {
+      if (savedPortal === 'WORKERS' && role !== 'DEPARTMENT_SUPERINTENDENT' && (ADMIN_PORTAL_ROLES.has(role) || WORKERS_MODULE_ROLES.has(role))) {
         setShowWorkersModule(true);
         setShowAdminPortal(false);
         setShowOpeningPage(false);
         if (savedOversight) {
           try {
             setOversightTarget(JSON.parse(savedOversight));
-          } catch {
+          } catch (error) {
+            console.warn('Discarding an invalid saved Workers oversight target:', error);
+            sessionStorage.removeItem('gofamint_oversight_target');
             setOversightTarget({ type: 'WORKERS', label: 'Workers Directorate & Attendance Terminal' });
           }
         }
@@ -299,22 +302,106 @@ export default function App() {
   // A successful durable database write emits sync-update and clears the guard;
   // a failed save leaves the warning active so the operator can retry.
   useEffect(() => {
+    const draftStorageKey = 'gofamint_pending_form_draft_v1';
+    type DraftValue = { value?: string; checked?: boolean };
     let hasUnsavedInput = false;
+    let isRestoring = false;
+    let pendingDraft: Record<string, DraftValue> = {};
+    const restoredKeys = new Set<string>();
+    try {
+      pendingDraft = JSON.parse(sessionStorage.getItem(draftStorageKey) || '{}');
+      hasUnsavedInput = Object.keys(pendingDraft).length > 0;
+    } catch (error) {
+      console.error('Could not read the pending form draft:', error);
+      sessionStorage.removeItem(draftStorageKey);
+    }
+
+    const editableControls = () => Array.from(document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('input, textarea, select'))
+      .filter(element => !element.disabled && !(element instanceof HTMLInputElement && ['password', 'file', 'hidden', 'submit', 'button', 'reset'].includes(element.type)));
+
+    const draftKey = (target: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement): string => {
+      const type = target instanceof HTMLInputElement ? target.type : target.tagName.toLowerCase();
+      const explicit = target.dataset.draftKey || target.id || target.getAttribute('name') || target.getAttribute('aria-label') || target.getAttribute('placeholder');
+      const base = `${sessionStorage.getItem('gofamint_active_portal') || 'WELCOME'}|${target.tagName}|${type}|${explicit || 'control'}`;
+      const peers = editableControls().filter(element => {
+        const peerType = element instanceof HTMLInputElement ? element.type : element.tagName.toLowerCase();
+        const peerExplicit = element.dataset.draftKey || element.id || element.getAttribute('name') || element.getAttribute('aria-label') || element.getAttribute('placeholder');
+        return `${sessionStorage.getItem('gofamint_active_portal') || 'WELCOME'}|${element.tagName}|${peerType}|${peerExplicit || 'control'}` === base;
+      });
+      return `${base}|${Math.max(0, peers.indexOf(target))}`;
+    };
+
+    const persistDraft = () => {
+      try {
+        sessionStorage.setItem(draftStorageKey, JSON.stringify(pendingDraft));
+      } catch (error) {
+        console.error('Could not preserve the pending form draft:', error);
+      }
+    };
+
     const markDirty = (event: Event) => {
+      if (isRestoring) return;
       const target = event.target;
       if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) {
         const isReadOnly = target instanceof HTMLSelectElement ? false : target.readOnly;
-        if (!target.disabled && !isReadOnly) hasUnsavedInput = true;
+        if (target.disabled || isReadOnly || (target instanceof HTMLInputElement && ['password', 'file', 'hidden', 'submit', 'button', 'reset'].includes(target.type))) return;
+        hasUnsavedInput = true;
+        pendingDraft[draftKey(target)] = target instanceof HTMLInputElement && ['checkbox', 'radio'].includes(target.type)
+          ? { checked: target.checked }
+          : { value: target.value };
+        persistDraft();
       }
     };
     const markPersisted = (event: Event) => {
-      if ((event as CustomEvent).detail?.source === 'local') hasUnsavedInput = false;
+      if ((event as CustomEvent).detail?.source === 'local') {
+        hasUnsavedInput = false;
+        pendingDraft = {};
+        sessionStorage.removeItem(draftStorageKey);
+      }
     };
     const guardUnload = (event: BeforeUnloadEvent) => {
       if (!hasUnsavedInput) return;
       event.preventDefault();
       event.returnValue = true;
     };
+
+    const restoreDraft = () => {
+      if (Object.keys(pendingDraft).length === 0) return;
+      isRestoring = true;
+      let restored = 0;
+      try {
+        for (const target of editableControls()) {
+          const key = draftKey(target);
+          const saved = pendingDraft[key];
+          if (!saved || restoredKeys.has(key)) continue;
+          if (target instanceof HTMLInputElement && ['checkbox', 'radio'].includes(target.type)) {
+            const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'checked')?.set;
+            setter?.call(target, Boolean(saved.checked));
+          } else {
+            const prototype = target instanceof HTMLInputElement
+              ? HTMLInputElement.prototype
+              : target instanceof HTMLTextAreaElement
+                ? HTMLTextAreaElement.prototype
+                : HTMLSelectElement.prototype;
+            const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+            setter?.call(target, saved.value || '');
+          }
+          target.dispatchEvent(new Event('input', { bubbles: true }));
+          target.dispatchEvent(new Event('change', { bubbles: true }));
+          restoredKeys.add(key);
+          restored++;
+        }
+      } finally {
+        isRestoring = false;
+      }
+      if (restored > 0) {
+        console.info(`Restored ${restored} unsaved form field${restored === 1 ? '' : 's'} after reload.`);
+      }
+    };
+
+    const observer = new MutationObserver(restoreDraft);
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+    restoreDraft();
 
     document.addEventListener('input', markDirty, true);
     document.addEventListener('change', markDirty, true);
@@ -325,6 +412,7 @@ export default function App() {
       document.removeEventListener('change', markDirty, true);
       window.removeEventListener('gofamint:sync-update', markPersisted);
       window.removeEventListener('beforeunload', guardUnload);
+      observer.disconnect();
     };
   }, []);
 
@@ -431,6 +519,17 @@ export default function App() {
   // Supabase database and refreshes the screen with it. RLS requires an
   // authenticated user, so this only runs once
   // Supabase Auth has confirmed a signed-in user (cloudUser).
+  const realtimeOversightPortal: SyncScope['targetOversightPortal'] = showWorkersModule
+    ? 'WORKERS'
+    : oversightTarget?.type === 'CLASS'
+      ? 'CLASS_REGISTER'
+      : oversightTarget?.type === 'WORKERS'
+        ? 'WORKERS'
+        : undefined;
+  const realtimeOversightClassId = realtimeOversightPortal === 'CLASS_REGISTER'
+    ? oversightTarget?.classId
+    : undefined;
+
   const syncWithCloud = async (silent = true) => {
     if (!cloudUser || profileResolution !== 'ready' || !currentUserProfile?.role) {
       return { ok: false, error: 'An approved signed-in profile is required for cloud sync.', pendingRetries: 0 };
@@ -443,11 +542,16 @@ export default function App() {
       const scope: SyncScope = {
         roleType: currentUserProfile.role,
         classId: currentUserProfile.classId,
-        targetOversightPortal: oversightTarget?.type === 'CLASS' ? 'CLASS_REGISTER' : oversightTarget?.type === 'WORKERS' ? 'WORKERS' : undefined,
-        targetOversightClassId: oversightTarget?.classId,
+        targetOversightPortal: realtimeOversightPortal,
+        targetOversightClassId: realtimeOversightClassId,
       };
       const result = await runFullCloudSyncCycle(scope);
       await refreshStateFromLocalDB();
+      if (scope.targetOversightPortal === 'WORKERS' || ['WORKER', 'ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY'].includes(scope.roleType || '')) {
+        window.dispatchEvent(new CustomEvent('gofamint:worker-sync', {
+          detail: { stores: [], source: 'remote-hydration' }
+        }));
+      }
       if (result.ok) {
         setSyncStatusText(
           result.pendingRetries > 0
@@ -488,8 +592,8 @@ export default function App() {
     const scope: SyncScope = {
       roleType: currentUserProfile.role,
       classId: currentUserProfile.classId,
-      targetOversightPortal: showWorkersModule ? 'WORKERS' : (oversightTarget?.type === 'CLASS' ? 'CLASS_REGISTER' : oversightTarget?.type === 'WORKERS' ? 'WORKERS' : undefined),
-      targetOversightClassId: oversightTarget?.classId,
+      targetOversightPortal: realtimeOversightPortal,
+      targetOversightClassId: realtimeOversightClassId,
     };
     const unsubscribeRealtime = startRealtimeCloudSync(scope, async () => {
       try {
@@ -543,7 +647,7 @@ export default function App() {
       window.removeEventListener('online', handleOnlineReconnect);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cloudUser, currentUserProfile?.role, currentUserProfile?.classId, oversightTarget, profileResolution, showWorkersModule]);
+  }, [cloudUser, currentUserProfile?.role, currentUserProfile?.classId, realtimeOversightPortal, realtimeOversightClassId, profileResolution]);
 
   // Compute status for selected quarter
   const selectedQuarterStatus: QuarterStatus = useMemo(() => {
@@ -573,15 +677,6 @@ export default function App() {
     setSelectedQuarter(qNum);
     if (classProfile) {
       await loadClassQuarterData(classProfile.id, qNum);
-    }
-  };
-
-  // Archive Quarter Handler
-  const handleArchiveQuarter = async (qNum: QuarterNumber) => {
-    const updatedYear = await archiveQuarterForRegister(qNum);
-    setSundaySchoolYear(updatedYear);
-    if (classProfile) {
-      await loadClassQuarterData(classProfile.id, selectedQuarter);
     }
   };
 
@@ -634,7 +729,6 @@ export default function App() {
   };
 
   const handleRegisterNewClassSubmit = async (newProfile: ClassProfile) => {
-    await saveClassProfile(newProfile);
     setClassProfile(newProfile);
 
     // Clean data isolation: fresh class has zero members
@@ -855,6 +949,10 @@ export default function App() {
     if (!classProfile) return;
     const member = members.find(m => m.id === memberId);
     if (!member) return;
+    const qualification = checkVisitorQualification(member, grades, selectedWeek);
+    if (!qualification.isQualified) {
+      throw new Error('This visitor is not yet eligible. Three consecutive attendances are required before a conversion request.');
+    }
 
     const requested: Member = {
       ...member,
@@ -1057,6 +1155,58 @@ export default function App() {
     }
   };
 
+  const handleCompleteExitReview = async (
+    memberId: string,
+    outcome: ExitReviewOutcome,
+    reason: string
+  ) => {
+    if (!classProfile) throw new Error('No class profile is active.');
+    const member = members.find(m => m.id === memberId);
+    if (!member) throw new Error(`Member ${memberId} was not found in the active class.`);
+
+    const now = new Date().toISOString();
+    const isPermanent = outcome === 'PERMANENT_EXIT';
+    const nextStatus = isPermanent ? 'LEFT_CLASS' : 'ACTIVE';
+    const enrollment = member.quarterEnrollments?.[selectedQuarter];
+    const updated: Member = {
+      ...member,
+      status: nextStatus,
+      exitReviewOutcome: outcome,
+      exitReviewAt: now,
+      temporaryExitSince: outcome === 'TEMPORARY_EXIT' ? now : undefined,
+      departureDate: isPermanent ? now : undefined,
+      departureQuarter: isPermanent ? selectedQuarter : undefined,
+      departureWeek: isPermanent ? selectedWeek : undefined,
+      departureReason: isPermanent ? reason : undefined,
+      exitNote: isPermanent ? reason : member.exitNote,
+      quarterEnrollments: {
+        ...(member.quarterEnrollments || {}),
+        [selectedQuarter]: {
+          ...(enrollment || {
+            quarterNumber: selectedQuarter,
+            memberType: member.memberType,
+            firstLessonWeek: member.firstLessonWeek || 1
+          }),
+          status: nextStatus,
+          exitNote: isPermanent ? reason : undefined
+        }
+      },
+      statusHistory: [
+        ...(member.statusHistory || []),
+        {
+          fromStatus: member.status,
+          toStatus: outcome,
+          date: now,
+          reason
+        }
+      ],
+      updatedAt: now
+    };
+
+    await saveMemberToDB(updated, selectedQuarter);
+    await loadClassQuarterData(classProfile.id, selectedQuarter);
+  };
+
   const handlePullSync = async () => {
     let hostError: Error | null = null;
     setIsSyncing(true);
@@ -1140,7 +1290,7 @@ export default function App() {
   const visitorConversionCount = members.filter(m => {
     if (m.memberType !== 'VISITOR' || m.status === 'LEFT_CLASS') return false;
     const consecutive = getConsecutiveVisits(m.id, selectedWeek, grades);
-    return consecutive >= 2;
+    return consecutive >= 3;
   }).length;
 
   // Oversight Handlers
@@ -1306,6 +1456,9 @@ export default function App() {
           />
         )}
         <WorkersModuleView
+          currentUserRole={currentUserProfile?.role}
+          currentWorkerId={currentUserProfile?.workerId || undefined}
+          isOversight={Boolean(oversightTarget)}
           onBackToWelcome={() => {
             sessionStorage.removeItem('gofamint_active_portal');
             sessionStorage.removeItem('gofamint_oversight_target');
@@ -1370,9 +1523,9 @@ export default function App() {
               setShowOpeningPage(true);
             }
           }}
-          onEnterWorkersModule={() => {
+          onEnterWorkersModule={['SUPER_ADMIN', 'GENERAL_SUPERINTENDENT', 'GENERAL_SECRETARY', 'ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY'].includes(currentUserProfile?.role || '') ? () => {
             void handleEnterOversight('WORKERS');
-          }}
+          } : undefined}
           onLockProfile={() => {
             sessionStorage.setItem('gofamint_profile_locked', 'true');
             setIsProfileLocked(true);
@@ -1413,7 +1566,7 @@ export default function App() {
             setShowOpeningPage(false);
             setShowAdminPortal(true);
           }}
-          onEnterWorkersModule={() => {
+          onEnterWorkersModule={currentUserProfile?.role === 'DEPARTMENT_SUPERINTENDENT' ? undefined : () => {
             sessionStorage.setItem('gofamint_active_portal', 'WORKERS');
             setShowOpeningPage(false);
             setShowWorkersModule(true);
@@ -1468,6 +1621,7 @@ export default function App() {
           syncQueueCount: syncQueue.length,
           syncStatusText
         }}
+        quarters={sundaySchoolYear?.quarters}
         onSyncClick={handlePushSync}
         onLockClick={() => {
           sessionStorage.setItem('gofamint_profile_locked', 'true');
@@ -1511,7 +1665,6 @@ export default function App() {
           activeQuarterNumber={sundaySchoolYear?.activeQuarterNumber || classProfile?.quarter || 1}
           sundaySchoolYear={sundaySchoolYear}
           onSelectQuarter={handleQuarterChange}
-          onArchiveQuarter={handleArchiveQuarter}
         />
 
         {activeTab === 'GRADING_MATRIX' && (
@@ -1562,7 +1715,7 @@ export default function App() {
             activeLessons={currentQuarterLessons}
             selectedQuarterNumber={selectedQuarter}
             onSaveAbsenceLog={handleSaveAbsenceLog}
-            onUpdateMemberStatus={handleUpdateMemberStatus}
+            onCompleteExitReview={handleCompleteExitReview}
             onRelegateToVisitor={handleRelegateToVisitor}
             onRestoreToStudent={(id) => handleUpdateMemberStatus(id, 'ACTIVE')}
           />

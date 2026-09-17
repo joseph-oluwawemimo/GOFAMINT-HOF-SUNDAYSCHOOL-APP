@@ -309,10 +309,21 @@ export function getQuarterWeeklySchedule(
 
   // If quarter has sharing admonition week (week 13) and not yet included
   if (quarter.hasSharingAdmonitionWeek && weeksCount === 12) {
-    const sun13 = quarter.sharingAdmonitionDate 
-      ? parseDateSafe(quarter.sharingAdmonitionDate)
-      : new Date(baseSunday.getTime() + 12 * 7 * 86400000);
-    const thurs13 = new Date(baseThursday.getTime() + 12 * 7 * 86400000);
+    const generatedSun13 = new Date(baseSunday);
+    generatedSun13.setDate(baseSunday.getDate() + 12 * 7);
+    const lastLessonSunday = new Date(baseSunday);
+    lastLessonSunday.setDate(baseSunday.getDate() + 11 * 7);
+
+    // Older records may retain a sharing date from a previous year after Week 1
+    // is changed. Never let that stale value move Week 13 behind the lesson weeks.
+    const configuredSun13 = quarter.sharingAdmonitionDate
+      ? parseDateSafe(quarter.sharingAdmonitionDate, generatedSun13)
+      : generatedSun13;
+    const sun13 = configuredSun13 > lastLessonSunday && configuredSun13.getDay() === 0
+      ? configuredSun13
+      : generatedSun13;
+    const thurs13 = new Date(sun13);
+    thurs13.setDate(sun13.getDate() - 3);
 
     const lesson13 = quarter.lessons?.find(l => l.weekNumber === 13);
 

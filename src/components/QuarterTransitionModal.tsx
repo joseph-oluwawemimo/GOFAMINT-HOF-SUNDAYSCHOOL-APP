@@ -12,7 +12,6 @@ import {
   HelpCircle,
   Clock,
   Layers,
-  GraduationCap,
   HeartHandshake,
   Search,
   Check,
@@ -202,11 +201,12 @@ export const QuarterTransitionModal: React.FC<QuarterTransitionModalProps> = ({
             category = 'STUDENT';
           }
 
-          // Recommendation & initial smart default decision
-          let recType: MemberAnalysisItem['recommendation']['type'] = 'FORWARD_AS_STUDENT';
-          let recLabel = 'Recommended: Forward as Student';
-          let recDesc = 'Regular active student in Quarter ' + fromQuarter;
-          let initialDecision: ForwardingDecision = 'FORWARD_STUDENT';
+          // Quarter transition never changes enrollment type. Visitor-to-Student
+          // conversion remains exclusively in the Enrollment Officer workflow.
+          let recType: MemberAnalysisItem['recommendation']['type'] = member.memberType === 'STUDENT' ? 'FORWARD_AS_STUDENT' : 'FORWARD_AS_VISITOR';
+          let recLabel = 'Forward to Next Quarter';
+          let recDesc = `Preserve ${member.memberType === 'STUDENT' ? 'Student' : 'Visitor'} status and attendance continuity.`;
+          let initialDecision: ForwardingDecision = member.memberType === 'STUDENT' ? 'FORWARD_STUDENT' : 'FORWARD_VISITOR';
           let initialTargetType: MemberType = member.memberType;
           let initialTargetStatus: MemberStatus = 'ACTIVE';
 
@@ -215,40 +215,6 @@ export const QuarterTransitionModal: React.FC<QuarterTransitionModalProps> = ({
             recLabel = 'Exempted / Left Class in Q' + fromQuarter;
             recDesc = 'Historical record preserved. Do not forward unless student returned.';
             initialDecision = 'DO_NOT_FORWARD';
-            initialTargetStatus = 'LEFT_CLASS';
-          } else if (isProlongedAbsence) {
-            recType = 'EXEMPTION_REVIEW';
-            recLabel = `Exemption Review (${consecAbsences} Wks Absent)`;
-            recDesc = `Absent for ${consecAbsences} consecutive weeks. Recommend exemption or re-engagement check.`;
-            initialDecision = 'DO_NOT_FORWARD';
-            initialTargetStatus = 'LEFT_CLASS';
-          } else if (isUnderReview) {
-            recType = 'UNDER_REVIEW';
-            recLabel = 'Under Review — Poor Consistency';
-            recDesc = `Missed ${consecAbsences} consecutive lessons (${attendanceRate}% attendance). Review required.`;
-            initialDecision = 'UNDER_REVIEW';
-            initialTargetStatus = 'ACTIVE';
-          } else if (member.memberType === 'VISITOR' && isVisitorUpgradeEligible) {
-            recType = 'ELIGIBLE_FOR_UPGRADE';
-            recLabel = 'Eligible for Student Upgrade';
-            recDesc = `Satisfied criteria: ${consecVisits >= 3 ? `${consecVisits} consecutive visits` : `${attendanceRate}% attendance`}. Promote to regular Student.`;
-            initialDecision = 'UPGRADE_STUDENT';
-            initialTargetType = 'STUDENT';
-            initialTargetStatus = 'ACTIVE';
-          } else if (member.memberType === 'VISITOR') {
-            recType = 'FORWARD_AS_VISITOR';
-            recLabel = 'Recommended: Forward as Visitor';
-            recDesc = `Continue as visitor in Quarter ${toQuarter}.`;
-            initialDecision = 'FORWARD_VISITOR';
-            initialTargetType = 'VISITOR';
-            initialTargetStatus = 'ACTIVE';
-          } else {
-            recType = 'FORWARD_AS_STUDENT';
-            recLabel = 'Recommended: Forward as Student';
-            recDesc = `Consistent Quarter ${fromQuarter} participation (${attendanceRate}% attendance). Forward as Student.`;
-            initialDecision = 'FORWARD_STUDENT';
-            initialTargetType = 'STUDENT';
-            initialTargetStatus = 'ACTIVE';
           }
 
           // Check latest welfare log
@@ -348,6 +314,10 @@ export const QuarterTransitionModal: React.FC<QuarterTransitionModalProps> = ({
     }));
   };
 
+  const handleForwardToNextQuarter = (item: MemberAnalysisItem) => {
+    handleSetDecision(item.memberId, item.sourceType === 'STUDENT' ? 'FORWARD_STUDENT' : 'FORWARD_VISITOR');
+  };
+
   const handleUpdateNote = (memberId: string, note: string) => {
     setAnalyzedMembers(prev => prev.map(m => m.memberId === memberId ? { ...m, note } : m));
   };
@@ -359,18 +329,9 @@ export const QuarterTransitionModal: React.FC<QuarterTransitionModalProps> = ({
       let targetStatus: MemberStatus = 'ACTIVE';
       let decision: ForwardingDecision = 'FORWARD_STUDENT';
 
-      if (m.isAlreadyExited || m.isProlongedAbsence) {
+      if (m.isAlreadyExited) {
         decision = 'DO_NOT_FORWARD';
         targetStatus = 'LEFT_CLASS';
-      } else if (m.isUnderReview) {
-        // If under review, default to forwarding with careful observation
-        decision = m.sourceType === 'STUDENT' ? 'FORWARD_STUDENT' : 'FORWARD_VISITOR';
-        targetType = m.sourceType;
-        targetStatus = 'ACTIVE';
-      } else if (m.isVisitorUpgradeEligible) {
-        decision = 'UPGRADE_STUDENT';
-        targetType = 'STUDENT';
-        targetStatus = 'ACTIVE';
       } else if (m.sourceType === 'VISITOR') {
         decision = 'FORWARD_VISITOR';
         targetType = 'VISITOR';
@@ -392,12 +353,12 @@ export const QuarterTransitionModal: React.FC<QuarterTransitionModalProps> = ({
 
   const handleForwardAllActive = () => {
     setAnalyzedMembers(prev => prev.map(m => {
-      if (m.isAlreadyExited || m.isProlongedAbsence) return m;
+      if (m.isAlreadyExited) return m;
       if (m.sourceType === 'VISITOR') {
         return {
           ...m,
-          decision: m.isVisitorUpgradeEligible ? 'UPGRADE_STUDENT' : 'FORWARD_VISITOR',
-          targetType: m.isVisitorUpgradeEligible ? 'STUDENT' : 'VISITOR',
+          decision: 'FORWARD_VISITOR',
+          targetType: 'VISITOR',
           targetStatus: 'ACTIVE'
         };
       }
@@ -434,16 +395,10 @@ export const QuarterTransitionModal: React.FC<QuarterTransitionModalProps> = ({
   const pendingUnderReviewCount = analyzedMembers.filter(m => m.decision === 'UNDER_REVIEW').length;
 
   // Projected Quarter {toQuarter} outcomes
-  const forwardedStudentsCount = analyzedMembers.filter(
-    m => m.decision === 'FORWARD_STUDENT' || m.decision === 'UPGRADE_STUDENT'
-  ).length;
+  const forwardedStudentsCount = analyzedMembers.filter(m => m.decision === 'FORWARD_STUDENT').length;
 
   const forwardedVisitorsCount = analyzedMembers.filter(
     m => m.decision === 'FORWARD_VISITOR'
-  ).length;
-
-  const upgradedToStudentCount = analyzedMembers.filter(
-    m => m.decision === 'UPGRADE_STUDENT'
   ).length;
 
   const notForwardedCount = analyzedMembers.filter(
@@ -500,7 +455,7 @@ export const QuarterTransitionModal: React.FC<QuarterTransitionModalProps> = ({
         targetType: m.targetType,
         targetStatus: m.targetStatus,
         firstLessonWeek: 1, // fresh quarter enrollment starts from Lesson 1
-        note: m.note || (m.decision === 'UPGRADE_STUDENT' ? `Promoted from Visitor after Q${fromQuarter}` : undefined)
+        note: m.note || undefined
       }));
 
       const updatedMembers = await forwardMembersToQuarter(
@@ -516,7 +471,9 @@ export const QuarterTransitionModal: React.FC<QuarterTransitionModalProps> = ({
           spread: 80,
           origin: { y: 0.6 }
         });
-      } catch (e) {}
+      } catch (celebrationError) {
+        console.warn('Quarter transition succeeded, but the celebration animation failed:', celebrationError);
+      }
 
       onTransitionComplete(updatedMembers);
       onClose();
@@ -760,9 +717,7 @@ export const QuarterTransitionModal: React.FC<QuarterTransitionModalProps> = ({
               ) : (
                 displayedMembers.map((item, idx) => {
                   const isExempt = item.decision === 'DO_NOT_FORWARD';
-                  const isUpgraded = item.decision === 'UPGRADE_STUDENT';
-                  const isStudentForward = item.decision === 'FORWARD_STUDENT';
-                  const isVisitorForward = item.decision === 'FORWARD_VISITOR';
+                  const isForwarded = item.decision === 'FORWARD_STUDENT' || item.decision === 'FORWARD_VISITOR';
                   const isPending = item.decision === 'UNDER_REVIEW';
 
                   return (
@@ -771,8 +726,6 @@ export const QuarterTransitionModal: React.FC<QuarterTransitionModalProps> = ({
                       className={`p-3.5 rounded-xl border transition-all ${
                         isExempt
                           ? 'bg-slate-50/80 border-slate-200 opacity-75'
-                          : isUpgraded
-                          ? 'bg-amber-50/50 border-amber-300 shadow-xs'
                           : isPending
                           ? 'bg-amber-50/80 border-amber-400 shadow-xs'
                           : 'bg-white border-slate-200 hover:border-slate-300 shadow-2xs'
@@ -882,65 +835,19 @@ export const QuarterTransitionModal: React.FC<QuarterTransitionModalProps> = ({
                         {/* Right column: Decision Action Buttons */}
                         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 shrink-0 border-t lg:border-t-0 pt-2 lg:pt-0 border-slate-200">
                           
-                          {/* Forward as Student Button */}
+                          {/* Forward preserves the member's current Student/Visitor status. */}
                           <button
                             type="button"
-                            onClick={() => handleSetDecision(item.memberId, 'FORWARD_STUDENT')}
+                            onClick={() => handleForwardToNextQuarter(item)}
                             className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
-                              isStudentForward
+                              isForwarded
                                 ? 'bg-blue-800 text-white shadow-xs ring-2 ring-blue-500/50'
                                 : 'bg-white border border-slate-300 text-slate-700 hover:bg-blue-50 hover:text-blue-800'
                             }`}
                           >
                             <UserCheck className="w-3.5 h-3.5" />
-                            <span>Forward as Student</span>
+                            <span>Forward to Next Quarter</span>
                           </button>
-
-                          {/* Upgrade to Student (For Visitors) or Forward as Visitor */}
-                          {item.sourceType === 'VISITOR' ? (
-                            <button
-                              type="button"
-                              onClick={() => handleSetDecision(item.memberId, 'UPGRADE_STUDENT')}
-                              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
-                                isUpgraded
-                                  ? 'bg-amber-600 text-white shadow-xs ring-2 ring-amber-400/50'
-                                  : 'bg-white border border-amber-300 text-amber-900 hover:bg-amber-50'
-                              }`}
-                              title={item.isVisitorUpgradeEligible ? 'Qualified for Student Status!' : 'Upgrade visitor to Student'}
-                            >
-                              <GraduationCap className="w-3.5 h-3.5" />
-                              <span>Upgrade to Student</span>
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => handleSetDecision(item.memberId, 'FORWARD_VISITOR')}
-                              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
-                                isVisitorForward
-                                  ? 'bg-purple-800 text-white shadow-xs ring-2 ring-purple-500/50'
-                                  : 'bg-white border border-slate-300 text-slate-700 hover:bg-purple-50 hover:text-purple-800'
-                              }`}
-                              title="Relegate student to Visitor status for Quarter 2"
-                            >
-                              <Users className="w-3.5 h-3.5" />
-                              <span>Forward as Visitor</span>
-                            </button>
-                          )}
-
-                          {item.sourceType === 'VISITOR' && (
-                            <button
-                              type="button"
-                              onClick={() => handleSetDecision(item.memberId, 'FORWARD_VISITOR')}
-                              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
-                                isVisitorForward
-                                  ? 'bg-purple-800 text-white shadow-xs ring-2 ring-purple-500/50'
-                                  : 'bg-white border border-slate-300 text-slate-700 hover:bg-purple-50 hover:text-purple-800'
-                              }`}
-                            >
-                              <Users className="w-3.5 h-3.5" />
-                              <span>Forward as Visitor</span>
-                            </button>
-                          )}
 
                           {/* Exempt / Do Not Forward Button */}
                           <button
@@ -954,7 +861,7 @@ export const QuarterTransitionModal: React.FC<QuarterTransitionModalProps> = ({
                             title="Do not forward into Quarter 2 (Historical records preserved in Quarter 1)"
                           >
                             <UserX className="w-3.5 h-3.5" />
-                            <span>Exempt / Do Not Forward</span>
+                            <span>Exempt</span>
                           </button>
                         </div>
                       </div>
@@ -975,11 +882,6 @@ export const QuarterTransitionModal: React.FC<QuarterTransitionModalProps> = ({
                   <span className="px-2 py-0.5 rounded bg-purple-100 text-purple-900 font-bold">
                     {forwardedVisitorsCount} Visitors
                   </span>
-                  {upgradedToStudentCount > 0 && (
-                    <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-900 font-bold">
-                      ({upgradedToStudentCount} Upgraded)
-                    </span>
-                  )}
                   <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700 font-semibold">
                     {notForwardedCount} Exempted
                   </span>
@@ -1033,7 +935,7 @@ export const QuarterTransitionModal: React.FC<QuarterTransitionModalProps> = ({
               </p>
 
               {/* Statistics Breakdown Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-4 pt-4 border-t border-emerald-800/80 text-center">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-4 border-t border-emerald-800/80 text-center">
                 <div className="bg-emerald-800/50 p-2.5 rounded-xl border border-emerald-700/50">
                   <span className="text-[10px] uppercase font-bold text-emerald-200 block">Total Q{toQuarter} Roster</span>
                   <span className="text-xl font-black text-amber-300">{totalEnteringNewQuarter}</span>
@@ -1045,10 +947,6 @@ export const QuarterTransitionModal: React.FC<QuarterTransitionModalProps> = ({
                 <div className="bg-emerald-800/50 p-2.5 rounded-xl border border-emerald-700/50">
                   <span className="text-[10px] uppercase font-bold text-emerald-200 block">Visitors Forwarded</span>
                   <span className="text-xl font-black text-white">{forwardedVisitorsCount}</span>
-                </div>
-                <div className="bg-emerald-800/50 p-2.5 rounded-xl border border-emerald-700/50">
-                  <span className="text-[10px] uppercase font-bold text-emerald-200 block">Upgraded to Student</span>
-                  <span className="text-xl font-black text-amber-300">{upgradedToStudentCount}</span>
                 </div>
                 <div className="bg-emerald-800/50 p-2.5 rounded-xl border border-emerald-700/50 col-span-2 sm:col-span-1">
                   <span className="text-[10px] uppercase font-bold text-emerald-200 block">Exempted / Left</span>
@@ -1103,11 +1001,6 @@ export const QuarterTransitionModal: React.FC<QuarterTransitionModalProps> = ({
                       </div>
 
                       <div className="flex items-center gap-2">
-                        {item.decision === 'UPGRADE_STUDENT' && (
-                          <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-900 font-extrabold text-[10px] border border-amber-300">
-                            Upgraded from Visitor
-                          </span>
-                        )}
                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                           item.targetType === 'STUDENT'
                             ? 'bg-blue-100 text-blue-900 border border-blue-200'

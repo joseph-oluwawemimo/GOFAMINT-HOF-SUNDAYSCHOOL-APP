@@ -27,7 +27,8 @@ import {
   AlertCircle,
   BarChart3,
   PieChart,
-  Activity
+  Activity,
+  UserX
 } from 'lucide-react';
 import {
   AdminProfile,
@@ -35,11 +36,13 @@ import {
   SundaySchoolYear,
   RecordOfficerClassRow,
   RecordOfficerWeeklyCollation,
-  QuarterNumber
+  QuarterNumber,
+  Member
 } from '../../types';
 import { getRealRecordOfficerCollation, getAllMembers, getAllGrades } from '../../db/indexedDB';
 import { GofamintLogo } from '../GofamintLogo';
 import { useDatabaseSync } from '../../hooks/useDatabaseSync';
+import { DepartedMembersPanel } from './DepartedMembersPanel';
 
 interface RecordOfficerViewProps {
   currentAdmin: AdminProfile;
@@ -67,11 +70,11 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
   const [selectedWeek, setSelectedWeek] = useState<number>(1);
   const [selectedDepartment, setSelectedDepartment] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<'WEEKLY_COLLATION' | 'QUARTER_ANALYSIS'>('WEEKLY_COLLATION');
+  const [activeTab, setActiveTab] = useState<'WEEKLY_COLLATION' | 'QUARTER_ANALYSIS' | 'DEPARTED_MEMBERS'>('WEEKLY_COLLATION');
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [collationData, setCollationData] = useState<RecordOfficerWeeklyCollation | null>(null);
   const [allQuarterCollations, setAllQuarterCollations] = useState<RecordOfficerWeeklyCollation[]>([]);
-  const [allMembersList, setAllMembersList] = useState<any[]>([]);
+  const [allMembersList, setAllMembersList] = useState<Member[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Class Register Inspection Modal State
@@ -534,6 +537,21 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
           <BarChart3 className="w-4 h-4" />
           <span>Quarter Analysis (Q{selectedQuarter})</span>
         </button>
+
+        <button
+          onClick={() => setActiveTab('DEPARTED_MEMBERS')}
+          className={`flex items-center gap-2 px-4 sm:px-5 py-2.5 rounded-xl text-xs font-black transition cursor-pointer ${
+            activeTab === 'DEPARTED_MEMBERS'
+              ? 'bg-indigo-950 text-amber-300 shadow-md ring-1 ring-indigo-800'
+              : 'text-slate-700 hover:text-slate-950 hover:bg-slate-100'
+          }`}
+        >
+          <UserX className="w-4 h-4" />
+          <span>Departed Members</span>
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-700">
+            {allMembersList.filter(member => member.status === 'LEFT_CLASS' || member.exitReviewOutcome === 'PERMANENT_EXIT').length}
+          </span>
+        </button>
       </div>
 
       {activeTab === 'WEEKLY_COLLATION' ? (
@@ -911,7 +929,7 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
         </div>
       </div>
         </>
-      ) : (
+      ) : activeTab === 'QUARTER_ANALYSIS' ? (
         /* QUARTER ANALYSIS TAB */
         <div className="space-y-6">
           
@@ -1260,6 +1278,8 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
           </div>
 
         </div>
+      ) : (
+        <DepartedMembersPanel members={allMembersList} classes={allClasses} />
       )}
 
       {/* Class Register Inspection Modal */}
@@ -1498,7 +1518,7 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
                 <div className="space-y-8">
                   <p className="font-bold">Compiled by (Record Officer):</p>
                   <div className="border-b border-slate-400 pb-1">
-                    <span className="font-bold text-slate-800">{currentAdmin.profileName}</span>
+                    <span className="font-bold text-slate-800">Record Officer</span>
                   </div>
                   <span className="text-[10px] text-slate-500 block">Signature & Date</span>
                 </div>
@@ -1506,7 +1526,7 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
                 <div className="space-y-8">
                   <p className="font-bold">Ratified by (General Superintendent):</p>
                   <div className="border-b border-slate-400 pb-1">
-                    <span className="font-bold text-slate-800">Pastor (Dr.) E.O. Abina</span>
+                    <span className="font-bold text-slate-800">General Superintendent</span>
                   </div>
                   <span className="text-[10px] text-slate-500 block">Signature & Date</span>
                 </div>

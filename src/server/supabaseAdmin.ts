@@ -25,6 +25,7 @@ export function getBearerToken(header: string | undefined): string | null {
 export const GOFAMINT_ROLES = [
   'SUPER_ADMIN',
   'GENERAL_SUPERINTENDENT',
+  'DEPARTMENT_SUPERINTENDENT',
   'GENERAL_SECRETARY',
   'ASST_GENERAL_SECRETARY',
   'ASSISTANT_GENERAL_SECRETARY',
@@ -47,6 +48,7 @@ export interface SupabaseProfileProvisioningInput {
   isApproved: boolean;
   classId?: string | null;
   workerId?: string | null;
+  departmentId?: string | null;
   createdBy?: string | null;
   approvedBy?: string | null;
 }
@@ -84,6 +86,7 @@ export async function provisionSupabaseUserProfile(input: SupabaseProfileProvisi
     is_approved: input.isApproved,
     class_id: input.classId || null,
     worker_id: input.workerId || null,
+    department_id: input.departmentId || null,
     created_by: input.createdBy || null,
     approved_by: input.isApproved ? input.approvedBy || null : null,
     approved_at: approvedAt,

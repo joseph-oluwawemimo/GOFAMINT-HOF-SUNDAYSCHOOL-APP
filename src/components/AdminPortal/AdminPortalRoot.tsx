@@ -36,7 +36,6 @@ import {
 } from '../../types';
 import {
   getAllAdminProfiles,
-  saveAdminProfile,
   approveAdminProfile,
   getSundaySchoolYear,
   saveSundaySchoolYear,
@@ -46,7 +45,8 @@ import {
   approveClassById,
   addDepartmentToYear,
   updateDepartmentNameInYear,
-  deleteDepartmentFromYear
+  deleteDepartmentFromYear,
+  replaceStoreContents
 } from '../../db/indexedDB';
 import { GeneralSuperintendentView } from './GeneralSuperintendentView';
 import { CloudUserManagementPanel } from './CloudUserManagementPanel';
@@ -55,6 +55,7 @@ import { TreasurerView } from './TreasurerView';
 import { RecordOfficerView } from './RecordOfficerView';
 import { EnrollmentOfficerView } from './EnrollmentOfficerView';
 import { AsstGeneralSecretaryView } from './AsstGeneralSecretaryView';
+import { DepartmentSuperintendentView } from './DepartmentSuperintendentView';
 import { DatabaseBackupModal } from '../DatabaseBackupModal';
 import { approveStaffUser, logOversightAccess } from '../../services/adminUserApi';
 import type { ApplicationProfile } from '../../services/profileService';
@@ -108,22 +109,11 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
       // Merge with cloud admin profiles if accessible
       try {
         const cloudProfs = await cloudGetAllAdminProfiles();
-        if (cloudProfs && cloudProfs.length > 0) {
-          const profileMap = new Map<string, AdminProfile>();
-          profiles.forEach(p => profileMap.set(p.id, p));
-          cloudProfs.forEach(cp => {
-            const existing = profileMap.get(cp.id);
-            if (!existing) {
-              profileMap.set(cp.id, cp);
-              saveAdminProfile(cp).catch(() => {});
-            } else {
-              // Ensure approved state takes precedence if either local or cloud has approved
-              const isApproved = existing.isApproved || cp.isApproved;
-              profileMap.set(cp.id, { ...existing, ...cp, isApproved });
-            }
-          });
-          profiles = Array.from(profileMap.values());
-        }
+        // The protected server/database is authoritative for account approval.
+        // Replacing prevents a previously-approved browser cache from reviving a
+        // suspended profile, and skip-cloud caching avoids unauthorized writes.
+        profiles = cloudProfs || [];
+        await replaceStoreContents('adminProfiles', profiles);
       } catch (cloudErr) {
         console.warn('Could not sync cloud admin profiles:', cloudErr);
       }
@@ -131,6 +121,7 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
       const supportedRoles: AdminRoleType[] = [
         'SUPER_ADMIN',
         'GENERAL_SUPERINTENDENT',
+        'DEPARTMENT_SUPERINTENDENT',
         'GENERAL_SECRETARY',
         'TREASURER',
         'RECORD_OFFICER',
@@ -148,7 +139,7 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
         const matchedExisting = profiles.find(p =>
           p.id === authProfile.id ||
           p.username.toLowerCase() === (authProfile.email || '').toLowerCase() ||
-          p.roleType === uRole
+          (uRole !== 'DEPARTMENT_SUPERINTENDENT' && p.roleType === uRole)
         );
 
         const activeProfile: AdminProfile = {
@@ -162,6 +153,7 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
           profileName: matchedExisting?.profileName || authProfile.displayName || authProfile.email || 'Officer',
           username: authProfile.email || matchedExisting?.username || 'officer',
           photoBase64: matchedExisting?.photoBase64,
+          departmentId: authProfile.departmentId || matchedExisting?.departmentId || undefined,
           isApproved: authProfile.isApproved || matchedExisting?.isApproved === true,
           approvedBy: authProfile.approvedBy || matchedExisting?.approvedBy || undefined,
           approvedAt: authProfile.approvedAt || matchedExisting?.approvedAt || undefined,
@@ -408,6 +400,21 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
               </button>
             )}
 
+            {!oversightAdminProfile && currentAdmin?.roleType === 'GENERAL_SUPERINTENDENT' && (
+              <button
+                type="button"
+                onClick={() => {
+                  setBackupModalTab('SAVE');
+                  setIsBackupModalOpen(true);
+                }}
+                className="px-3 py-1.5 bg-blue-950/80 hover:bg-blue-900 text-blue-200 border border-blue-700/60 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                title="Export, restore, archive, or reset database records"
+              >
+                <Database className="w-3.5 h-3.5 text-amber-400" />
+                <span>Database Control</span>
+              </button>
+            )}
+
             {onLockProfile && (
               <button
                 onClick={onLockProfile}
@@ -502,19 +509,29 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
                   onDistributeLessons={handleDistributeQuarterLessons}
                   onArchiveAndActivateNextQuarter={handleArchiveAndActivateNextQuarter}
                   onAddDepartment={async (dept) => {
-                    const res = await addDepartmentToYear(dept);
-                    if (res) setSundaySchoolYear(res);
+                    await addDepartmentToYear(dept);
+                    setSundaySchoolYear(await getSundaySchoolYear());
                   }}
                   onUpdateDepartment={async (oldName, newName) => {
-                    const res = await updateDepartmentNameInYear(oldName, newName);
-                    if (res) setSundaySchoolYear(res);
+                    await updateDepartmentNameInYear(oldName, newName);
+                    setSundaySchoolYear(await getSundaySchoolYear());
+                    setAllClasses(await getAllClassesDirectory());
                   }}
                   onDeleteDepartment={async (dept) => {
-                    const res = await deleteDepartmentFromYear(dept);
-                    if (res) setSundaySchoolYear(res);
+                    await deleteDepartmentFromYear(dept);
+                    setSundaySchoolYear(await getSundaySchoolYear());
+                    setAllClasses(await getAllClassesDirectory());
                   }}
                   onApproveClass={handleApproveClass}
                   onRefreshData={() => refreshAdminData(true)}
+                />
+              )}
+
+              {activePortalAdmin?.roleType === 'DEPARTMENT_SUPERINTENDENT' && (
+                <DepartmentSuperintendentView
+                  currentAdmin={activePortalAdmin}
+                  allClasses={allClasses.filter(item => String(item.department || '').trim() === String(activePortalAdmin.departmentId || '').trim())}
+                  sundaySchoolYear={effectiveYear}
                 />
               )}
 

@@ -22,10 +22,11 @@ import {
   getAllWorkers,
   getAllDepartmentsList,
   getAllClassesDirectory,
-  saveClassProfile
+  cacheConfirmedClassProfile
 } from '../db/indexedDB';
 import { ApplicationProfile } from '../services/profileService';
 import { isExactClassAssignment } from '../utils/accessControl';
+import { submitClassRegistrationApi } from '../services/adminUserApi';
 
 interface OpeningFlowViewProps {
   classProfile: ClassProfile | null;
@@ -46,6 +47,7 @@ type FlowStep = 'OPENING_PAGE' | 'PORTAL_SELECTION' | 'TEACHER_PORTAL_HOME';
 const ADMIN_ROLES = [
   'SUPER_ADMIN',
   'GENERAL_SUPERINTENDENT',
+  'DEPARTMENT_SUPERINTENDENT',
   'GENERAL_SECRETARY',
   'ASST_GENERAL_SECRETARY',
   'ASSISTANT_GENERAL_SECRETARY',
@@ -56,6 +58,7 @@ const ADMIN_ROLES = [
 
 const ROLE_FORMATTED_NAMES: Record<string, string> = {
   GENERAL_SUPERINTENDENT: 'General Superintendent',
+  DEPARTMENT_SUPERINTENDENT: 'Departmental Superintendent',
   GENERAL_SECRETARY: 'General Secretary',
   ASST_GENERAL_SECRETARY: 'Assistant General Secretary',
   ASSISTANT_GENERAL_SECRETARY: 'Assistant General Secretary',
@@ -96,11 +99,12 @@ export const OpeningFlowView: React.FC<OpeningFlowViewProps> = ({
   ]);
   const [registrationError, setRegistrationError] = useState<string | null>(null);
   const [registrationSuccessNotice, setRegistrationSuccessNotice] = useState<string | null>(null);
+  const [isSubmittingRegistration, setIsSubmittingRegistration] = useState(false);
 
   // Admin and authorization flags
   const userRole = currentUserProfile?.role || '';
   const isAdmin = ADMIN_ROLES.includes(userRole);
-  const isWorker = userRole === 'WORKER' || isAdmin;
+  const isWorker = ['WORKER', 'ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY', 'GENERAL_SECRETARY', 'GENERAL_SUPERINTENDENT', 'SUPER_ADMIN'].includes(userRole);
 
   // Format user display name and portfolio title
   const userName =
@@ -157,7 +161,7 @@ export const OpeningFlowView: React.FC<OpeningFlowViewProps> = ({
 
   // Handle Workers Directory click (Item 9)
   const handleWorkersModuleClick = () => {
-    if ((isAdmin || isWorker) && onEnterWorkersModule) {
+    if (isWorker && onEnterWorkersModule) {
       onEnterWorkersModule();
     } else {
       setAuthErrorModalMessage('You are not authorized to enter this portal.');
@@ -244,7 +248,7 @@ export const OpeningFlowView: React.FC<OpeningFlowViewProps> = ({
     if (!registeringClass) return;
     setRegistrationError(null);
 
-    if (!secretaryName.trim()) {
+    if (!selectedSecretaryWorkerId || !secretaryName.trim()) {
       setRegistrationError('Please select a registered worker as Class Secretary.');
       return;
     }
@@ -266,16 +270,27 @@ export const OpeningFlowView: React.FC<OpeningFlowViewProps> = ({
     };
 
     try {
-      await saveClassProfile(updatedProfile);
-      onRegisterNewClassSubmit(updatedProfile);
+      setIsSubmittingRegistration(true);
+      const response = await submitClassRegistrationApi(updatedProfile.id, {
+        secretaryWorkerId: selectedSecretaryWorkerId,
+        teacherWorkerIds: validTeachers.map(teacher => teacher.id),
+      });
+      if (!response.success || !response.class) {
+        throw new Error(response.error || 'The server did not confirm the class registration.');
+      }
+      const confirmedProfile = response.class as ClassProfile;
+      await cacheConfirmedClassProfile(confirmedProfile);
+      await onRegisterNewClassSubmit(confirmedProfile);
       setRegisteringClass(null);
       setRegistrationSuccessNotice(
-        `Class "${updatedProfile.className}" registration has been submitted! It is now pending approval from the General Secretary or General Superintendent.`
+        `Class "${confirmedProfile.className}" registration has been submitted! It is now pending approval from the General Secretary or General Superintendent.`
       );
       setTimeout(() => setRegistrationSuccessNotice(null), 8000);
       await refreshClassesAndWorkers();
     } catch (err: any) {
       setRegistrationError(err?.message || 'Failed to submit class registration. Please try again.');
+    } finally {
+      setIsSubmittingRegistration(false);
     }
   };
 
@@ -841,9 +856,10 @@ export const OpeningFlowView: React.FC<OpeningFlowViewProps> = ({
                 <button
                   type="submit"
                   id="btn-proceed-for-approval"
+                  disabled={isSubmittingRegistration}
                   className="flex-1 py-3 bg-blue-900 hover:bg-blue-800 active:scale-98 text-white font-black text-xs rounded-xl shadow-md transition flex items-center justify-center gap-1.5 cursor-pointer"
                 >
-                  <span>Proceed for Approval</span>
+                  <span>{isSubmittingRegistration ? 'Submitting…' : 'Proceed for Approval'}</span>
                   <ArrowRight className="w-4 h-4 text-amber-300" />
                 </button>
               </div>

@@ -39,14 +39,20 @@ test('unknown API routes fail with a JSON 404 instead of SPA HTML', async () => 
 });
 
 test('worker directory and AI routes require authentication', async () => {
-  const [workers, assistant] = await Promise.all([
+  const [workers, assistant, stagedReset, archives] = await Promise.all([
     fetch(`${baseUrl}/api/workers/directory`),
     fetch(`${baseUrl}/api/gemini/assistant`, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'CHAT', prompt: 'test' }),
     }),
+    fetch(`${baseUrl}/api/admin/staged-reset`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ scope: 'CLASSES', confirmPhrase: 'RESET CLASSES' }),
+    }),
+    fetch(`${baseUrl}/api/admin/year-archives`),
   ]);
   assert.equal(workers.status, 401);
   assert.equal(assistant.status, 401);
+  assert.equal(stagedReset.status, 401);
+  assert.equal(archives.status, 401);
 });
 
 test('credential editing and special-event mutations require authentication', async () => {
@@ -55,8 +61,9 @@ test('credential editing and special-event mutations require authentication', as
     fetch(`${baseUrl}/api/admin/special-events/example`, { method: 'DELETE' }),
     fetch(`${baseUrl}/api/admin/special-events/attendance/example`, { method: 'DELETE' }),
     fetch(`${baseUrl}/api/admin/classes/mass-create`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }),
+    fetch(`${baseUrl}/api/classes/ADULT_A/submit-registration`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }),
   ]);
-  assert.deepEqual(responses.map(response => response.status), [401, 401, 401, 401]);
+  assert.deepEqual(responses.map(response => response.status), [401, 401, 401, 401, 401]);
 });
 
 test('production does not expose the database schema', async () => {

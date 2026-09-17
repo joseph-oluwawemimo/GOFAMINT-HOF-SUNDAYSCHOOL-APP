@@ -209,13 +209,13 @@ export const OfficialReturnPrintModal: React.FC<OfficialReturnPrintModalProps> =
             <div className="col-span-2 sm:col-span-2">
               <span className="text-[10px] uppercase font-bold text-slate-500 block">Teacher(s) in Charge:</span>
               <span className="font-bold text-slate-800 print:text-black">
-                {classProfile?.teachers?.map(t => t.name).join(', ') || classProfile?.secretaryName || 'Assigned Teacher'}
+                Sunday School Teacher(s)
               </span>
             </div>
             <div className="col-span-2 sm:col-span-2">
               <span className="text-[10px] uppercase font-bold text-slate-500 block">Class Secretary:</span>
               <span className="font-bold text-slate-800 print:text-black">
-                {classProfile?.secretaryName || 'Class Secretary'} {classProfile?.secretaryPhone ? `(${classProfile.secretaryPhone})` : ''}
+                Class Secretary
               </span>
             </div>
           </div>
@@ -373,11 +373,11 @@ export const OfficialReturnPrintModal: React.FC<OfficialReturnPrintModalProps> =
           {/* Certification & Signatures Section */}
           <div className="pt-8 grid grid-cols-4 gap-4 text-center text-xs print:pt-6">
             <div className="border-t border-slate-800 pt-2 print:border-black">
-              <p className="font-bold text-slate-900 print:text-black">{classProfile?.teachers?.[0]?.name || 'Teacher Signature'}</p>
+              <p className="font-bold text-slate-900 print:text-black">Sunday School Teacher</p>
               <p className="text-[10px] text-slate-500 uppercase">Sunday School Teacher</p>
             </div>
             <div className="border-t border-slate-800 pt-2 print:border-black">
-              <p className="font-bold text-slate-900 print:text-black">{classProfile?.secretaryName || 'Secretary Signature'}</p>
+              <p className="font-bold text-slate-900 print:text-black">Class Secretary</p>
               <p className="text-[10px] text-slate-500 uppercase">Class Secretary</p>
             </div>
             <div className="border-t border-slate-800 pt-2 print:border-black">

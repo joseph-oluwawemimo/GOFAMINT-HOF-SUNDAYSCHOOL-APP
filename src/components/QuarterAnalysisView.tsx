@@ -82,8 +82,8 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
         spread: 60,
         origin: { y: 0.6 }
       });
-    } catch {
-      // safe fallback
+    } catch (error) {
+      console.debug('Quarter awards celebration effect was unavailable:', error);
     }
   };
 
@@ -605,6 +605,7 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
                   <th className="p-2 border">Students</th>
                   <th className="p-2 border">Visitors</th>
                   <th className="p-2 border">Total Present</th>
+                  <th className="p-2 border">Absent</th>
                   <th className="p-2 border">Offering Amount</th>
                   <th className="p-2 border">Status</th>
                 </tr>
@@ -613,12 +614,14 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
                 {trendData.map(d => {
                   const off = offerings.find(o => o.weekNumber === d.week);
                   const isNoRec = noRecordWeeks.includes(d.week);
+                  const absent = grades.filter(g => g.weekNumber === d.week && !g.isNoRecordWeek && g.attendance === 'ABSENT').length;
                   return (
                     <tr key={d.week} className="border-b">
                       <td className="p-2 border font-bold">Week {d.week}</td>
                       <td className="p-2 border">{isNoRec ? '-' : d.students}</td>
                       <td className="p-2 border">{isNoRec ? '-' : d.visitors}</td>
                       <td className="p-2 border font-bold">{isNoRec ? '-' : d.total}</td>
+                      <td className="p-2 border font-bold text-red-700">{isNoRec ? '-' : absent}</td>
                       <td className="p-2 border font-mono">
                         {isNoRec ? '-' : `${currencySymbol}${(off?.amount || 0).toLocaleString()}`}
                       </td>
@@ -640,11 +643,11 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
         {/* Signatures & Certification */}
         <div className="pt-8 grid grid-cols-3 gap-8 text-center text-xs">
           <div className="border-t border-slate-400 pt-2">
-            <p className="font-bold text-slate-800">{classProfile?.teacherName || 'Teacher Name'}</p>
+            <p className="font-bold text-slate-800">Sunday School Teacher</p>
             <p className="text-[10px] text-slate-500 uppercase">Sunday School Teacher</p>
           </div>
           <div className="border-t border-slate-400 pt-2">
-            <p className="font-bold text-slate-800">{classProfile?.secretaryName || 'Secretary Name'}</p>
+            <p className="font-bold text-slate-800">Class Secretary</p>
             <p className="text-[10px] text-slate-500 uppercase">Class Secretary</p>
           </div>
           <div className="border-t border-slate-400 pt-2">

@@ -76,18 +76,26 @@ interface WorkersModuleViewProps {
   onBack?: () => void;
   onBackToWelcome?: () => void;
   onLockProfile?: () => void;
+  currentUserRole?: string;
+  currentWorkerId?: string;
+  isOversight?: boolean;
 }
 
 export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
   onBackToMain,
   onBack,
   onBackToWelcome,
-  onLockProfile
+  onLockProfile,
+  currentUserRole,
+  currentWorkerId,
+  isOversight = false
 }) => {
   const handleExit = onBack || onBackToMain;
+  const isPersonalWorker = currentUserRole === 'WORKER' && !isOversight;
   
   // Persist and restore activeTab on page refresh (Complaint 8)
   const [activeTab, setActiveTabState] = useState<WorkersModuleTab>(() => {
+    if (currentUserRole === 'WORKER' && !isOversight) return 'MY_ATTENDANCE';
     const saved = sessionStorage.getItem('gofamint_workers_active_tab');
     if (saved && ['DIRECTORY', 'SUNDAY_CLOCK_IN', 'PREP_ATTENDANCE', 'SPECIAL_EVENTS', 'ADMONITION_HONORS', 'MY_ATTENDANCE', 'DASHBOARD'].includes(saved)) {
       return saved as WorkersModuleTab;
@@ -96,6 +104,7 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
   });
 
   const setActiveTab = (tab: WorkersModuleTab) => {
+    if (isPersonalWorker && tab !== 'MY_ATTENDANCE') return;
     setActiveTabState(tab);
     sessionStorage.setItem('gofamint_workers_active_tab', tab);
   };
@@ -221,7 +230,10 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
   }, []);
 
   useEffect(() => {
-    void refreshAllData(true);
+    // App-level scoped hydration owns the network pull. Render immediately
+    // from IndexedDB here, then consume the worker-sync event it emits. This
+    // avoids downloading the complete Workers dataset twice on every entry.
+    void refreshAllData(false);
   }, [refreshAllData]);
 
   // Reactive listener: When any other admin or background sync modifies worker data in real-time,
@@ -325,6 +337,10 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
       alert('Worker attendance was not saved. The previous register has been restored.');
     }
   };
+
+  useEffect(() => {
+    if (isPersonalWorker && activeTab !== 'MY_ATTENDANCE') setActiveTab('MY_ATTENDANCE');
+  }, [isPersonalWorker, activeTab]);
 
   const handleSaveSundayBulkRecords = async (records: WorkerAttendanceRecord[]) => {
     // 1. Optimistic update (0ms instant UI responsiveness)
@@ -501,7 +517,7 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
         {/* Sub-Navigation Tabs - Executive Pill Design without Scrollbar (Screenshot 5555 / Complaint 5) */}
         <div className="max-w-7xl w-full mx-auto px-4 sm:px-6 border-t border-slate-800/80 bg-slate-950/80">
           <div className="flex items-center gap-1.5 py-2 overflow-x-auto no-scrollbar scroll-smooth">
-            
+            {!isPersonalWorker && <>
             <button
               onClick={() => setActiveTab('DASHBOARD')}
               className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition flex items-center gap-1.5 cursor-pointer border ${
@@ -573,6 +589,7 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
               <Trophy className="w-3.5 h-3.5" />
               <span>Punctuality Honors & Admonition</span>
             </button>
+            </>}
 
             <button
               onClick={() => setActiveTab('MY_ATTENDANCE')}
@@ -708,6 +725,7 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
                 sundayAttendance={sundayAttendance}
                 prepAttendance={prepAttendance}
                 onViewQrPass={handleOpenQrPass}
+                lockedWorkerId={isPersonalWorker ? currentWorkerId : undefined}
               />
             )}
           </>

@@ -4,7 +4,13 @@ type ApiResult = Record<string, any>;
 
 async function request(path: string, options: RequestInit = {}, authenticated = true): Promise<{ ok: boolean; status: number; data: ApiResult }> {
   const headers = new Headers(options.headers);
-  const accessToken = await getAccessToken().catch(() => null);
+  let accessToken: string | null;
+  try {
+    accessToken = await getAccessToken();
+  } catch (error: any) {
+    console.error(`Could not read the Supabase session for ${path}:`, error);
+    return { ok: false, status: 0, data: { error: error?.message || 'The current sign-in session could not be read.' } };
+  }
   if (accessToken) {
     headers.set('Authorization', `Bearer ${accessToken}`);
   } else if (authenticated) {
@@ -18,7 +24,10 @@ async function request(path: string, options: RequestInit = {}, authenticated = 
     let data: ApiResult = {};
     if (text) {
       try { data = JSON.parse(text); }
-      catch { data = { error: 'Invalid response format from server.' }; }
+      catch (error) {
+        console.error(`Invalid JSON response from ${path}:`, error);
+        data = { error: 'Invalid response format from server.' };
+      }
     }
     return { ok: response.ok, status: response.status, data };
   } catch (error: any) {
@@ -26,7 +35,7 @@ async function request(path: string, options: RequestInit = {}, authenticated = 
   }
 }
 
-export async function createStaffLogin(params: { email: string; password: string; roleType: string; displayName?: string; classId?: string }): Promise<{ success: boolean; error?: string; uid?: string; isApproved?: boolean; message?: string }> {
+export async function createStaffLogin(params: { email: string; password: string; roleType: string; displayName?: string; classId?: string; departmentId?: string }): Promise<{ success: boolean; error?: string; uid?: string; isApproved?: boolean; message?: string }> {
   const result = await request('/api/admin/create-user', { method: 'POST', body: JSON.stringify(params) });
   if (!result.ok) return { success: false, error: result.data.error || `Request failed (${result.status})` };
   return { success: true, uid: result.data.uid, isApproved: result.data.isApproved, message: result.data.message };
@@ -73,8 +82,8 @@ export async function bootstrapSystem(params: { bootstrapSecret: string; churchN
   return result.ok ? { success: true, message: result.data.message } : { success: false, error: result.data.error || `Request failed (${result.status})` };
 }
 
-// The server keeps destructive operations fail-closed until a transaction-tested
-// Supabase implementation exists; this client call cannot bypass that guard.
+// The server keeps this fail-closed behind FACTORY_RESET_ENABLED and performs
+// the archive plus reset in one database transaction.
 export async function factoryReset(confirmPhrase: string): Promise<{ success: boolean; error?: string; message?: string; deletedCounts?: Record<string, number> }> {
   const result = await request('/api/admin/factory-reset', { method: 'POST', body: JSON.stringify({ confirmPhrase }) });
   return result.ok ? { success: true, message: result.data.message, deletedCounts: result.data.deletedCounts } : { success: false, error: result.data.error || `Request failed (${result.status})` };
@@ -133,6 +142,62 @@ export async function deleteSpecialEventApi(eventId: string): Promise<{ success:
 export async function saveSpecialEventAttendanceApi(records: any[]): Promise<{ success: boolean; count?: number; error?: string }> {
   const result = await request('/api/admin/special-events/attendance', { method: 'POST', body: JSON.stringify({ records }) });
   return result.ok ? { success: true, count: result.data.count } : { success: false, error: result.data.error || `Request failed (${result.status})` };
+}
+
+export async function submitClassRegistrationApi(
+  classId: string,
+  params: { secretaryWorkerId: string; teacherWorkerIds: string[] }
+): Promise<{ success: boolean; class?: any; error?: string }> {
+  const result = await request(`/api/classes/${encodeURIComponent(classId)}/submit-registration`, {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+  return result.ok
+    ? { success: true, class: result.data.class }
+    : { success: false, error: result.data.error || `Request failed (${result.status})` };
+}
+
+export async function stagedReset(scope: 'CLASSES' | 'WORKERS' | 'ADMINS', confirmPhrase: string): Promise<{ success: boolean; error?: string; message?: string; archiveId?: string }> {
+  const result = await request('/api/admin/staged-reset', { method: 'POST', body: JSON.stringify({ scope, confirmPhrase }) });
+  return result.ok
+    ? { success: true, message: result.data.message, archiveId: result.data.archiveId }
+    : { success: false, error: result.data.error || `Request failed (${result.status})` };
+}
+
+export interface DatabaseArchiveMetadata {
+  id: string;
+  archived_at: string;
+  archive_type: 'STAGED_RESET' | 'YEAR_ARCHIVE';
+  scope: string;
+  summary?: Record<string, number>;
+}
+
+export async function listDatabaseArchives(): Promise<{ success: boolean; archives?: DatabaseArchiveMetadata[]; error?: string }> {
+  const result = await request('/api/admin/year-archives', { method: 'GET' });
+  return result.ok
+    ? { success: true, archives: result.data.archives || [] }
+    : { success: false, error: result.data.error || `Request failed (${result.status})` };
+}
+
+export async function downloadDatabaseArchive(archiveId: string): Promise<void> {
+  const accessToken = await getAccessToken();
+  if (!accessToken) throw new Error('You must be signed in to download an archive.');
+  const response = await fetch(`/api/admin/year-archives/${encodeURIComponent(archiveId)}/download`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || `Archive download failed (${response.status}).`);
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${archiveId.replace(/[^a-zA-Z0-9_-]/g, '_')}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 export async function deleteSpecialEventAttendanceApi(recordId: string): Promise<{ success: boolean; message?: string; error?: string }> {

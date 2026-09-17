@@ -24,9 +24,27 @@ export interface CloudSyncFailureRecord {
   failedAt: string;
   revision?: string;
   lastError?: string;
+  /** Supabase user that originally attempted this write. Never retry as another account. */
+  actorUserId?: string | null;
 }
 
 const activeCloudPushes = new Map<string, Promise<unknown>>();
+
+async function getCurrentCloudActorUserId(): Promise<string | null> {
+  try {
+    const { getSupabaseClient } = await import('../services/supabase');
+    const { data, error } = await getSupabaseClient().auth.getSession();
+    if (error) throw error;
+    return data.session?.user.id || null;
+  } catch (error) {
+    console.error('[cloud sync] Could not identify the signed-in user for the durable retry queue:', error);
+    return null;
+  }
+}
+
+function belongsToCloudActor(record: CloudSyncFailureRecord, actorUserId: string | null): boolean {
+  return Boolean(actorUserId && record.actorUserId && record.actorUserId === actorUserId);
+}
 
 const WORKER_SYNC_STORES = new Set([
   'workers', 'workerAttendance', 'workerPrepAttendance', 'specialEvents',
@@ -132,6 +150,7 @@ async function pushToCloud<T>(
     return;
   }
 
+  const actorUserId = await getCurrentCloudActorUserId();
   const record: CloudSyncFailureRecord = {
     id: `${retryMeta.collectionName}_${retryMeta.docId}_${retryMeta.action}`,
     label,
@@ -140,13 +159,16 @@ async function pushToCloud<T>(
     docId: retryMeta.docId,
     data: retryMeta.data,
     failedAt: new Date().toISOString(),
-    revision: `${Date.now()}_${Math.random().toString(36).slice(2)}`
+    revision: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+    actorUserId
   };
 
   await writeCloudOutboxRecord(record);
   const previousOperation = activeCloudPushes.get(record.id) || Promise.resolve();
   const operation = previousOperation
-    .catch(() => undefined)
+    .catch((previousError) => {
+      console.error(`[cloud sync] Previous serialized operation failed for ${record.id}:`, previousError);
+    })
     .then(async () => {
       try {
         await fn();
@@ -173,6 +195,7 @@ import {
   ClassProfile,
   DepartmentType,
   Member,
+  MemberStatus,
   WeeklyGradeRecord,
   WeeklyOfferingRecord,
   AbsenceLogRecord,
@@ -203,7 +226,8 @@ import {
   EnrollmentCertificationRecord
 } from '../types';
 import {
-  DEFAULT_DEPARTMENTS
+  DEFAULT_DEPARTMENTS,
+  FRESH_UNINITIALIZED_YEAR
 } from '../data/mockQuarterLessons';
 import {
   DEFAULT_WORKER_CATEGORIES,
@@ -217,10 +241,11 @@ import {
 } from '../services/supabaseDatabase';
 
 const DB_NAME = 'GOFAMINT_HOF_SundaySchool_DB';
+// v8: durable enrollment certification audit records (IndexedDB + cloud sync).
 // v7: added `cloudSyncFailures` store — persists cloud writes that failed
 // (e.g. while offline) so they can be retried instead of being silently dropped,
 // and added the cross-device cloud hydration pipeline (see cloudSyncManager.ts).
-const DB_VERSION = 7;
+const DB_VERSION = 8;
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -325,6 +350,9 @@ export function getDB(): Promise<IDBDatabase> {
           // failed write is never silently lost — see retryFailedCloudPushes().
           db.createObjectStore('cloudSyncFailures', { keyPath: 'id' });
         }
+        if (!db.objectStoreNames.contains('enrollmentCertifications')) {
+          db.createObjectStore('enrollmentCertifications', { keyPath: 'id' });
+        }
       };
 
       request.onsuccess = (event) => {
@@ -352,7 +380,8 @@ export async function getAllFromStore<T>(storeName: string): Promise<T[]> {
       req.onsuccess = () => resolve(req.result || []);
       req.onerror = () => reject(req.error);
     });
-  } catch {
+  } catch (error) {
+    console.warn(`IndexedDB read unavailable for ${storeName}; using the localStorage mirror:`, error);
     // Fallback to localStorage
     const local = localStorage.getItem(`gofamint_${storeName}`);
     return local ? JSON.parse(local) : [];
@@ -379,7 +408,8 @@ export const CLOUD_STORE_MAP: Record<string, string> = {
   specialEvents: 'specialEvents',
   specialEventAttendance: 'specialEventAttendance',
   adminComments: 'adminComments',
-  treasuryExpenditures: 'treasuryExpenditures'
+  treasuryExpenditures: 'treasuryExpenditures',
+  enrollmentCertifications: 'enrollmentCertifications'
 };
 
 export async function putInStore<T>(storeName: string, value: T, skipCloudMirror = false): Promise<T> {
@@ -485,7 +515,9 @@ export async function replaceStoreContents<T>(storeName: string, items: T[]): Pr
         : undefined);
   if (collectionName) {
     const pending = await getAllFromStore<CloudSyncFailureRecord>('cloudSyncFailures');
-    protectedItems = protectPendingCloudChanges(items, pending, collectionName);
+    const actorUserId = await getCurrentCloudActorUserId();
+    const actorPending = pending.filter(record => belongsToCloudActor(record, actorUserId));
+    protectedItems = protectPendingCloudChanges(items, actorPending, collectionName);
   }
 
   const db = await getDB();
@@ -500,8 +532,9 @@ export async function replaceStoreContents<T>(storeName: string, items: T[]): Pr
   });
   try {
     localStorage.setItem(`gofamint_${storeName}`, JSON.stringify(protectedItems));
-  } catch {
-    // Non-fatal — localStorage is only used here as an IndexedDB-unavailable fallback mirror.
+  } catch (error) {
+    // Non-fatal — IndexedDB already committed, but the fallback failure must remain diagnosable.
+    console.warn(`Could not update the localStorage cache mirror for ${storeName}:`, error);
   }
 }
 
@@ -529,16 +562,48 @@ export async function getPendingCloudSyncFailures(): Promise<CloudSyncFailureRec
   }
 }
 
+// Applies realtime INSERT/UPDATE payloads without clearing or re-downloading an
+// entire table. Full hydration remains responsible for deletion convergence.
+export async function mergeStoreContents<T>(storeName: string, items: T[]): Promise<void> {
+  if (items.length === 0) return;
+  const db = await getDB();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(storeName, 'readwrite');
+    const store = tx.objectStore(storeName);
+    for (const item of items) store.put(item);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error || new Error(`Merging realtime changes into ${storeName} was aborted.`));
+  });
+  try {
+    localStorage.setItem(`gofamint_${storeName}`, JSON.stringify(await getAllFromStore<T>(storeName)));
+  } catch (error) {
+    // IndexedDB is authoritative; localStorage is only a fallback mirror.
+    console.warn(`Could not update the realtime localStorage mirror for ${storeName}:`, error);
+  }
+}
+
 // Retries every queued failed Supabase write. Successful retries are removed
 // from the queue; writes that fail again stay queued (with the latest error) for the
 // next retry pass. Called on reconnect / periodic sync / app focus.
 export async function retryFailedCloudPushes(): Promise<{ retried: number; succeeded: number }> {
   const pending = await getPendingCloudSyncFailures();
+  const actorUserId = await getCurrentCloudActorUserId();
+  let retried = 0;
   let succeeded = 0;
   for (const record of pending) {
     // The foreground writer owns this record until its current attempt ends.
     // Retrying it concurrently could let an older request erase a newer write.
     if (activeCloudPushes.has(record.id)) continue;
+    if (!belongsToCloudActor(record, actorUserId)) {
+      const reason = record.actorUserId
+        ? 'Retry quarantined because it belongs to a different signed-in account.'
+        : 'Legacy retry quarantined because its originating account cannot be verified.';
+      console.error(`[cloud sync] ${reason} Operation: ${record.label}`);
+      await mutateCloudOutboxRecordIfCurrent(record, 'record-error', reason);
+      continue;
+    }
+    retried++;
     try {
       if (record.action === 'save') {
         await saveDocument(record.collectionName, record.data);
@@ -552,7 +617,7 @@ export async function retryFailedCloudPushes(): Promise<{ retried: number; succe
       await mutateCloudOutboxRecordIfCurrent(record, 'record-error', err?.message || String(err));
     }
   }
-  return { retried: pending.length, succeeded };
+  return { retried, succeeded };
 }
 
 // Database Initialization & Clean Startup
@@ -579,10 +644,12 @@ export async function initializeDatabase(): Promise<{
       const failures = await getAllFromStore<CloudSyncFailureRecord>('cloudSyncFailures');
       for (const f of failures) {
         if (f && (f.collectionName === 'classes' || f.collectionName === 'classProfile') && f.data?.approvalStatus !== 'APPROVED') {
-          await deleteFromStore('cloudSyncFailures', f.id).catch(() => {});
+          await deleteFromStore('cloudSyncFailures', f.id).catch(error => console.warn(`Could not purge stale class retry ${f.id}:`, error));
         }
       }
-    } catch {}
+    } catch (error) {
+      console.warn('Could not inspect stale class retry records during initialization:', error);
+    }
 
     const classProfiles = await getAllFromStore<ClassProfile>('classProfile');
     const defaultClass = classProfiles[0] || null;
@@ -758,7 +825,7 @@ export async function clearAllDatabaseData(wipeClassProfile: boolean = true): Pr
   localStorage.setItem('gofamint_scratch_mode', 'true');
   sessionStorage.removeItem('gofamint_unlocked');
 
-  const storesToClear = ['members', 'grades', 'offerings', 'absenceLogs', 'referrals', 'syncQueue'];
+  const storesToClear = ['members', 'grades', 'offerings', 'absenceLogs', 'referrals', 'enrollmentCertifications', 'syncQueue'];
   if (wipeClassProfile) {
     storesToClear.push('classProfile');
   }
@@ -803,6 +870,18 @@ export async function saveClassProfile(profile: ClassProfile): Promise<ClassProf
     docId: safeProfile.id,
     data: safeProfile
   });
+  return result;
+}
+
+/** Cache a class record only after a protected server mutation has confirmed it. */
+export async function cacheConfirmedClassProfile(profile: ClassProfile): Promise<ClassProfile> {
+  const safeProfile = { ...profile };
+  delete safeProfile.password;
+  await putInStore<ClassProfile>('allClasses', safeProfile, true);
+  const result = await putInStore<ClassProfile>('classProfile', safeProfile, true);
+  // Remove any older client-side retry for this class so it cannot overwrite
+  // the server-confirmed state after reconnect or refresh.
+  await deleteFromStore('cloudSyncFailures', `classes_${safeProfile.id}_save`, true);
   return result;
 }
 
@@ -854,16 +933,19 @@ export async function getMembersByClass(classId: string, quarterNumber?: number)
 
 export async function saveMember(member: Member, targetQuarter: number = 1): Promise<Member> {
   const qNum = (targetQuarter || 1) as QuarterNumber;
-  const enrollments = member.quarterEnrollments || {};
-  if (!enrollments[qNum]) {
-    enrollments[qNum] = {
+  const existingEnrollment = member.quarterEnrollments?.[qNum];
+  const enrollments = {
+    ...(member.quarterEnrollments || {}),
+    [qNum]: {
+      ...existingEnrollment,
       quarterNumber: qNum,
-      memberType: member.memberType || 'STUDENT',
-      status: member.status || 'ACTIVE',
-      firstLessonWeek: member.firstLessonWeek || 1,
-      enrolledDate: member.enrolledDate || new Date().toISOString()
-    };
-  }
+      memberType: member.memberType || existingEnrollment?.memberType || 'STUDENT',
+      status: member.status || existingEnrollment?.status || 'ACTIVE',
+      firstLessonWeek: existingEnrollment?.firstLessonWeek || member.firstLessonWeek || 1,
+      enrolledDate: existingEnrollment?.enrolledDate || member.enrolledDate || new Date().toISOString(),
+      exitNote: member.exitNote || existingEnrollment?.exitNote
+    }
+  };
 
   const updated: Member = {
     ...member,
@@ -910,6 +992,7 @@ export async function forwardMembersToQuarter(
   }>
 ): Promise<Member[]> {
   const allMembers = await getAllFromStore<Member>('members');
+  const allGrades = await getAllGrades();
   const updatedList: Member[] = [];
 
   for (const t of transitions) {
@@ -917,6 +1000,25 @@ export async function forwardMembersToQuarter(
     if (!existing) continue;
 
     const currentEnrollments = existing.quarterEnrollments || {};
+    const sourceGrades = allGrades.filter(g =>
+      g.classId === classId &&
+      g.memberId === existing.id &&
+      g.quarterNumber === fromQuarter
+    );
+    const lastRecordedWeek = sourceGrades.reduce(
+      (latest, grade) => grade.isNoRecordWeek ? latest : Math.max(latest, grade.weekNumber),
+      0
+    );
+    let consecutiveVisitsCarried = 0;
+    for (let week = lastRecordedWeek; week >= 1; week--) {
+      const grade = sourceGrades.find(item => item.weekNumber === week);
+      if (grade?.isNoRecordWeek) continue;
+      if (grade?.attendance === 'PRESENT') {
+        consecutiveVisitsCarried++;
+        continue;
+      }
+      break;
+    }
     currentEnrollments[toQuarter] = {
       quarterNumber: toQuarter,
       memberType: t.targetType,
@@ -925,7 +1027,8 @@ export async function forwardMembersToQuarter(
       enrolledDate: new Date().toISOString().split('T')[0],
       exitNote: t.note,
       forwardedFromQuarter: fromQuarter,
-      forwardedAt: new Date().toISOString()
+      forwardedAt: new Date().toISOString(),
+      consecutiveVisitsCarried: t.targetType === 'VISITOR' ? consecutiveVisitsCarried : 0
     };
 
     const updatedMember: Member = {
@@ -1249,6 +1352,7 @@ export interface DatabaseBackupPackage {
     workerPrepAttendance: WorkerPrepAttendanceRecord[];
     clockInConfig: ClockInConfig | null;
     workerCategories: WorkerCategoryDef[];
+    enrollmentCertifications: EnrollmentCertificationRecord[];
     syncQueue: any[];
   };
 }
@@ -1332,6 +1436,7 @@ export async function exportCompleteDatabaseSnapshot(): Promise<DatabaseBackupPa
     workerPrepAttendance,
     clockInConfig,
     workerCategories,
+    enrollmentCertifications,
     syncQueue
   ] = await Promise.all([
     getClassProfile(),
@@ -1350,6 +1455,7 @@ export async function exportCompleteDatabaseSnapshot(): Promise<DatabaseBackupPa
     getAllWorkerPrepAttendance(),
     getClockInConfig(),
     getAllWorkerCategories(),
+    getAllEnrollmentCertifications(),
     getSyncQueue()
   ]);
 
@@ -1359,7 +1465,7 @@ export async function exportCompleteDatabaseSnapshot(): Promise<DatabaseBackupPa
   const backupPackage: DatabaseBackupPackage = {
     app: 'THE GOSPEL FAITH MISSION INTL - Sunday School Management System',
     version: '4.0.0',
-    formatVersion: 4,
+    formatVersion: 5,
     exportedAt: new Date().toISOString(),
     sourceClient: typeof navigator !== 'undefined' ? navigator.userAgent : 'GOFAMINT_HOF Web PWA',
     summary: {
@@ -1395,6 +1501,7 @@ export async function exportCompleteDatabaseSnapshot(): Promise<DatabaseBackupPa
       workerPrepAttendance,
       clockInConfig,
       workerCategories,
+      enrollmentCertifications,
       syncQueue
     }
   };
@@ -1485,7 +1592,8 @@ export async function restoreCompleteDatabaseSnapshot(
       'workerAttendance',
       'workerPrepAttendance',
       'clockInConfig',
-      'workerCategories'
+      'workerCategories',
+      'enrollmentCertifications'
     ];
 
     for (const storeName of allStores) {
@@ -1638,7 +1746,14 @@ export async function restoreCompleteDatabaseSnapshot(
     }
   }
 
-  // 17. Sync Queue
+  // 17. Enrollment certification audit trail
+  if (Array.isArray(data.enrollmentCertifications)) {
+    for (const certification of data.enrollmentCertifications) {
+      await putInStore('enrollmentCertifications', certification);
+    }
+  }
+
+  // 18. Sync Queue
   if (Array.isArray(data.syncQueue)) {
     for (const sq of data.syncQueue) {
       await putInStore('syncQueue', sq);
@@ -1686,7 +1801,8 @@ export function getLocalBrowserSnapshots(): LocalSnapshotItem[] {
   try {
     const raw = localStorage.getItem(SNAPSHOTS_KEY);
     return raw ? JSON.parse(raw) : [];
-  } catch {
+  } catch (error) {
+    console.error('Could not read local database snapshots:', error);
     return [];
   }
 }
@@ -1722,8 +1838,13 @@ export async function clearSyncQueue(): Promise<void> {
     const tx = db.transaction('syncQueue', 'readwrite');
     const store = tx.objectStore('syncQueue');
     store.clear();
-  } catch {
-    localStorage.removeItem('gofamint_syncQueue');
+  } catch (indexedDbError) {
+    console.warn('IndexedDB sync queue could not be cleared; using the localStorage fallback:', indexedDbError);
+    try {
+      localStorage.removeItem('gofamint_syncQueue');
+    } catch (localStorageError) {
+      throw new AggregateError([indexedDbError, localStorageError], 'Could not clear the synchronization queue.');
+    }
   }
 }
 
@@ -1752,7 +1873,8 @@ export async function resetToFreshCleanSystem(mode: 'STANDARD_INITIALIZED' | 'UN
     'clockInConfig',
     'workerCategories',
     'specialEvents',
-    'specialEventAttendance'
+    'specialEventAttendance',
+    'enrollmentCertifications'
   ];
 
   try {
@@ -1788,9 +1910,12 @@ export async function resetToFreshCleanSystem(mode: 'STANDARD_INITIALIZED' | 'UN
   }
 
   // Re-seed structural config defaults (not organizational data)
-  await putInStore('clockInConfig', DEFAULT_CLOCK_IN_CONFIG);
+  // These are local structural fallbacks, not user-authored database changes.
+  // Mirroring them while signed out creates guaranteed RLS failures and a noisy
+  // retry queue on every fresh browser/device.
+  await putInStore('clockInConfig', DEFAULT_CLOCK_IN_CONFIG, true);
   for (const cat of DEFAULT_WORKER_CATEGORIES) {
-    await putInStore('workerCategories', cat);
+    await putInStore('workerCategories', cat, true);
   }
 }
 
@@ -1802,26 +1927,22 @@ export async function getAllWorkers(forceCloudRefresh = false): Promise<WorkerPr
   try {
     let list = (await getAllFromStore<WorkerProfile>('workers')) || [];
 
-    // If local workers directory is empty or a fresh pull is requested, fetch from server API
-    if (list.length === 0 || forceCloudRefresh) {
+    // A successful server response is authoritative, including an empty list.
+    // replaceStoreContents preserves records that still have a durable pending
+    // outbox operation, while removing records deleted on another device.
+    // Ordinary reads are local-only. App-level role hydration owns the initial
+    // cloud read, preventing this view from racing it with a duplicate request.
+    if (forceCloudRefresh) {
       try {
         const { fetchWorkersDirectoryApi } = await import('../services/adminUserApi');
         const res = await fetchWorkersDirectoryApi();
-        if (res.success && res.workers && res.workers.length > 0) {
-          const map = new Map<string, WorkerProfile>();
-          for (const w of list) {
-            if (w && w.id) map.set(w.id, w);
-          }
-          for (const w of res.workers) {
-            if (w && w.id) {
-              map.set(w.id, w);
-              await putInStore('workers', w, true);
-            }
-          }
-          list = Array.from(map.values());
-        }
+        if (!res.success) throw new Error(res.error || 'The server could not load the workers directory.');
+        if (!Array.isArray(res.workers)) throw new Error('The workers directory response did not contain a records array.');
+        await replaceStoreContents('workers', res.workers);
+        list = await getAllFromStore<WorkerProfile>('workers');
       } catch (err) {
         console.warn('Could not fetch workers from server API:', err);
+        if (forceCloudRefresh) throw err;
       }
     }
 
@@ -1839,7 +1960,7 @@ export async function getAllWorkers(forceCloudRefresh = false): Promise<WorkerPr
       
       if (dept !== w.department) {
         const updated = { ...w, department: dept, updatedAt: new Date().toISOString() };
-        putInStore('workers', updated).catch(() => {});
+        putInStore('workers', updated).catch(error => console.error(`Could not persist normalized worker ${w.id}:`, error));
         return updated;
       }
       return w;
@@ -1848,6 +1969,7 @@ export async function getAllWorkers(forceCloudRefresh = false): Promise<WorkerPr
     return list;
   } catch (e) {
     console.warn('Error reading workers store:', e);
+    if (forceCloudRefresh) throw e;
     return [];
   }
 }
@@ -1883,23 +2005,15 @@ export async function deleteWorker(id: string): Promise<void> {
 export async function getAllWorkerAttendance(serviceDate?: string, forceCloudRefresh = false): Promise<WorkerAttendanceRecord[]> {
   try {
     let list = (await getAllFromStore<WorkerAttendanceRecord>('workerAttendance')) || [];
-    if (list.length === 0 || forceCloudRefresh) {
+    if (forceCloudRefresh) {
       try {
         const { cloudGetAllWorkerAttendance } = await import('../services/supabaseDatabase');
         const cloudAtt = await cloudGetAllWorkerAttendance();
-        if (cloudAtt && cloudAtt.length > 0) {
-          const map = new Map<string, WorkerAttendanceRecord>();
-          for (const a of list) { if (a && a.id) map.set(a.id, a); }
-          for (const a of cloudAtt) {
-            if (a && a.id) {
-              map.set(a.id, a);
-              await putInStore('workerAttendance', a, true);
-            }
-          }
-          list = Array.from(map.values());
-        }
+        await replaceStoreContents('workerAttendance', cloudAtt || []);
+        list = await getAllFromStore<WorkerAttendanceRecord>('workerAttendance');
       } catch (err) {
         console.warn('Could not fetch cloud worker attendance:', err);
+        if (forceCloudRefresh) throw err;
       }
     }
     if (serviceDate) {
@@ -1908,6 +2022,7 @@ export async function getAllWorkerAttendance(serviceDate?: string, forceCloudRef
     return list || [];
   } catch (e) {
     console.warn('Error reading worker attendance:', e);
+    if (forceCloudRefresh) throw e;
     return [];
   }
 }
@@ -1932,44 +2047,33 @@ export async function deleteWorkerAttendance(id: string): Promise<void> {
 export async function getAllWorkerPrepAttendance(prepDate?: string, forceCloudRefresh = false): Promise<WorkerPrepAttendanceRecord[]> {
   try {
     let list = (await getAllFromStore<WorkerPrepAttendanceRecord>('workerPrepAttendance')) || [];
-    if (list.length === 0 || forceCloudRefresh) {
+    if (forceCloudRefresh) {
       let fetchedFromServer = false;
+      let serverError: unknown;
       try {
         const { fetchWorkerPrepAttendanceApi } = await import('../services/adminUserApi');
         const res = await fetchWorkerPrepAttendanceApi();
-        if (res.success && res.records && res.records.length > 0) {
-          const map = new Map<string, WorkerPrepAttendanceRecord>();
-          for (const r of list) { if (r && r.id) map.set(r.id, r); }
-          for (const r of res.records) {
-            if (r && r.id) {
-              map.set(r.id, r);
-              await putInStore('workerPrepAttendance', r, true);
-            }
-          }
-          list = Array.from(map.values());
-          fetchedFromServer = true;
-        }
+        if (!res.success) throw new Error(res.error || 'The server could not load preparatory attendance.');
+        if (!Array.isArray(res.records)) throw new Error('The preparatory-attendance response did not contain a records array.');
+        await replaceStoreContents('workerPrepAttendance', res.records);
+        list = await getAllFromStore<WorkerPrepAttendanceRecord>('workerPrepAttendance');
+        fetchedFromServer = true;
       } catch (err) {
         console.warn('Could not fetch prep attendance from server API:', err);
+        serverError = err;
       }
 
       if (!fetchedFromServer) {
         try {
           const { cloudGetAllWorkerPrepAttendance } = await import('../services/supabaseDatabase');
           const direct = await cloudGetAllWorkerPrepAttendance();
-          if (direct && direct.length > 0) {
-            const map = new Map<string, WorkerPrepAttendanceRecord>();
-            for (const r of list) { if (r && r.id) map.set(r.id, r); }
-            for (const r of direct) {
-              if (r && r.id) {
-                map.set(r.id, r);
-                await putInStore('workerPrepAttendance', r, true);
-              }
-            }
-            list = Array.from(map.values());
-          }
+          await replaceStoreContents('workerPrepAttendance', direct || []);
+          list = await getAllFromStore<WorkerPrepAttendanceRecord>('workerPrepAttendance');
         } catch (dbErr) {
           console.warn('Direct Supabase prep attendance fallback warning:', dbErr);
+          if (forceCloudRefresh) {
+            throw new AggregateError([serverError, dbErr].filter(Boolean), 'Preparatory attendance could not be refreshed from either server path.');
+          }
         }
       }
     }
@@ -1979,6 +2083,7 @@ export async function getAllWorkerPrepAttendance(prepDate?: string, forceCloudRe
     return list || [];
   } catch (e) {
     console.warn('Error reading worker prep attendance:', e);
+    if (forceCloudRefresh) throw e;
     return [];
   }
 }
@@ -2004,7 +2109,7 @@ export async function getClockInConfig(): Promise<ClockInConfig> {
   } catch (e) {
     console.warn('Error reading clock in config:', e);
   }
-  await putInStore('clockInConfig', DEFAULT_CLOCK_IN_CONFIG);
+  await putInStore('clockInConfig', DEFAULT_CLOCK_IN_CONFIG, true);
   return DEFAULT_CLOCK_IN_CONFIG;
 }
 
@@ -2021,7 +2126,7 @@ export async function getAllWorkerCategories(): Promise<WorkerCategoryDef[]> {
       const hasLegacy = list.some(c => c.department === 'ADMIN' || c.department === 'ADULT' || c.department === 'YOUTH' || c.department === 'CHILDREN');
       if (hasLegacy) {
         for (const cat of DEFAULT_WORKER_CATEGORIES) {
-          await putInStore('workerCategories', cat);
+          await putInStore('workerCategories', cat, true);
         }
         return DEFAULT_WORKER_CATEGORIES;
       }
@@ -2031,7 +2136,7 @@ export async function getAllWorkerCategories(): Promise<WorkerCategoryDef[]> {
     console.warn('Error reading worker categories:', e);
   }
   for (const c of DEFAULT_WORKER_CATEGORIES) {
-    await putInStore('workerCategories', c);
+    await putInStore('workerCategories', c, true);
   }
   return [...DEFAULT_WORKER_CATEGORIES];
 }
@@ -2057,7 +2162,10 @@ export async function getAllAdminProfiles(): Promise<AdminProfile[]> {
 }
 
 export async function saveAdminProfile(profile: AdminProfile): Promise<AdminProfile> {
-  return putInStore<AdminProfile>('adminProfiles', profile);
+  // Administrative identities are written only by the protected server API.
+  // This helper maintains the local read cache and must never enqueue a direct
+  // browser write that RLS will reject and retry forever.
+  return putInStore<AdminProfile>('adminProfiles', profile, true);
 }
 
 export async function approveAdminProfile(id: string, approverName: string = 'General Superintendent'): Promise<AdminProfile | null> {
@@ -2071,7 +2179,7 @@ export async function approveAdminProfile(id: string, approverName: string = 'Ge
     approvedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
-  await putInStore('adminProfiles', updated);
+  await putInStore('adminProfiles', updated, true);
   return updated;
 }
 
@@ -2081,11 +2189,27 @@ export async function deleteAdminProfile(id: string): Promise<void> {
 
 // Sunday School Year & Quarters (General Secretary Domain)
 export async function getSundaySchoolYear(): Promise<SundaySchoolYear> {
+  let localReadError: unknown;
   try {
     const years = await getAllFromStore<SundaySchoolYear>('sundaySchoolYear');
     if (years && years.length > 0) {
       let year = years[0];
       let needsUpdate = false;
+
+      // A partially-created/legacy year must not crash administrative screens.
+      // Restore only the missing structural quarter records; preserve every
+      // user-entered year and quarter value already present.
+      if (!Array.isArray(year.quarters) || year.quarters.length === 0) {
+        year = {
+          ...year,
+          quarters: FRESH_UNINITIALIZED_YEAR.quarters.map(q => ({
+            ...q,
+            id: `${year.id}_${q.quarterNumber}`,
+            updatedAt: year.updatedAt || q.updatedAt
+          }))
+        };
+        needsUpdate = true;
+      }
 
       // Filter out legacy 36 departments while preserving the 4 recognized departments + any dynamic user created ones
       const legacyDeptsToRemove = new Set([
@@ -2108,36 +2232,53 @@ export async function getSundaySchoolYear(): Promise<SundaySchoolYear> {
         needsUpdate = true;
       }
 
-      // Ensure Quarter 1 has 2025-09-07 start date and 2025-09-04 prep start date
+      // Legacy repair only: normalize a missing lessons array. Never inject or
+      // overwrite calendar dates while merely reading the record.
       if (year.quarters && year.quarters.length > 0) {
         const q1 = year.quarters[0];
-        if (q1.startDate !== '2025-09-07' || !q1.lessons || q1.lessons.length === 0) {
-          q1.startDate = '2025-09-07';
-          q1.endDate = '2025-11-23';
-          q1.sharingAdmonitionDate = '2025-11-30';
-          if (!q1.lessons || q1.lessons.length === 0) {
-            q1.lessons = [];
-            q1.isDistributed = true;
-            q1.status = 'ACTIVE';
-          }
+        if (!Array.isArray(q1.lessons)) {
+          q1.lessons = [];
           needsUpdate = true;
         }
       }
 
       if (needsUpdate) {
         year.updatedAt = new Date().toISOString();
-        await putInStore('sundaySchoolYear', year);
+        // Reading/normalizing cached legacy data must not perform a cloud write,
+        // particularly on the unauthenticated sign-in screen.
+        await putInStore('sundaySchoolYear', year, true);
       }
 
       return year;
     }
   } catch (e) {
-    console.warn('Error reading sundaySchoolYear store:', e);
+    localReadError = e;
+    console.error('Error reading sundaySchoolYear local cache:', e);
   }
 
-  const BLANK_YEAR: SundaySchoolYear = { id: 'YEAR_BLANK', yearName: 'Blank', overallTheme: '', startDate: '', endDate: '', activeQuarterNumber: 1, isInitialized: false, departments: [], updatedAt: new Date().toISOString(), quarters: [] };
-  await putInStore('sundaySchoolYear', BLANK_YEAR);
-  return BLANK_YEAR;
+  // Cache miss is not permission to overwrite the cloud with a blank record.
+  // Recover the authoritative record first, then seed a local-only setup shell
+  // only when the installation genuinely has no year yet.
+  try {
+    const cloudYears = await fetchCollection<SundaySchoolYear>('sundaySchoolYear');
+    if (cloudYears.length > 0) {
+      await putInStore('sundaySchoolYear', cloudYears[0], true);
+      return cloudYears[0];
+    }
+  } catch (cloudError) {
+    if (localReadError) {
+      throw new AggregateError([localReadError, cloudError], 'Could not load the Sunday School year from local storage or Supabase.');
+    }
+    console.error('Could not check Supabase for the Sunday School year:', cloudError);
+  }
+
+  const blankYear: SundaySchoolYear = {
+    ...FRESH_UNINITIALIZED_YEAR,
+    quarters: FRESH_UNINITIALIZED_YEAR.quarters.map(q => ({ ...q })),
+    updatedAt: new Date().toISOString()
+  };
+  await putInStore('sundaySchoolYear', blankYear, true);
+  return blankYear;
 }
 
 export async function saveSundaySchoolYear(year: SundaySchoolYear): Promise<SundaySchoolYear> {
@@ -2248,51 +2389,31 @@ export async function archiveQuarterByGenSec(quarterNumber: QuarterNumber): Prom
   return updatedYear;
 }
 
-// Quarter Transition & Archive for Class Register & GenSec
-export async function archiveQuarterForRegister(currentQuarterNumber: QuarterNumber): Promise<SundaySchoolYear> {
+export async function archiveQuarterAndActivateNext(currentQuarterNumber: QuarterNumber): Promise<SundaySchoolYear> {
   const year = await getSundaySchoolYear();
-  const nextQuarterNumber = (currentQuarterNumber < 4 ? (currentQuarterNumber + 1) : 4) as QuarterNumber;
-
-  const nextQuarter = year.quarters.find(q => q.quarterNumber === nextQuarterNumber);
-  const isNextApproved = !!(nextQuarter && (nextQuarter.isDistributed || nextQuarter.status === 'ACTIVE'));
-
-  const updatedQuarters = year.quarters.map(q => {
-    if (q.quarterNumber === currentQuarterNumber) {
-      return {
-        ...q,
-        status: 'ARCHIVED' as const,
-        archivedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-    }
-    if (q.quarterNumber === nextQuarterNumber && currentQuarterNumber < 4) {
-      if (isNextApproved) {
-        return {
-          ...q,
-          status: 'ACTIVE' as const,
-          isDistributed: true,
-          updatedAt: new Date().toISOString()
-        };
-      }
-    }
-    return q;
-  });
-
-  const newActiveQuarter = (isNextApproved && currentQuarterNumber < 4) ? nextQuarterNumber : year.activeQuarterNumber;
-
+  if (currentQuarterNumber >= 4) {
+    throw new Error('Quarter 4 is the final quarter. Start a new Sunday School year instead.');
+  }
+  const nextQuarterNumber = (currentQuarterNumber + 1) as QuarterNumber;
+  if (!year.quarters.some(q => q.quarterNumber === nextQuarterNumber)) {
+    throw new Error(`Quarter ${nextQuarterNumber} is missing from the Sunday School year configuration.`);
+  }
+  const now = new Date().toISOString();
   const updatedYear: SundaySchoolYear = {
     ...year,
-    activeQuarterNumber: newActiveQuarter,
-    quarters: updatedQuarters,
-    updatedAt: new Date().toISOString()
+    activeQuarterNumber: nextQuarterNumber,
+    quarters: year.quarters.map(q => {
+      if (q.quarterNumber === currentQuarterNumber) {
+        return { ...q, status: 'ARCHIVED' as const, archivedAt: now, updatedAt: now };
+      }
+      if (q.quarterNumber === nextQuarterNumber) {
+        return { ...q, status: 'ACTIVE' as const, updatedAt: now };
+      }
+      return q;
+    }),
+    updatedAt: now
   };
-
-  await saveSundaySchoolYear(updatedYear);
-  return updatedYear;
-}
-
-export async function archiveQuarterAndActivateNext(currentQuarterNumber: QuarterNumber): Promise<SundaySchoolYear> {
-  return archiveQuarterForRegister(currentQuarterNumber);
+  return saveSundaySchoolYear(updatedYear);
 }
 
 // Directory of All Classes (For Admin Approval & Directory Listing)
@@ -2300,31 +2421,21 @@ export async function archiveQuarterAndActivateNext(currentQuarterNumber: Quarte
 export async function getAllClassesDirectory(forceCloudRefresh = false): Promise<ClassProfile[]> {
   try {
     let classes = (await getAllFromStore<ClassProfile>('allClasses')) || [];
+    let cloudRefreshSucceeded = false;
 
     // If local directory is empty or a fresh pull was requested, query the server API
     if (classes.length === 0 || forceCloudRefresh) {
       try {
         const { fetchAdminClassesApi } = await import('../services/adminUserApi');
         const res = await fetchAdminClassesApi();
-        if (res.success && res.classes && res.classes.length > 0) {
-          const map = new Map<string, ClassProfile>();
-          for (const c of classes) {
-            if (c && c.id) map.set(c.id, c);
-          }
-          for (const c of res.classes) {
-            if (c && c.id) {
-              const existingLocal = map.get(c.id);
-              const merged = (existingLocal?.approvalStatus === 'APPROVED' && c.approvalStatus !== 'APPROVED')
-                ? { ...c, approvalStatus: 'APPROVED' as const }
-                : c;
-              map.set(c.id, merged);
-              await putInStore('allClasses', merged, true).catch(() => {});
-            }
-          }
-          classes = Array.from(map.values());
-        }
+        if (!res.success) throw new Error(res.error || 'The server could not load the class directory.');
+        if (!Array.isArray(res.classes)) throw new Error('The class-directory response did not contain a classes array.');
+        await replaceStoreContents('allClasses', res.classes);
+        classes = await getAllFromStore<ClassProfile>('allClasses');
+        cloudRefreshSucceeded = true;
       } catch (e) {
         console.warn('Could not fetch classes from server API in getAllClassesDirectory:', e);
+        if (forceCloudRefresh) throw e;
       }
     }
 
@@ -2337,21 +2448,20 @@ export async function getAllClassesDirectory(forceCloudRefresh = false): Promise
       }
     }
 
-    if (activeCurrent && activeCurrent.id) {
+    if (activeCurrent && activeCurrent.id && (!cloudRefreshSucceeded || map.has(activeCurrent.id))) {
       const existing = map.get(activeCurrent.id);
-      const mergedCurrent = (existing?.approvalStatus === 'APPROVED' && activeCurrent.approvalStatus !== 'APPROVED')
-        ? { ...activeCurrent, approvalStatus: 'APPROVED' as const }
-        : activeCurrent;
+      const mergedCurrent = existing || activeCurrent;
       if (!existing || (mergedCurrent.updatedAt && (!existing.updatedAt || mergedCurrent.updatedAt >= existing.updatedAt))) {
         map.set(activeCurrent.id, mergedCurrent);
       }
       // Ensure activeCurrent is safely recorded in allClasses store
-      await putInStore('allClasses', mergedCurrent, true).catch(() => {});
+      await putInStore('allClasses', mergedCurrent, true).catch(error => console.error(`Could not cache active class ${mergedCurrent.id}:`, error));
     }
 
     return Array.from(map.values());
   } catch (e) {
     console.warn('Error reading allClasses store:', e);
+    if (forceCloudRefresh) throw e;
     return [];
   }
 }
@@ -2374,164 +2484,47 @@ export async function saveClassToDirectory(profile: ClassProfile): Promise<Class
 export async function createBatchClasses(
   classesToCreate: Array<{ className: string; department: string; classId?: string; password?: string }>
 ): Promise<ClassProfile[]> {
-  let cloudClasses: ClassProfile[] | null = null;
-  try {
-    const { massCreateClassesApi } = await import('../services/adminUserApi');
-    const res = await massCreateClassesApi({ classes: classesToCreate });
-    if (res.success && res.classes && res.classes.length > 0) {
-      cloudClasses = res.classes;
-    }
-  } catch (err) {
-    console.warn('Could not invoke server create classes API:', err);
+  if (classesToCreate.length === 0) return [];
+  const { massCreateClassesApi } = await import('../services/adminUserApi');
+  const response = await massCreateClassesApi({ classes: classesToCreate });
+  if (!response.success) {
+    throw new Error(response.error || 'The server did not create the requested class login(s).');
+  }
+  if (!response.classes || response.classes.length !== classesToCreate.length) {
+    throw new Error(`The server created ${response.classes?.length || 0} of ${classesToCreate.length} requested class login(s). No local-only class was created.`);
   }
 
-  const existing = await getAllClassesDirectory();
   const createdOrUpdated: ClassProfile[] = [];
-  const currentYear = new Date().getFullYear();
-  const now = new Date().toISOString();
-
-  if (cloudClasses && cloudClasses.length > 0) {
-    for (const cls of cloudClasses) {
-      await putInStore('allClasses', cls, true);
-      createdOrUpdated.push(cls);
-    }
-  } else {
-    for (const item of classesToCreate) {
-      const cleanDept = (item.department || 'Adult').trim();
-      const className = item.className.trim();
-      const classId = (item.classId || className.toUpperCase().replace(/[^A-Z0-9]/g, '_')).trim();
-      const password = item.password || 'password123';
-
-      const alreadyExists = existing.find(
-        c => c.id.toUpperCase() === classId.toUpperCase() || c.className.toLowerCase() === className.toLowerCase()
-      );
-      if (alreadyExists) {
-        createdOrUpdated.push(alreadyExists);
-        continue;
-      }
-
-      const newClass: ClassProfile = {
-        id: classId,
-        className,
-        department: cleanDept as DepartmentType,
-        password,
-        secretaryName: '',
-        secretaryPhone: '',
-        teachers: [],
-        quarterTitle: 'Quarter 1: Sunday School Curriculum',
-        year: currentYear,
-        currencySymbol: '₦',
-        isSetupComplete: false,
-        approvalStatus: 'PENDING_REGISTRATION',
-        createdAt: now,
-        updatedAt: now
-      };
-
-      await putInStore('allClasses', newClass, true);
-      await pushToCloud('createClass', () => cloudSaveClassProfile(newClass), {
-        collectionName: 'classes',
-        action: 'save',
-        docId: newClass.id,
-        data: newClass
-      });
-      createdOrUpdated.push(newClass);
-    }
+  for (const serverClass of response.classes) {
+    const cls = { ...serverClass } as ClassProfile;
+    delete cls.password;
+    await putInStore('allClasses', cls, true);
+    createdOrUpdated.push(cls);
   }
-
   return createdOrUpdated;
 }
 
 export async function massCreateClasses(
   department: DepartmentType | string,
-  suffixes: string[] = ['A', 'B', 'C']
+  suffixes: string[] = ['A', 'B', 'C'],
+  temporaryPassword?: string
 ): Promise<ClassProfile[]> {
   const cleanDept = (department || 'Adult').trim();
   const cleanSuffixes = suffixes.map(s => s.trim().toUpperCase()).filter(Boolean);
-
-  // Ensure department is saved in local departments store
-  try {
-    await putInStore('departments', { name: cleanDept }, true);
-    await pushToCloud('department', () => cloudSaveDepartment(cleanDept), {
-      collectionName: 'departments',
-      action: 'save',
-      docId: cleanDept,
-      data: { id: cleanDept, name: cleanDept }
-    });
-  } catch (error) {
-    console.error('Could not persist department:', error);
-    throw error;
+  if (!temporaryPassword || temporaryPassword.length < 6) {
+    throw new Error('Bulk class creation requires an explicit temporary password of at least 6 characters.');
   }
-
-  // 1. Primary: Use the server API (bypasses RLS issues, ensures departments row, and creates in Supabase)
-  let cloudClasses: ClassProfile[] | null = null;
-  try {
-    const { massCreateClassesApi } = await import('../services/adminUserApi');
-    const res = await massCreateClassesApi({ department: cleanDept, suffixes: cleanSuffixes });
-    if (res.success && res.classes && res.classes.length > 0) {
-      cloudClasses = res.classes;
-    }
-  } catch (err) {
-    console.warn('Could not invoke server mass-create classes API:', err);
-  }
-
-  const existing = await getAllClassesDirectory();
-  const createdOrUpdated: ClassProfile[] = [];
-  const currentYear = new Date().getFullYear();
-  const now = new Date().toISOString();
-
-  if (cloudClasses && cloudClasses.length > 0) {
-    for (const cls of cloudClasses) {
-      await putInStore('allClasses', cls, true);
-      createdOrUpdated.push(cls);
-    }
-  } else {
-    // Fallback if offline
-    for (const suffix of cleanSuffixes) {
-      const classId = `${cleanDept.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_${suffix}`;
-      const className = `${cleanDept} Class ${suffix}`;
-
-      const alreadyExists = existing.find(
-        c => c.id.toUpperCase() === classId || c.className.toLowerCase() === className.toLowerCase()
-      );
-      if (alreadyExists) {
-        createdOrUpdated.push(alreadyExists);
-        continue;
-      }
-
-      const newClass: ClassProfile = {
-        id: classId,
-        className,
-        department: cleanDept as DepartmentType,
-        password: 'password123',
-        secretaryName: '',
-        secretaryPhone: '',
-        teachers: [],
-        quarterTitle: 'Quarter 1: Sunday School Curriculum',
-        year: currentYear,
-        currencySymbol: '₦',
-        isSetupComplete: false,
-        approvalStatus: 'PENDING_REGISTRATION',
-        createdAt: now,
-        updatedAt: now
-      };
-
-      await putInStore('allClasses', newClass, true);
-      await pushToCloud('createClass', () => cloudSaveClassProfile(newClass), {
-        collectionName: 'classes',
-        action: 'save',
-        docId: newClass.id,
-        data: newClass
-      });
-      createdOrUpdated.push(newClass);
-    }
-  }
-
-  return createdOrUpdated;
+  return createBatchClasses(cleanSuffixes.map(suffix => ({
+    department: cleanDept,
+    className: `${cleanDept} Class ${suffix}`,
+    classId: `${cleanDept.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_${suffix}`,
+    password: temporaryPassword,
+  })));
 }
 
 export async function deleteClassFromDirectory(classId: string): Promise<boolean> {
   try {
-    await deleteFromStore('allClasses', classId);
+    await deleteFromStore('allClasses', classId, true);
     await pushToCloud('deleteClass', () => cloudDeleteClass(classId), {
       collectionName: 'classes',
       action: 'delete',
@@ -2580,10 +2573,12 @@ export async function approveClassById(classId: string, approvedBy: string = 'Ge
     const failures = await getPendingCloudSyncFailures();
     for (const f of failures) {
       if (f.docId === classId && (f.collectionName === 'classes' || f.collectionName === 'classProfile')) {
-        await deleteFromStore('cloudSyncFailures', f.id).catch(() => {});
+        await deleteFromStore('cloudSyncFailures', f.id).catch(error => console.warn(`Could not purge obsolete approval retry ${f.id}:`, error));
       }
     }
-  } catch {}
+  } catch (error) {
+    console.warn(`Could not inspect obsolete approval retries for class ${classId}:`, error);
+  }
 
   // 3. Authoritative server approval call (uses service role admin)
   let authoritativeClass: ClassProfile = locallyApproved;
@@ -2712,7 +2707,7 @@ export async function updateDepartmentNameInYear(oldName: string, newName: strin
         department: trimmedNew as any,
         updatedAt: new Date().toISOString()
       };
-      await putInStore('allClasses', updatedClass);
+      await saveClassToDirectory(updatedClass);
     }
   }
 
@@ -2763,7 +2758,7 @@ export async function deleteDepartmentFromYear(departmentName: string): Promise<
         department: fallbackDept as any,
         updatedAt: new Date().toISOString()
       };
-      await putInStore('allClasses', updatedClass);
+      await saveClassToDirectory(updatedClass);
     }
   }
 
@@ -2816,7 +2811,7 @@ export const recordBulkWorkerPrepAttendance = saveBulkWorkerPrepAttendance;
 export async function getAllSpecialEvents(forceCloudRefresh = false): Promise<SpecialWorkersEvent[]> {
   try {
     let list = (await getAllFromStore<SpecialWorkersEvent>('specialEvents')) || [];
-    if (list.length === 0 || forceCloudRefresh) {
+    if (forceCloudRefresh) {
       try {
         const { fetchSpecialEventsApi } = await import('../services/adminUserApi');
         const res = await fetchSpecialEventsApi();
@@ -2830,11 +2825,13 @@ export async function getAllSpecialEvents(forceCloudRefresh = false): Promise<Sp
         }
       } catch (err) {
         console.warn('Could not fetch special events from server API:', err);
+        if (forceCloudRefresh) throw err;
       }
     }
     return list ? list.sort((a, b) => b.createdAt.localeCompare(a.createdAt)) : [];
   } catch (e) {
-    console.warn('Error reading specialEvents store:', e);
+    console.error('Error reading specialEvents store:', e);
+    if (forceCloudRefresh) throw e;
     return [];
   }
 }
@@ -2863,7 +2860,7 @@ export async function deleteSpecialEvent(eventId: string): Promise<void> {
 export async function getAllSpecialEventAttendance(forceCloudRefresh = false): Promise<SpecialEventAttendanceRecord[]> {
   try {
     let list = (await getAllFromStore<SpecialEventAttendanceRecord>('specialEventAttendance')) || [];
-    if (list.length === 0 || forceCloudRefresh) {
+    if (forceCloudRefresh) {
       try {
         const { fetchSpecialEventsApi } = await import('../services/adminUserApi');
         const res = await fetchSpecialEventsApi();
@@ -2874,11 +2871,13 @@ export async function getAllSpecialEventAttendance(forceCloudRefresh = false): P
         }
       } catch (err) {
         console.warn('Could not fetch special event attendance from server API:', err);
+        if (forceCloudRefresh) throw err;
       }
     }
     return list || [];
   } catch (e) {
     console.warn('Error reading specialEventAttendance store:', e);
+    if (forceCloudRefresh) throw e;
     return [];
   }
 }
@@ -3272,6 +3271,14 @@ export async function getRealEnrollmentSummary() {
 // RECORD OFFICER & ENROLLMENT OFFICER QUERY ENGINES
 // -------------------------------------------------------------
 
+function hasPermanentlyExitedBy(member: Member, quarterNumber: number, weekNumber: number, fallbackStatus: MemberStatus): boolean {
+  if (member.departureQuarter && member.departureWeek) {
+    return quarterNumber > member.departureQuarter ||
+      (quarterNumber === member.departureQuarter && weekNumber >= member.departureWeek);
+  }
+  return fallbackStatus === 'LEFT_CLASS';
+}
+
 /**
  * RECORD OFFICER REAL-TIME QUERY ENGINE
  * Reads directly from Class Register records.
@@ -3339,7 +3346,7 @@ export async function getRealRecordOfficerCollation(
         continue;
       }
 
-      if (status === 'LEFT_CLASS') {
+      if (hasPermanentlyExitedBy(mem, quarterNumber, weekNumber, status)) {
         exitedCount++;
         continue;
       }
@@ -3534,7 +3541,7 @@ export async function getRealEnrollmentOfficerCollation(
         continue;
       }
 
-      if (status === 'LEFT_CLASS') {
+      if (hasPermanentlyExitedBy(mem, quarterNumber, selectedWeek, status)) {
         continue;
       }
 
@@ -3829,14 +3836,7 @@ export async function certifyVisitorEnrollment(
     notes
   };
 
-  try {
-    const rawCerts = localStorage.getItem('gofamint_enrollment_certifications');
-    const certsList: EnrollmentCertificationRecord[] = rawCerts ? JSON.parse(rawCerts) : [];
-    certsList.unshift(certRecord);
-    localStorage.setItem('gofamint_enrollment_certifications', JSON.stringify(certsList));
-  } catch (e) {
-    console.warn('Could not save certification to localStorage:', e);
-  }
+  await putInStore('enrollmentCertifications', certRecord);
 
   return { success: true, member: updatedMember };
 }
@@ -3871,12 +3871,20 @@ export async function denyVisitorConversion(
  * Retrieve all Enrollment Certification audit logs
  */
 export async function getAllEnrollmentCertifications(): Promise<EnrollmentCertificationRecord[]> {
-  try {
-    const rawCerts = localStorage.getItem('gofamint_enrollment_certifications');
-    return rawCerts ? JSON.parse(rawCerts) : [];
-  } catch {
-    return [];
+  const stored = await getAllFromStore<EnrollmentCertificationRecord>('enrollmentCertifications');
+  if (stored.length > 0) {
+    return stored.sort((a, b) => b.certifiedAt.localeCompare(a.certifiedAt));
   }
+
+  // One-time compatibility import for audit records produced by older builds.
+  const rawCerts = localStorage.getItem('gofamint_enrollment_certifications');
+  if (!rawCerts) return [];
+  const legacy = JSON.parse(rawCerts) as EnrollmentCertificationRecord[];
+  for (const record of legacy) {
+    await putInStore('enrollmentCertifications', record);
+  }
+  localStorage.removeItem('gofamint_enrollment_certifications');
+  return legacy.sort((a, b) => b.certifiedAt.localeCompare(a.certifiedAt));
 }
 
 /**
