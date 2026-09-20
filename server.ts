@@ -9,7 +9,6 @@ process.on("uncaughtException", (err) => {
 
 process.on("unhandledRejection", (reason) => {
   console.error("[Server] Unhandled Rejection:", reason);
-  process.exit(1);
 });
 
 async function startServer() {

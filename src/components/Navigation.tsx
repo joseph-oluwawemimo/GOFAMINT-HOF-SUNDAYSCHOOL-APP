@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
   Table2,
   Users,
@@ -70,8 +70,20 @@ export const Navigation: React.FC<NavigationProps> = ({
     }
   ];
 
+  const activeTabRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (activeTabRef.current) {
+      activeTabRef.current.scrollIntoView({
+        behavior: 'smooth',
+        inline: 'center',
+        block: 'nearest'
+      });
+    }
+  }, [activeTab]);
+
   return (
-    <nav className="bg-white border-b border-slate-200 px-4 py-2 sticky top-[69px] z-30 overflow-x-auto scrollbar-none shadow-xs">
+    <nav className="bg-white border-b border-slate-200 px-3 py-1.5 sticky top-[69px] z-30 overflow-x-auto scrollbar-none shadow-xs scroll-smooth touch-pan-x">
       <div className="max-w-7xl mx-auto flex items-center justify-start sm:justify-center gap-1.5 min-w-max">
         {navItems.map((item) => {
           const Icon = item.icon;
@@ -82,9 +94,10 @@ export const Navigation: React.FC<NavigationProps> = ({
           return (
             <button
               key={item.id}
+              ref={isActive ? activeTabRef : null}
               id={`nav-tab-${(item.id || '').toLowerCase()}`}
               onClick={() => onTabChange(item.id)}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all duration-150 relative whitespace-nowrap ${
+              className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[44px] rounded-lg text-xs sm:text-sm font-bold transition-all duration-150 relative whitespace-nowrap touch-manipulation cursor-pointer ${
                 isActive
                   ? 'bg-blue-900 text-white shadow-xs border border-blue-800'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-transparent'

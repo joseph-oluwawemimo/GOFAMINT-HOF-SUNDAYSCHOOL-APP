@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { usePersistedState } from '../hooks/usePersistedState';
+import { useScrollRestoration } from '../hooks/useScrollRestoration';
 import {
   HeartHandshake,
   MessageCircle,
@@ -74,8 +76,9 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
   onRelegateToVisitor,
   onRestoreToStudent
 }) => {
-  const [activeTab, setActiveTab] = useState<'PENDING' | 'EXECUTED'>('PENDING');
-  const [selectedUrgencyFilter, setSelectedUrgencyFilter] = useState<'ALL' | '1_WEEK' | '2_WEEKS' | '3_WEEKS' | '4_PLUS_WEEKS' | '6_WEEK_EXIT_REVIEW'>('ALL');
+  useScrollRestoration('welfare_follow_up');
+  const [activeTab, setActiveTab] = usePersistedState<'PENDING' | 'EXECUTED'>('gofamint_welfare_tab', 'PENDING');
+  const [selectedUrgencyFilter, setSelectedUrgencyFilter] = usePersistedState<'ALL' | '1_WEEK' | '2_WEEKS' | '3_WEEKS' | '4_PLUS_WEEKS' | '6_WEEK_EXIT_REVIEW'>('gofamint_welfare_urgency', 'ALL');
   
   // Execution Modal State
   const [actioningMember, setActioningMember] = useState<{ member: Member; weeksAbsent: number; actionType: FollowUpActionType } | null>(null);

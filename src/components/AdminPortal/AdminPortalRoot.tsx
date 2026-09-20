@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   AlertCircle,
   ArrowLeft,
+  ArrowRightLeft,
   UserPlus,
   LogIn,
   KeyRound,
@@ -24,7 +25,10 @@ import {
   Database,
   Trash2,
   Clock,
-  Eye
+  Eye,
+  MoreVertical,
+  X,
+  ChevronRight
 } from 'lucide-react';
 import { GofamintLogo } from '../GofamintLogo';
 import {
@@ -92,6 +96,7 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
   // Data Backup / Restore Modal State
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
   const [backupModalTab, setBackupModalTab] = useState<'SAVE' | 'LOAD' | 'RESET'>('SAVE');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Refresh and load all data from IndexedDB and Supabase.
   const refreshAdminData = async (silent = false, forceCloudRefresh = true) => {
@@ -345,57 +350,58 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-amber-400 selection:text-slate-950">
       
       {/* Top Directorate Navigation Header */}
-      <header className="bg-slate-900/90 backdrop-blur-md border-b border-amber-400/30 sticky top-0 z-40 shadow-xl">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <header className="bg-slate-900/95 backdrop-blur-md border-b border-amber-400/30 sticky top-0 z-40 shadow-xl">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-2.5 sm:py-3.5 flex items-center justify-between gap-3">
           
-          <div className="flex items-center gap-3.5">
-            <GofamintLogo size={42} />
-            <div>
-              <span className="text-[10px] font-black tracking-widest text-amber-300 uppercase font-['Cinzel',serif] block">
-                THE GOSPEL FAITH MISSION INTERNATIONAL
+          <div className="flex items-center gap-3">
+            <GofamintLogo size={36} />
+            <div className="min-w-0">
+              <span className="text-[9px] sm:text-[10px] font-black tracking-widest text-amber-300 uppercase font-['Cinzel',serif] block truncate">
+                THE GOSPEL FAITH MISSION INTL
               </span>
-              <h1 className="text-base sm:text-lg font-black text-white font-['Cinzel',serif] tracking-wide flex items-center gap-2">
-                <span>Directorate Executive Council</span>
+              <div className="flex items-center gap-2">
+                <h1 className="text-sm sm:text-base font-black text-white font-['Cinzel',serif] tracking-wide truncate">
+                  Directorate Council
+                </h1>
                 {currentAdmin && (
-                  <span className="text-xs font-bold text-amber-400 bg-amber-400/10 px-2.5 py-0.5 rounded-full border border-amber-400/30">
+                  <span className="hidden xs:inline-block text-[10px] font-bold text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded-full border border-amber-400/30 whitespace-nowrap">
                     {currentAdmin.title}
                   </span>
                 )}
-              </h1>
+              </div>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            {onBackToWelcome && (
-              <button
-                onClick={onBackToWelcome}
-                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-600 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
-                title="Return to Welcome Screen"
-              >
-                <ArrowLeft className="w-3.5 h-3.5 text-amber-400" />
-                <span className="hidden sm:inline">Back to Welcome</span>
-                <span className="sm:hidden">Welcome</span>
-              </button>
-            )}
-
+          {/* Desktop Navigation Action Buttons */}
+          <div className="hidden sm:flex items-center gap-2">
             {onBackToPortalSelect && (
               <button
                 onClick={onBackToPortalSelect}
-                className="px-3 py-1.5 bg-indigo-950/80 hover:bg-indigo-900 text-indigo-200 hover:text-white border border-indigo-700/60 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                className="px-3 py-1.5 bg-slate-800/80 hover:bg-slate-700/90 text-slate-200 hover:text-white border border-slate-700/80 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
                 title="Return to Portal Destination Selection"
               >
+                <ArrowRightLeft className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Switch Portal</span>
+              </button>
+            )}
+
+            {onBackToWelcome && (
+              <button
+                onClick={onBackToWelcome}
+                className="px-3 py-1.5 bg-slate-800/80 hover:bg-slate-700/90 text-slate-200 hover:text-white border border-slate-700/80 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                title="Return to Welcome Screen"
+              >
                 <ArrowLeft className="w-3.5 h-3.5 text-amber-400" />
-                <span className="hidden sm:inline">Portal Selection</span>
-                <span className="sm:hidden">Portals</span>
+                <span>Exit to Welcome</span>
               </button>
             )}
 
             {onEnterWorkersModule && (
               <button
                 onClick={onEnterWorkersModule}
-                className="px-3 py-1.5 bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border border-emerald-700/60 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                className="px-3 py-1.5 bg-slate-800/80 hover:bg-slate-700/90 text-emerald-300 hover:text-emerald-200 border border-emerald-700/40 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
               >
-                <Sparkles className="w-3.5 h-3.5" />
+                <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
                 <span>Workers Directorate</span>
               </button>
             )}
@@ -407,7 +413,7 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
                   setBackupModalTab('SAVE');
                   setIsBackupModalOpen(true);
                 }}
-                className="px-3 py-1.5 bg-blue-950/80 hover:bg-blue-900 text-blue-200 border border-blue-700/60 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                className="px-3 py-1.5 bg-slate-800/80 hover:bg-slate-700/90 text-blue-200 hover:text-white border border-blue-700/40 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
                 title="Export, restore, archive, or reset database records"
               >
                 <Database className="w-3.5 h-3.5 text-amber-400" />
@@ -418,17 +424,104 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
             {onLockProfile && (
               <button
                 onClick={onLockProfile}
-                className="px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-400/40 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+                className="px-3 py-1.5 bg-slate-800/80 hover:bg-amber-500/20 text-amber-300 hover:text-amber-200 border border-amber-400/30 hover:border-amber-400/60 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
                 title="Lock profile session (requires password to resume)"
               >
-                <Lock className="w-3.5 h-3.5" />
+                <Lock className="w-3.5 h-3.5 text-amber-400" />
                 <span>Lock Profile</span>
               </button>
             )}
+          </div>
 
+          {/* Mobile Compact Header Controls */}
+          <div className="flex sm:hidden items-center gap-1.5">
+            {onLockProfile && (
+              <button
+                onClick={onLockProfile}
+                className="p-2 bg-slate-800/80 hover:bg-amber-500/20 text-amber-300 border border-amber-400/30 rounded-xl transition cursor-pointer"
+                title="Lock Profile"
+              >
+                <Lock className="w-4 h-4" />
+              </button>
+            )}
+            <button
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl transition cursor-pointer"
+              title="Toggle Menu"
+            >
+              {isMobileMenuOpen ? <X className="w-4 h-4" /> : <MoreVertical className="w-4 h-4" />}
+            </button>
           </div>
 
         </div>
+
+        {/* Mobile Slide-down Action Drawer */}
+        {isMobileMenuOpen && (
+          <div className="sm:hidden border-t border-slate-800 bg-slate-900/98 px-4 py-3 space-y-2 animate-in slide-in-from-top duration-200">
+            {onBackToPortalSelect && (
+              <button
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  onBackToPortalSelect();
+                }}
+                className="w-full px-3.5 py-2.5 bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold transition flex items-center justify-between cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <ArrowRightLeft className="w-4 h-4 text-indigo-400" />
+                  <span>Switch Portal</span>
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-500" />
+              </button>
+            )}
+            {onEnterWorkersModule && (
+              <button
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  onEnterWorkersModule();
+                }}
+                className="w-full px-3.5 py-2.5 bg-slate-800/90 hover:bg-slate-700 text-emerald-300 border border-emerald-700/40 rounded-xl text-xs font-semibold transition flex items-center justify-between cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-emerald-400" />
+                  <span>Workers Directorate</span>
+                </div>
+                <ChevronRight className="w-4 h-4 text-emerald-400/60" />
+              </button>
+            )}
+            {!oversightAdminProfile && currentAdmin?.roleType === 'GENERAL_SUPERINTENDENT' && (
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  setBackupModalTab('SAVE');
+                  setIsBackupModalOpen(true);
+                }}
+                className="w-full px-3.5 py-2.5 bg-slate-800/90 hover:bg-slate-700 text-blue-200 border border-blue-700/40 rounded-xl text-xs font-semibold transition flex items-center justify-between cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <Database className="w-4 h-4 text-amber-400" />
+                  <span>Database Control</span>
+                </div>
+                <ChevronRight className="w-4 h-4 text-blue-400/60" />
+              </button>
+            )}
+            {onBackToWelcome && (
+              <button
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  onBackToWelcome();
+                }}
+                className="w-full px-3.5 py-2.5 bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold transition flex items-center justify-between cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <ArrowLeft className="w-4 h-4 text-amber-400" />
+                  <span>Exit to Welcome</span>
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-500" />
+              </button>
+            )}
+          </div>
+        )}
       </header>
 
       {/* Main Administrative Views */}

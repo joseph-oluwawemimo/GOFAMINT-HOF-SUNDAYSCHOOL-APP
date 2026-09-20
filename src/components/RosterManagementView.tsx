@@ -1,4 +1,7 @@
 import React, { useState } from 'react';
+import { usePersistedState } from '../hooks/usePersistedState';
+import { useScrollRestoration } from '../hooks/useScrollRestoration';
+import { useModalBackHandler } from '../hooks/useModalBackHandler';
 import {
   Users,
   UserPlus,
@@ -59,8 +62,9 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
   onClearPreSelectedSponsor
 }) => {
   const isReadOnly = quarterStatus === 'ARCHIVED' || quarterStatus === 'UPCOMING';
-  const [activeRosterTab, setActiveRosterTab] = useState<'ALL' | 'STUDENTS' | 'VISITORS'>('ALL');
-  const [searchTerm, setSearchTerm] = useState('');
+  useScrollRestoration('roster_management');
+  const [activeRosterTab, setActiveRosterTab] = usePersistedState<'ALL' | 'STUDENTS' | 'VISITORS'>('gofamint_roster_tab', 'ALL');
+  const [searchTerm, setSearchTerm] = usePersistedState<string>('gofamint_roster_search', '');
   
   // Member Edit/Add Modal State
   const [isModalOpen, setIsModalOpen] = useState(!!preSelectedSponsorId);
@@ -83,6 +87,19 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
 
   // Camera Modal
   const [isCameraOpen, setIsCameraOpen] = useState(false);
+
+  const handleRequestCloseModal = () => {
+    const isDirty = Boolean(fullName.trim() || phone.trim() || address.trim() || prayerRequests.trim() || notes.trim());
+    if (isDirty) {
+      if (!window.confirm('You have unsaved changes in this member profile. Discard them?')) {
+        return;
+      }
+    }
+    setIsModalOpen(false);
+    if (onClearPreSelectedSponsor) onClearPreSelectedSponsor();
+  };
+
+  useModalBackHandler(isModalOpen, handleRequestCloseModal, 'member-profile-modal');
 
   // Identify visitors with 2 or 3+ consecutive visits for automated progression prompts
   const visitorsWithConsecutive = members
@@ -535,8 +552,8 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
 
       {/* Add / Edit Member Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
-          <div className="bg-white border border-slate-200 rounded-lg max-w-lg w-full shadow-2xl overflow-hidden my-8">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto" onClick={handleRequestCloseModal}>
+          <div className="bg-white border border-slate-200 rounded-lg max-w-lg w-full shadow-2xl overflow-hidden my-8" onClick={(e) => e.stopPropagation()}>
             
             <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
               <div className="flex items-center gap-2">
@@ -548,11 +565,9 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                 </h3>
               </div>
               <button
-                onClick={() => {
-                  setIsModalOpen(false);
-                  if (onClearPreSelectedSponsor) onClearPreSelectedSponsor();
-                }}
-                className="text-slate-400 hover:text-slate-700 text-sm font-bold"
+                type="button"
+                onClick={handleRequestCloseModal}
+                className="text-slate-400 hover:text-slate-700 text-sm font-bold cursor-pointer"
               >
                 Cancel
               </button>

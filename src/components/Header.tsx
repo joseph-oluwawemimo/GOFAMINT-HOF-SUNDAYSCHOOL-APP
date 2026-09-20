@@ -143,6 +143,47 @@ export const Header: React.FC<HeaderProps> = ({
               <span>Visitors: <strong className="text-emerald-300">{totalVisitors}</strong></span>
             </div>
 
+            {/* Network & Realtime Sync Status Pill (UX Issue 16) */}
+            <button
+              id="header-sync-status-pill"
+              onClick={onSyncClick}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition border cursor-pointer ${
+                !syncState.isOnline
+                  ? 'bg-amber-950/90 border-amber-500/80 text-amber-300 hover:bg-amber-900'
+                  : syncState.isSyncing
+                  ? 'bg-blue-900/90 border-blue-400 text-white animate-pulse'
+                  : syncState.syncQueueCount > 0
+                  ? 'bg-amber-900/70 border-amber-400/60 text-amber-200 hover:bg-amber-800'
+                  : 'bg-emerald-950/80 border-emerald-500/60 text-emerald-300 hover:bg-emerald-900'
+              }`}
+              title={syncState.syncStatusText || (!syncState.isOnline ? 'Working offline. Changes are saved to this device.' : 'Online and synchronized with central database.')}
+              aria-label={syncState.syncStatusText}
+            >
+              {!syncState.isOnline ? (
+                <>
+                  <WifiOff className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span className="hidden sm:inline">Offline (Local DB)</span>
+                  <span className="sm:hidden">Offline</span>
+                </>
+              ) : syncState.isSyncing ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-white shrink-0" />
+                  <span>Syncing...</span>
+                </>
+              ) : syncState.syncQueueCount > 0 ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                  <span>{syncState.syncQueueCount} Pending</span>
+                </>
+              ) : (
+                <>
+                  <Wifi className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <span className="hidden sm:inline">Online & Synced</span>
+                  <span className="sm:hidden">Synced</span>
+                </>
+              )}
+            </button>
+
             {/* Navigation Actions: Back to Welcome Page & Portals */}
             {onOpenWelcome && (
               <button

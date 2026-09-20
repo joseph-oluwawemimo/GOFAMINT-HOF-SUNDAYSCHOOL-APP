@@ -22,6 +22,7 @@ import {
   formatDateISO,
   parseDateSafe
 } from '../../utils/quarterScheduleUtils';
+import { useModalBackHandler } from '../../hooks/useModalBackHandler';
 
 interface WorkerProfileModalProps {
   isOpen: boolean;
@@ -532,11 +533,44 @@ export const WorkerProfileModal: React.FC<WorkerProfileModalProps> = ({
     }
   };
 
+  const isDirty = useMemo(() => {
+    if (!worker) {
+      return Boolean(fullName.trim() || phone.trim() || address.trim() || notes.trim() || sn.trim());
+    }
+    return (
+      fullName !== (worker.fullName || '') ||
+      phone !== (worker.phone || '') ||
+      address !== (worker.address || '') ||
+      department !== (worker.department || departmentsList[0] || 'Adult') ||
+      duty !== (worker.duty || worker.categories?.[0] || 'Class Teacher') ||
+      notes !== (worker.notes || '') ||
+      status !== (worker.status || 'ACTIVE') ||
+      (worker.sn !== undefined ? String(worker.sn) : '') !== sn
+    );
+  }, [worker, fullName, phone, address, department, duty, notes, status, sn, departmentsList]);
+
+  const handleRequestClose = () => {
+    if (isDirty) {
+      if (!window.confirm('You have unsaved changes in this worker profile. Discard them?')) {
+        return;
+      }
+    }
+    onClose();
+  };
+
+  useModalBackHandler(isOpen, handleRequestClose, 'worker-profile-modal');
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-xs animate-fade-in">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[95vh] flex flex-col overflow-hidden">
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-xs animate-fade-in"
+      onClick={handleRequestClose}
+    >
+      <div 
+        className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[95vh] flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
         
         {/* Modal Top Header */}
         <div className="p-4 sm:p-5 bg-slate-900 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 shrink-0">
@@ -593,7 +627,7 @@ export const WorkerProfileModal: React.FC<WorkerProfileModalProps> = ({
             </div>
 
             <button
-              onClick={onClose}
+              onClick={handleRequestClose}
               className="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition cursor-pointer shrink-0"
               title="Close modal"
             >
@@ -1178,7 +1212,7 @@ export const WorkerProfileModal: React.FC<WorkerProfileModalProps> = ({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleRequestClose}
               className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition text-xs cursor-pointer"
             >
               Cancel

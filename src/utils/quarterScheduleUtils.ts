@@ -664,3 +664,18 @@ export function computeTop3PunctualityHonors(
     top3SundayService
   };
 }
+
+/**
+ * Computes the calendar-appropriate active week for a given quarter.
+ * Clamped between 1 and totalWeeks (default 12 or 13).
+ */
+export function getCurrentCalendarWeek(quarter?: QuarterData | null, now: Date = new Date()): number {
+  if (!quarter?.startDate) return 1;
+  const start = parseDateSafe(quarter.startDate);
+  const diffTime = now.getTime() - start.getTime();
+  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  if (diffDays < 0) return 1;
+  const week = Math.floor(diffDays / 7) + 1;
+  const maxWeeks = quarter.totalLessonWeeks ? (quarter.hasSharingAdmonitionWeek ? quarter.totalLessonWeeks + 1 : quarter.totalLessonWeeks) : 13;
+  return Math.max(1, Math.min(maxWeeks, week));
+}

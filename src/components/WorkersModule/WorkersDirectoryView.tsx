@@ -1,4 +1,6 @@
 import React, { useState, useMemo } from 'react';
+import { usePersistedState } from '../../hooks/usePersistedState';
+import { useScrollRestoration } from '../../hooks/useScrollRestoration';
 import { WorkerProfile, WorkerCategoryDef } from '../../types';
 import { 
   Search, Plus, Upload, Filter, QrCode, Phone, MessageSquare, 
@@ -36,10 +38,11 @@ export const WorkersDirectoryView: React.FC<WorkersDirectoryViewProps> = ({
   onQuickClockIn,
   onNavigateToTab
 }) => {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedDept, setSelectedDept] = useState<string>('ALL');
-  const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
-  const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
+  useScrollRestoration('workers_directory');
+  const [searchQuery, setSearchQuery] = usePersistedState<string>('gofamint_workers_search', '');
+  const [selectedDept, setSelectedDept] = usePersistedState<string>('gofamint_workers_dept', 'ALL');
+  const [selectedCategory, setSelectedCategory] = usePersistedState<string>('gofamint_workers_cat', 'ALL');
+  const [selectedStatus, setSelectedStatus] = usePersistedState<string>('gofamint_workers_status', 'ALL');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [showBatchQrModal, setShowBatchQrModal] = useState<boolean>(false);
 

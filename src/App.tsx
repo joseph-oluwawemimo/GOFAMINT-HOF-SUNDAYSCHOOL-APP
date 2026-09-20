@@ -82,6 +82,8 @@ import { loadCurrentProfile, type ApplicationProfile } from './services/profileS
 import { initAppUpdateChecker } from './services/appUpdateChecker';
 import type { User } from '@supabase/supabase-js';
 import { isApprovedClassStatus, isExactClassAssignment } from './utils/accessControl';
+import { usePersistedState } from './hooks/usePersistedState';
+import { getCurrentCalendarWeek } from './utils/quarterScheduleUtils';
 
 const ADMIN_PORTAL_ROLES = new Set([
   'GENERAL_SUPERINTENDENT',
@@ -263,9 +265,9 @@ export default function App() {
   const [isRegisteringNew, setIsRegisteringNew] = useState(false);
   const [isQuarterTransitionOpen, setIsQuarterTransitionOpen] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<ActiveTab>('GRADING_MATRIX');
-  const [selectedWeek, setSelectedWeek] = useState(1);
-  const [selectedQuarter, setSelectedQuarter] = useState<QuarterNumber>(1);
+  const [activeTab, setActiveTab] = usePersistedState<ActiveTab>('gofamint_active_tab', 'GRADING_MATRIX');
+  const [selectedWeek, setSelectedWeek] = usePersistedState<number>('gofamint_selected_week', 1);
+  const [selectedQuarter, setSelectedQuarter] = usePersistedState<QuarterNumber>('gofamint_selected_quarter', 1);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatusText, setSyncStatusText] = useState('Local DB Ready');
@@ -297,6 +299,50 @@ export default function App() {
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
+
+  // Hardware / Browser Back-Button Support (UX Audit Issue 1)
+  useEffect(() => {
+    const currentHash = showWorkersModule
+      ? '#workers'
+      : showAdminPortal
+      ? '#admin'
+      : showOpeningPage
+      ? '#welcome'
+      : `#class-${(activeTab || '').toLowerCase()}`;
+
+    if (window.location.hash !== currentHash) {
+      window.history.pushState({ hash: currentHash }, '', currentHash);
+    }
+
+    const handlePopState = () => {
+      if (isAuthModalOpen) {
+        setIsAuthModalOpen(false);
+        return;
+      }
+      if (isQuarterTransitionOpen) {
+        setIsQuarterTransitionOpen(false);
+        return;
+      }
+      if (oversightTarget) {
+        handleExitOversight();
+        return;
+      }
+      if (showAdminPortal || showWorkersModule) {
+        sessionStorage.removeItem('gofamint_active_portal');
+        setShowAdminPortal(false);
+        setShowWorkersModule(false);
+        setShowOpeningPage(true);
+        return;
+      }
+      if (activeTab !== 'GRADING_MATRIX') {
+        setActiveTab('GRADING_MATRIX');
+        return;
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [isAuthModalOpen, isQuarterTransitionOpen, oversightTarget, showAdminPortal, showWorkersModule, showOpeningPage, activeTab]);
 
   // Protect in-progress form entry from an accidental browser refresh/close.
   // A successful durable database write emits sync-update and clears the guard;
@@ -462,8 +508,16 @@ export default function App() {
     setComments(loadedComments);
     setSundaySchoolYear(loadedYear);
 
-    const activeQ = loadedYear?.activeQuarterNumber || profile?.quarter || 1;
+    const savedQ = sessionStorage.getItem('gofamint_selected_quarter');
+    const activeQ = savedQ ? (JSON.parse(savedQ) as QuarterNumber) : (loadedYear?.activeQuarterNumber || profile?.quarter || 1);
     setSelectedQuarter(activeQ);
+
+    const savedWk = sessionStorage.getItem('gofamint_selected_week');
+    if (!savedWk && loadedYear) {
+      const qData = loadedYear.quarters.find(q => q.quarterNumber === activeQ);
+      const calWeek = getCurrentCalendarWeek(qData);
+      setSelectedWeek(calWeek);
+    }
 
     if (profile) {
       await loadClassQuarterData(profile.id, activeQ);
@@ -495,10 +549,18 @@ export default function App() {
       await initDB();
       const profile = await refreshStateFromLocalDB();
 
-      // Check unlock status in session
+      // Check unlock status and active portal in session
       const sessionUnlocked = sessionStorage.getItem('gofamint_unlocked');
       const sessionClassId = sessionStorage.getItem('gofamint_unlocked_class_id');
-      if (sessionUnlocked === 'true' && profile && sessionClassId === profile.id) {
+      const activePortal = sessionStorage.getItem('gofamint_active_portal');
+
+      if (activePortal === 'WORKERS') {
+        setShowWorkersModule(true);
+        setShowOpeningPage(false);
+      } else if (activePortal === 'ADMIN') {
+        setShowAdminPortal(true);
+        setShowOpeningPage(false);
+      } else if (sessionUnlocked === 'true' && profile && sessionClassId === profile.id) {
         setIsUnlocked(true);
         setShowOpeningPage(false);
       } else {
@@ -716,8 +778,6 @@ export default function App() {
       const currentUnlockedId = sessionStorage.getItem('gofamint_unlocked_class_id');
       if (isUnlocked && currentUnlockedId === target.id) {
         setShowOpeningPage(false);
-        setActiveTab('GRADING_MATRIX');
-        setSelectedWeek(1);
         await loadClassQuarterData(target.id, selectedQuarter);
       } else {
         setIsUnlocked(false);

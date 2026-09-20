@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { usePersistedState } from '../hooks/usePersistedState';
+import { useScrollRestoration } from '../hooks/useScrollRestoration';
 import {
   Calendar,
   BookOpen,
@@ -85,22 +87,52 @@ interface ScoreInputProps {
   disabled?: boolean;
   onChange: (val: number) => void;
   className?: string;
+  'aria-label'?: string;
 }
 
-const ScoreInput: React.FC<ScoreInputProps> = ({ id, value, max, disabled, onChange, className }) => {
+const ScoreInput: React.FC<ScoreInputProps> = ({ id, value, max, disabled, onChange, className, 'aria-label': ariaLabel }) => {
   const [draft, setDraft] = useState<string | null>(null);
 
   const displayVal = draft !== null ? draft : (value === 0 ? '' : String(value));
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (['Enter', 'ArrowDown', 'ArrowUp', 'ArrowRight', 'ArrowLeft'].includes(e.key)) {
+      const allScoreInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[data-score-input="true"]:not(:disabled)'));
+      const currentIndex = allScoreInputs.indexOf(e.currentTarget);
+      if (currentIndex !== -1) {
+        if ((e.key === 'Enter' || e.key === 'ArrowDown') && currentIndex + 3 < allScoreInputs.length) {
+          e.preventDefault();
+          allScoreInputs[currentIndex + 3]?.focus();
+          allScoreInputs[currentIndex + 3]?.select();
+        } else if (e.key === 'ArrowUp' && currentIndex - 3 >= 0) {
+          e.preventDefault();
+          allScoreInputs[currentIndex - 3]?.focus();
+          allScoreInputs[currentIndex - 3]?.select();
+        } else if (e.key === 'ArrowRight' && currentIndex + 1 < allScoreInputs.length) {
+          e.preventDefault();
+          allScoreInputs[currentIndex + 1]?.focus();
+          allScoreInputs[currentIndex + 1]?.select();
+        } else if (e.key === 'ArrowLeft' && currentIndex - 1 >= 0) {
+          e.preventDefault();
+          allScoreInputs[currentIndex - 1]?.focus();
+          allScoreInputs[currentIndex - 1]?.select();
+        }
+      }
+    }
+  };
+
   return (
     <input
       id={id}
+      data-score-input="true"
+      aria-label={ariaLabel || id}
       type="text"
       inputMode="numeric"
       pattern="[0-9]*"
       disabled={disabled}
       value={displayVal}
       placeholder="0"
+      onKeyDown={handleKeyDown}
       onFocus={(e) => {
         setDraft(value === 0 ? '' : String(value));
         e.currentTarget.select();
@@ -157,8 +189,10 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
 }) => {
   const isReadOnly = quarterStatus === 'ARCHIVED' || quarterStatus === 'UPCOMING';
   const isUpcoming = quarterStatus === 'UPCOMING';
-  const [searchFilter, setSearchFilter] = useState('');
-  const [typeFilter, setTypeFilter] = useState<'ALL' | 'STUDENT' | 'VISITOR'>('ALL');
+  useScrollRestoration('grading_matrix');
+  const [searchFilter, setSearchFilter] = usePersistedState<string>('gofamint_grading_search', '');
+  const [typeFilter, setTypeFilter] = usePersistedState<'ALL' | 'STUDENT' | 'VISITOR'>('gofamint_grading_type', 'ALL');
+  const [lastSavedTimestamp, setLastSavedTimestamp] = useState<number | null>(null);
   
   // Lesson Topic Editing State & Fallback to official curriculum
   const [isEditingTopic, setIsEditingTopic] = useState(false);
@@ -194,6 +228,7 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [newVisitorName, setNewVisitorName] = useState('');
   const [newVisitorPhone, setNewVisitorPhone] = useState('');
+  const [newVisitorSponsorId, setNewVisitorSponsorId] = useState('');
 
   // Weekly Secretary Return Share Modal
   const [showReturnModal, setShowReturnModal] = useState(false);
@@ -208,6 +243,9 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
     setPersistenceError(null);
     void Promise.resolve()
       .then(operation)
+      .then(() => {
+        setLastSavedTimestamp(Date.now());
+      })
       .catch((error: any) => {
         console.error(`Could not save ${label}:`, error);
         setPersistenceError(`Could not save ${label}: ${error?.message || 'Unknown database error.'}`);
@@ -918,8 +956,18 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
               placeholder="WhatsApp / Phone Number"
               value={newVisitorPhone}
               onChange={(e) => setNewVisitorPhone(e.target.value)}
-              className="w-full sm:w-52 bg-white border border-purple-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:border-purple-600"
+              className="w-full sm:w-48 bg-white border border-purple-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:border-purple-600"
             />
+            <select
+              value={newVisitorSponsorId}
+              onChange={(e) => setNewVisitorSponsorId(e.target.value)}
+              className="w-full sm:w-56 bg-white border border-purple-300 rounded-lg px-2.5 py-2 text-xs font-semibold text-slate-900 focus:outline-none focus:border-purple-600 cursor-pointer"
+            >
+              <option value="">Invited By (Optional Sponsor)</option>
+              {members.filter(m => m.status !== 'LEFT_CLASS').map(m => (
+                <option key={m.id} value={m.id}>{m.fullName} ({m.memberType === 'STUDENT' ? 'Student' : 'Visitor'})</option>
+              ))}
+            </select>
             <button
               type="submit"
               className="px-4 py-2 bg-purple-700 hover:bg-purple-800 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition"
@@ -1100,6 +1148,12 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
             onChange={(e) => setSearchFilter(e.target.value)}
             className="w-full sm:w-80 bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:border-blue-600"
           />
+          {lastSavedTimestamp && (
+            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 shrink-0 animate-fade-in" title="Latest grade entry saved to local database">
+              <Check className="w-3 h-3 text-emerald-600" />
+              <span>Saved locally</span>
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-1.5 self-end sm:self-center">
@@ -1268,55 +1322,58 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                   <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                     
                     {/* Punctuality (0-15) */}
-                    <div className="bg-slate-50 p-2 rounded-lg border border-slate-200 text-center min-w-[70px]">
+                    <div className="bg-slate-50 p-2 sm:p-2.5 rounded-lg border border-slate-200 text-center min-w-[76px]">
                       <span className="text-[10px] font-bold text-slate-500 block mb-0.5">Punctuality</span>
                       <div className="flex items-center justify-center gap-1">
                         <ScoreInput
                           id={`score-punctuality-${member.id}`}
+                          aria-label={`${member.fullName} - Punctuality score out of 15`}
                           max={15}
                           disabled={grade.attendance !== 'PRESENT' || isWeekLocked}
                           value={grade.attendance === 'PRESENT' ? grade.punctuality : 0}
                           onChange={(val) => handleScoreChange(member.id, 'punctuality', val, 15)}
-                          className="w-10 bg-white border border-slate-300 rounded text-center text-xs font-bold text-slate-900 py-1 focus:outline-none focus:border-blue-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                          className="w-12 h-10 bg-white border-2 border-slate-300 rounded-lg text-center text-sm font-black text-slate-900 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                         />
                         <span className="text-[10px] text-slate-400 font-bold">/15</span>
                       </div>
                     </div>
 
                     {/* M Vars (0-15) */}
-                    <div className="bg-slate-50 p-2 rounded-lg border border-slate-200 text-center min-w-[70px]">
+                    <div className="bg-slate-50 p-2 sm:p-2.5 rounded-lg border border-slate-200 text-center min-w-[76px]">
                       <span className="text-[10px] font-bold text-slate-500 block mb-0.5">M Vars</span>
                       <div className="flex items-center justify-center gap-1">
                         <ScoreInput
                           id={`score-memoryverse-${member.id}`}
+                          aria-label={`${member.fullName} - Memory Verse score out of 15`}
                           max={15}
                           disabled={grade.attendance !== 'PRESENT' || isWeekLocked}
                           value={grade.attendance === 'PRESENT' ? grade.memoryVerse : 0}
                           onChange={(val) => handleScoreChange(member.id, 'memoryVerse', val, 15)}
-                          className="w-10 bg-white border border-slate-300 rounded text-center text-xs font-bold text-slate-900 py-1 focus:outline-none focus:border-blue-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                          className="w-12 h-10 bg-white border-2 border-slate-300 rounded-lg text-center text-sm font-black text-slate-900 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                         />
                         <span className="text-[10px] text-slate-400 font-bold">/15</span>
                       </div>
                     </div>
 
                     {/* C Participation (0-20) */}
-                    <div className="bg-slate-50 p-2 rounded-lg border border-slate-200 text-center min-w-[70px]">
+                    <div className="bg-slate-50 p-2 sm:p-2.5 rounded-lg border border-slate-200 text-center min-w-[76px]">
                       <span className="text-[10px] font-bold text-slate-500 block mb-0.5">C Part.</span>
                       <div className="flex items-center justify-center gap-1">
                         <ScoreInput
                           id={`score-participation-${member.id}`}
+                          aria-label={`${member.fullName} - Class Participation score out of 20`}
                           max={20}
                           disabled={grade.attendance !== 'PRESENT' || isWeekLocked}
                           value={grade.attendance === 'PRESENT' ? grade.classParticipation : 0}
                           onChange={(val) => handleScoreChange(member.id, 'classParticipation', val, 20)}
-                          className="w-10 bg-white border border-slate-300 rounded text-center text-xs font-bold text-slate-900 py-1 focus:outline-none focus:border-blue-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                          className="w-12 h-10 bg-white border-2 border-slate-300 rounded-lg text-center text-sm font-black text-slate-900 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                         />
                         <span className="text-[10px] text-slate-400 font-bold">/20</span>
                       </div>
                     </div>
 
                     {/* Auto-Calculated Total (Max 50) */}
-                    <div className="bg-blue-50 p-2 rounded-lg border border-blue-200 text-center min-w-[76px]">
+                    <div className="bg-blue-50 p-2 sm:p-2.5 rounded-lg border border-blue-200 text-center min-w-[80px]">
                       <span className="text-[10px] font-bold text-blue-900 block mb-0.5">Total Score</span>
                       <div className="flex items-baseline justify-center gap-0.5">
                         <span className="text-base font-black text-blue-900">
@@ -1335,13 +1392,13 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                 <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 text-xs">
                   
                   {/* Left: Quick Score Presets with Required Colors */}
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-2">
                     <span className="text-[10px] font-bold text-slate-400 uppercase">Quick Score:</span>
                     <button
                       id={`btn-score-50-${member.id}`}
                       onClick={() => handleMemberQuickPreset(member.id, 15, 15, 20)}
                       disabled={isWeekLocked || grade.attendance !== 'PRESENT'}
-                      className="px-2.5 py-1 bg-[#3b0764] hover:bg-[#2e0854] disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 text-white border border-purple-900 rounded-lg text-[11px] font-black shadow-xs transition duration-150"
+                      className="px-3 py-1.5 min-h-[36px] min-w-[44px] bg-[#3b0764] hover:bg-[#2e0854] disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 text-white border border-purple-900 rounded-lg text-xs font-black shadow-xs transition duration-150 flex items-center justify-center cursor-pointer"
                       title="Set 15 + 15 + 20 = 50 pts"
                     >
                       🌟 50
@@ -1350,7 +1407,7 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                       id={`btn-score-40-${member.id}`}
                       onClick={() => handleMemberQuickPreset(member.id, 10, 15, 15)}
                       disabled={isWeekLocked || grade.attendance !== 'PRESENT'}
-                      className="px-2.5 py-1 bg-[#1d4ed8] hover:bg-[#1e40af] disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 text-white border border-blue-700 rounded-lg text-[11px] font-bold shadow-xs transition duration-150"
+                      className="px-3 py-1.5 min-h-[36px] min-w-[44px] bg-[#1d4ed8] hover:bg-[#1e40af] disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 text-white border border-blue-700 rounded-lg text-xs font-bold shadow-xs transition duration-150 flex items-center justify-center cursor-pointer"
                       title="Set 10 + 15 + 15 = 40 pts"
                     >
                       40
@@ -1359,7 +1416,7 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                       id={`btn-score-30-${member.id}`}
                       onClick={() => handleMemberQuickPreset(member.id, 10, 10, 10)}
                       disabled={isWeekLocked || grade.attendance !== 'PRESENT'}
-                      className="px-2.5 py-1 bg-[#0284c7] hover:bg-[#0369a1] disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 text-white border border-sky-500 rounded-lg text-[11px] font-bold shadow-xs transition duration-150"
+                      className="px-3 py-1.5 min-h-[36px] min-w-[44px] bg-[#0284c7] hover:bg-[#0369a1] disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 text-white border border-sky-500 rounded-lg text-xs font-bold shadow-xs transition duration-150 flex items-center justify-center cursor-pointer"
                       title="Set 10 + 10 + 10 = 30 pts"
                     >
                       30

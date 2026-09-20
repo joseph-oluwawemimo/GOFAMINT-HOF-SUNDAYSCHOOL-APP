@@ -466,6 +466,7 @@ export type ActiveTab =
   | 'QUARTER_ANALYSIS'
   | 'QR_PORTAL'
   | 'CLASS_DISCUSSION'
+  | 'AI_ASSISTANT'
   | 'DATABASE_SETTINGS';
 
 export type FollowUpActionType = 'WHATSAPP' | 'PHONE_CALL' | 'PASTORAL_VISITATION' | 'PROLONGED_EXIT_REVIEW';

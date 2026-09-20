@@ -69,7 +69,8 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
   onApproveClass,
   onRefreshData
 }) => {
-  const [activeTab, setActiveTab] = useState<'QUARTERS' | 'CLASS_PORTAL_EXPLORER' | 'YEAR_SETUP' | 'DEPARTMENTS' | 'CLASS_APPROVALS'>('QUARTERS');
+  const [activeTab, setActiveTab] = useState<'SUNDAY_SCHOOL_SETUP' | 'CLASS_PORTAL_EXPLORER' | 'DEPARTMENTS' | 'CLASS_APPROVALS'>('SUNDAY_SCHOOL_SETUP');
+  const [setupStep, setSetupStep] = useState<1 | 2 | 3 | 4>(1);
   const [explorerInitialClassId, setExplorerInitialClassId] = useState<string | undefined>(undefined);
   const [selectedQuarterNumber, setSelectedQuarterNumber] = useState<QuarterNumber>(sundaySchoolYear.activeQuarterNumber);
   
@@ -516,16 +517,16 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
         )}
       </div>
 
-      {/* Tabs */}
+      {/* Tabs Navigation */}
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-2">
         <button
-          onClick={() => setActiveTab('QUARTERS')}
+          onClick={() => setActiveTab('SUNDAY_SCHOOL_SETUP')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
-            activeTab === 'QUARTERS' ? 'bg-blue-900 text-white shadow-sm' : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+            activeTab === 'SUNDAY_SCHOOL_SETUP' ? 'bg-blue-900 text-white shadow-sm' : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
           }`}
         >
           <Layers className="w-4 h-4" />
-          <span>4 Quarters & Lesson Loader</span>
+          <span>Sunday School Setup & Curriculum</span>
         </button>
 
         <button
@@ -538,16 +539,6 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
         >
           <Building2 className="w-4 h-4 text-amber-600" />
           <span>Department & Class Portals (5 Dashboards)</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('YEAR_SETUP')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
-            activeTab === 'YEAR_SETUP' ? 'bg-blue-900 text-white shadow-sm' : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
-          }`}
-        >
-          <Calendar className="w-4 h-4" />
-          <span>Sunday School Year Setup</span>
         </button>
 
         <button
@@ -583,290 +574,446 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
           allClasses={allClasses}
           sundaySchoolYear={sundaySchoolYear}
           initialClassId={explorerInitialClassId}
-          onBackToOverview={() => setActiveTab('QUARTERS')}
+          onBackToOverview={() => setActiveTab('SUNDAY_SCHOOL_SETUP')}
         />
       )}
 
-      {/* Tab 1: 4 Quarters & Lessons Loader */}
-      {activeTab === 'QUARTERS' && (
+      {/* Tab: Unified Sunday School Setup & Curriculum 4-Step Stepper */}
+      {activeTab === 'SUNDAY_SCHOOL_SETUP' && (
         <div className="space-y-6">
-          
-          {/* Quarter Selector Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {sundaySchoolYear.quarters.map((q) => {
-              const isSelected = q.quarterNumber === selectedQuarterNumber;
-              const isActiveYearQuarter = q.quarterNumber === sundaySchoolYear.activeQuarterNumber;
-              
-              return (
-                <button
-                  key={q.id}
-                  onClick={() => handleSelectQuarter(q.quarterNumber)}
-                  className={`text-left p-5 rounded-2xl border-2 transition relative flex flex-col justify-between ${
-                    isSelected
-                      ? 'bg-blue-50 border-blue-900 shadow-md ring-2 ring-blue-900/20'
-                      : 'bg-white border-slate-200 hover:border-slate-300'
-                  }`}
-                >
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-black uppercase tracking-wider text-blue-900">
-                        {q.quarterName}
-                      </span>
-                      {q.status === 'ARCHIVED' && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-black bg-slate-200 text-slate-700 px-2 py-0.5 rounded-md">
-                          <Archive className="w-3 h-3" /> ARCHIVE (Read-Only)
-                        </span>
-                      )}
-                      {q.status === 'ACTIVE' && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-black bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md">
-                          <Check className="w-3 h-3" /> CURRENT ACTIVE
-                        </span>
-                      )}
-                      {q.status === 'UPCOMING' && (
-                        <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
-                          Upcoming
-                        </span>
-                      )}
-                    </div>
-                    <h4 className="text-sm font-black text-slate-900 line-clamp-1">{q.quarterTheme}</h4>
-                    <p className="text-xs text-slate-500">
-                      {q.totalLessonWeeks} Lessons + 1 Sharing Week = <strong>{q.totalLessonWeeks + 1} Weeks</strong>
-                    </p>
-                  </div>
 
-                  <div className="pt-3 mt-2 border-t border-slate-200/60 flex items-center justify-between text-xs font-bold text-blue-900">
-                    <span>{q.lessons?.length || 0} Lessons Loaded</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </div>
-                </button>
-              );
-            })}
+          {/* 4-Step Stepper Navigation Header */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-3 sm:p-4 shadow-xs">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              {[
+                { step: 1 as const, title: 'Academic Year', desc: 'Year Name & Global Theme' },
+                { step: 2 as const, title: 'Quarter Setup', desc: 'Q1–Q4, Dates & Weeks' },
+                { step: 3 as const, title: 'Lesson Curriculum', desc: 'Topics, Verses & Aims' },
+                { step: 4 as const, title: 'Review & Dispatch', desc: 'Readiness & Live Sync' }
+              ].map((item, idx) => {
+                const isCurrent = setupStep === item.step;
+                const isPast = setupStep > item.step;
+                return (
+                  <button
+                    key={item.step}
+                    type="button"
+                    onClick={() => setSetupStep(item.step)}
+                    className={`flex items-center gap-3 p-3 rounded-xl transition text-left cursor-pointer ${
+                      isCurrent
+                        ? 'bg-blue-900 text-white shadow-xs ring-2 ring-blue-900/20'
+                        : isPast
+                        ? 'bg-blue-50/80 text-blue-950 hover:bg-blue-100 border border-blue-200/60'
+                        : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
+                    }`}
+                  >
+                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-black shrink-0 ${
+                      isCurrent
+                        ? 'bg-amber-400 text-blue-950'
+                        : isPast
+                        ? 'bg-blue-900 text-white'
+                        : 'bg-slate-200 text-slate-600'
+                    }`}>
+                      {isPast ? <Check className="w-4 h-4 stroke-[3]" /> : item.step}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className={`text-xs font-bold truncate ${isCurrent ? 'text-white' : 'text-slate-900'}`}>
+                          {item.title}
+                        </span>
+                        {isCurrent && (
+                          <span className="text-[9px] bg-amber-400/25 text-amber-300 font-black px-1.5 py-0.2 rounded shrink-0">
+                            Active
+                          </span>
+                        )}
+                      </div>
+                      <span className={`text-[11px] truncate block ${isCurrent ? 'text-blue-200' : 'text-slate-500'}`}>
+                        {item.desc}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          {/* Current Selected Quarter Details & Controls */}
-          <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-xl font-black text-slate-900 font-['Cinzel',serif]">
-                    {currentQuarter.quarterName} Curriculum Management
-                  </h3>
-                  {currentQuarter.status === 'ARCHIVED' && (
-                    <span className={`px-3 py-0.5 text-xs font-black uppercase rounded-full ${currentQuarter.archiveEditUnlocked ? 'bg-amber-100 text-amber-900' : 'bg-slate-200 text-slate-700'}`}>
-                      {currentQuarter.archiveEditUnlocked ? 'ARCHIVE CORRECTION MODE' : 'READ-ONLY ARCHIVE'}
-                    </span>
-                  )}
+          {/* STEP 1: Academic Year */}
+          {setupStep === 1 && (
+            <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-xs space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-5 h-5 text-blue-900" />
+                    <h3 className="text-xl font-black text-slate-900 font-['Cinzel',serif]">
+                      Step 1: Sunday School Academic Year
+                    </h3>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Configure the active Sunday School year and global theme distributed across all four quarters and national registers.
+                  </p>
                 </div>
-                <p className="text-xs text-slate-500 mt-1">
-                  Configure quarter theme, teaching week limits (12 vs 13 lessons), mandatory Sharing & Admonition week, and load weekly lessons.
-                </p>
-              </div>
-
-              {/* Archive / Activate Transition Action */}
-              {currentQuarter.status === 'ACTIVE' && currentQuarter.quarterNumber < 4 && (
-                <button
-                  onClick={() => setShowArchiveConfirm(true)}
-                  className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition"
-                >
-                  <FolderArchive className="w-4 h-4 text-amber-400" />
-                  <span>Archive Quarter & Activate Next</span>
-                </button>
-              )}
-              {currentQuarter.status === 'ARCHIVED' && (
-                <button
-                  type="button"
-                  onClick={() => void handleArchivedEditLock(!currentQuarter.archiveEditUnlocked)}
-                  className={`px-4 py-2.5 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition ${currentQuarter.archiveEditUnlocked ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-amber-700 hover:bg-amber-800'}`}
-                >
-                  {currentQuarter.archiveEditUnlocked ? <Archive className="w-4 h-4" /> : <Edit3 className="w-4 h-4" />}
-                  <span>{currentQuarter.archiveEditUnlocked ? 'Save & Re-lock Archive' : 'Unlock for Authorized Correction'}</span>
-                </button>
-              )}
-            </div>
-
-            {/* Quarter Settings Form */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="md:col-span-2 space-y-1.5">
-                <label className="text-xs font-bold text-[#0f2b59]">Quarter Theme</label>
-                <input
-                  type="text"
-                  disabled={isQuarterReadOnly}
-                  value={quarterTheme}
-                  onChange={(e) => setQuarterTheme(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-white border-2 border-blue-900/30 rounded-xl text-sm font-bold text-[#0f2b59] placeholder:text-blue-900/40 caret-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden disabled:bg-slate-100 disabled:text-[#0f2b59]/60 shadow-xs"
-                  placeholder="e.g. Foundations of Christian Faith & Discipleship"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-[#0f2b59]">Teaching Lessons (12 or 13 Weeks)</label>
-                <select
-                  disabled={isQuarterReadOnly}
-                  value={totalLessonWeeks}
-                  onChange={(e) => setTotalLessonWeeks(Number(e.target.value) as 12 | 13)}
-                  className="w-full px-4 py-2.5 border-2 border-blue-900/30 rounded-xl text-sm font-bold bg-white text-[#0f2b59] caret-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden disabled:bg-slate-100 shadow-xs"
-                >
-                  <option value={12} className="text-[#0f2b59] font-bold">12 Lessons + 1 Sharing Week (13 Total)</option>
-                  <option value={13} className="text-[#0f2b59] font-bold">13 Lessons + 1 Sharing Week (14 Total)</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Manual Week 1 Date Setup & Auto-Generation for this Quarter */}
-            <div className="p-5 bg-blue-50/70 border border-blue-200 rounded-2xl space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-blue-200/70 pb-3">
-                <div className="flex items-center gap-2">
-                  <Calendar className="w-4 h-4 text-blue-900 shrink-0" />
-                  <h4 className="text-xs font-black text-blue-950 uppercase tracking-wider">
-                    {currentQuarter.quarterName} Schedule: Week 1 Manual Date Setup
-                  </h4>
-                </div>
-                <span className="text-[11px] font-semibold text-blue-800 bg-blue-100/80 px-2.5 py-0.5 rounded-full">
-                  Auto-generates subsequent weeks (Week 2–{totalLessonWeeks + 1})
+                <span className="px-3.5 py-1 bg-emerald-100 text-emerald-800 rounded-full text-xs font-bold flex items-center gap-1.5 self-start sm:self-auto">
+                  <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />
+                  <span>Academic Year: <strong>{sundaySchoolYear.yearName}</strong></span>
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-[#0f2b59] flex items-center justify-between">
-                    <span>Week 1 Ministerial Prep Date (Thursday)</span>
-                    <span className="text-[10px] text-blue-800/70 font-normal">Auto-links to Sunday</span>
-                  </label>
-                  <input
-                    type="date"
-                    disabled={isQuarterReadOnly}
-                    value={week1ThursdayDate}
-                    onChange={(e) => handleThursdayChange(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-white border-2 border-blue-900/30 rounded-xl text-xs font-bold text-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden disabled:bg-slate-100 shadow-xs"
-                  />
-                  {week1ThursdayDate && (
-                    <p className="text-[11px] font-semibold text-blue-900">
-                      {formatDateDisplay(week1ThursdayDate, { showDayOfWeek: true })}
-                    </p>
-                  )}
+              {/* Quick Academic Overview Stats */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Total Quarters</span>
+                  <span className="text-xl font-black text-slate-900">4 Quarters</span>
+                  <span className="text-[11px] text-blue-900 font-bold block mt-0.5">Active: Quarter {sundaySchoolYear.activeQuarterNumber}</span>
                 </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-[#0f2b59] flex items-center justify-between">
-                    <span>Week 1 Sunday School Date (Sunday)</span>
-                    <span className="text-[10px] text-blue-800/70 font-normal">Auto-links to Thursday</span>
-                  </label>
-                  <input
-                    type="date"
-                    disabled={isQuarterReadOnly}
-                    value={week1SundayDate}
-                    onChange={(e) => handleSundayChange(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-white border-2 border-blue-900/30 rounded-xl text-xs font-bold text-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden disabled:bg-slate-100 shadow-xs"
-                  />
-                  {week1SundayDate && (
-                    <p className="text-[11px] font-semibold text-blue-900">
-                      {formatDateDisplay(week1SundayDate, { showDayOfWeek: true })}
-                    </p>
-                  )}
+                <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Teaching Schedule</span>
+                  <span className="text-xl font-black text-slate-900">{currentQuarter.totalLessonWeeks} Lessons</span>
+                  <span className="text-[11px] text-emerald-700 font-bold block mt-0.5">+ 1 Sharing Week</span>
+                </div>
+                <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Registered Classes</span>
+                  <span className="text-xl font-black text-slate-900">{allClasses.length} Classes</span>
+                  <span className="text-[11px] text-slate-500 font-semibold block mt-0.5">{pendingClasses.length} Pending Approval</span>
+                </div>
+                <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Departments</span>
+                  <span className="text-xl font-black text-slate-900">{sundaySchoolYear.departments?.length || 4} Departments</span>
+                  <span className="text-[11px] text-slate-500 font-semibold block mt-0.5">Configured by GSEC</span>
                 </div>
               </div>
 
-              {/* Collapsible Auto-Generated Weekly Schedule Breakdown */}
-              <div className="pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowSchedulePreview(!showSchedulePreview)}
-                  className="text-xs font-bold text-blue-900 hover:text-blue-950 flex items-center gap-1.5 transition"
-                >
-                  <span>{showSchedulePreview ? 'Hide' : 'View'} Generated {totalLessonWeeks + 1}-Week Calendar Preview</span>
-                  <ChevronRight className={`w-3.5 h-3.5 transition-transform ${showSchedulePreview ? 'rotate-90' : ''}`} />
-                </button>
+              <div className="space-y-4 max-w-2xl pt-2">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-[#0f2b59]">Sunday School Academic Year</label>
+                  <input
+                    type="text"
+                    value={yearName}
+                    onChange={(e) => setYearName(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-white border-2 border-blue-900/30 rounded-xl text-sm font-bold text-[#0f2b59] placeholder:text-blue-900/40 caret-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden shadow-xs"
+                    placeholder="e.g. 2026/2027"
+                  />
+                </div>
 
-                {showSchedulePreview && (
-                  <div className="mt-3 bg-white rounded-xl border border-blue-200 overflow-hidden shadow-xs">
-                    <div className="max-h-60 overflow-y-auto divide-y divide-slate-100 text-xs">
-                      {getQuarterWeeklySchedule(
-                        {
-                          ...currentQuarter,
-                          week1ThursdayDate,
-                          week1SundayDate,
-                          totalLessonWeeks
-                        }
-                      ).map((item) => (
-                        <div
-                          key={item.weekNumber}
-                          className={`px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1 hover:bg-slate-50 transition ${
-                            item.isSharingAdmonitionWeek ? 'bg-amber-50/60 font-semibold' : ''
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
-                              item.isSharingAdmonitionWeek
-                                ? 'bg-amber-200 text-amber-900'
-                                : 'bg-blue-100 text-blue-900'
-                            }`}>
-                              Week {item.weekNumber}
-                            </span>
-                            <span className="font-bold text-slate-800 line-clamp-1">{item.topic}</span>
-                          </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-[#0f2b59]">Overall Theme for the Year</label>
+                  <textarea
+                    rows={3}
+                    value={overallTheme}
+                    onChange={(e) => setOverallTheme(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-white border-2 border-blue-900/30 rounded-xl text-sm font-bold text-[#0f2b59] placeholder:text-blue-900/40 caret-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden shadow-xs"
+                    placeholder="e.g. Walking in the Light of His Glory (1 John 1:7)"
+                  />
+                </div>
 
-                          <div className="flex items-center gap-3 text-[11px] text-slate-600 shrink-0">
-                            <span title="Ministerial Preparatory Class Date">
-                              <strong>Prep (Thu):</strong> {formatDateDisplay(item.prepDate)}
-                            </span>
-                            <span className="text-slate-300">•</span>
-                            <span title="Sunday School Date" className="text-blue-950 font-bold">
-                              <strong>Sun:</strong> {formatDateDisplay(item.sundayDate)}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {!isQuarterReadOnly && (
-              <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-100">
                   <button
-                    onClick={handleSaveQuarterDetails}
-                    className="px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition"
+                    onClick={handleSaveYearDetails}
+                    className="px-5 py-2.5 bg-blue-900 hover:bg-blue-800 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition cursor-pointer"
                   >
-                    <Save className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Save Quarter Settings</span>
+                    <Save className="w-4 h-4 text-amber-400" />
+                    <span>Update Sunday School Year</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSetupStep(2)}
+                    className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition ml-auto cursor-pointer"
+                  >
+                    <span>Proceed to Step 2: Quarter Setup</span>
+                    <ArrowRight className="w-4 h-4 text-amber-400" />
                   </button>
                 </div>
-
-                <button
-                  onClick={() => setShowBatchModal(true)}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition"
-                >
-                  <FileText className="w-3.5 h-3.5" />
-                  <span>Paste / Send Full Quarter Lessons Text</span>
-                </button>
-              </div>
-            )}
-
-            {/* Mandatory Sharing & Admonition Week Notice */}
-            <div className="p-4 bg-amber-50 border border-amber-300 rounded-2xl flex items-start gap-3">
-              <Sparkles className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
-              <div>
-                <h5 className="text-xs font-black text-amber-900 uppercase tracking-wider">
-                  Mandatory Sharing & Admonition Week Accounted For
-                </h5>
-                <p className="text-xs text-amber-800 mt-0.5">
-                  Every quarter automatically includes an additional Sharing & Admonition Week (Week {totalLessonWeeks + 1}) for mutual testimony, fellowship, and evaluation.
-                </p>
               </div>
             </div>
+          )}
 
-            {/* Weekly Lessons Master Table & Editor */}
-            <div className="space-y-4 pt-4 border-t border-slate-100">
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-black text-slate-900 uppercase tracking-wider">
-                  Weekly Lessons List ({currentQuarter.lessons?.length || 0} Weeks)
-                </h4>
+          {/* STEP 2: Quarter Setup */}
+          {setupStep === 2 && (
+            <div className="space-y-6">
+              {/* Quarter Selector Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {sundaySchoolYear.quarters.map((q) => {
+                  const isSelected = q.quarterNumber === selectedQuarterNumber;
+                  return (
+                    <button
+                      key={q.id}
+                      onClick={() => handleSelectQuarter(q.quarterNumber)}
+                      className={`text-left p-5 rounded-2xl border-2 transition relative flex flex-col justify-between cursor-pointer ${
+                        isSelected
+                          ? 'bg-blue-50 border-blue-900 shadow-md ring-2 ring-blue-900/20'
+                          : 'bg-white border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-black uppercase tracking-wider text-blue-900">
+                            {q.quarterName}
+                          </span>
+                          {q.status === 'ARCHIVED' && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-black bg-slate-200 text-slate-700 px-2 py-0.5 rounded-md">
+                              <Archive className="w-3 h-3" /> ARCHIVE
+                            </span>
+                          )}
+                          {q.status === 'ACTIVE' && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-black bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md">
+                              <Check className="w-3 h-3" /> CURRENT ACTIVE
+                            </span>
+                          )}
+                          {q.status === 'UPCOMING' && (
+                            <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+                              Upcoming
+                            </span>
+                          )}
+                        </div>
+                        <h4 className="text-sm font-black text-slate-900 line-clamp-1">{q.quarterTheme}</h4>
+                        <p className="text-xs text-slate-500">
+                          {q.totalLessonWeeks} Lessons + 1 Sharing Week = <strong>{q.totalLessonWeeks + 1} Weeks</strong>
+                        </p>
+                      </div>
+
+                      <div className="pt-3 mt-2 border-t border-slate-200/60 flex items-center justify-between text-xs font-bold text-blue-900">
+                        <span>{q.lessons?.length || 0} Lessons Loaded</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                
+              {/* Current Selected Quarter Details & Controls */}
+              <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-xs space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-xl font-black text-slate-900 font-['Cinzel',serif]">
+                        Step 2: {currentQuarter.quarterName} Setup & Schedule
+                      </h3>
+                      {currentQuarter.status === 'ARCHIVED' && (
+                        <span className={`px-3 py-0.5 text-xs font-black uppercase rounded-full ${currentQuarter.archiveEditUnlocked ? 'bg-amber-100 text-amber-900' : 'bg-slate-200 text-slate-700'}`}>
+                          {currentQuarter.archiveEditUnlocked ? 'ARCHIVE CORRECTION MODE' : 'READ-ONLY ARCHIVE'}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Configure quarter theme, teaching duration (12 vs 13 lessons), and link Week 1 ministerial preparation dates.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Quarter Settings Form */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="md:col-span-2 space-y-1.5">
+                    <label className="text-xs font-bold text-[#0f2b59]">Quarter Theme</label>
+                    <input
+                      type="text"
+                      disabled={isQuarterReadOnly}
+                      value={quarterTheme}
+                      onChange={(e) => setQuarterTheme(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-white border-2 border-blue-900/30 rounded-xl text-sm font-bold text-[#0f2b59] placeholder:text-blue-900/40 caret-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden disabled:bg-slate-100 disabled:text-[#0f2b59]/60 shadow-xs"
+                      placeholder="e.g. Foundations of Christian Faith & Discipleship"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-[#0f2b59]">Teaching Lessons (12 or 13 Weeks)</label>
+                    <select
+                      disabled={isQuarterReadOnly}
+                      value={totalLessonWeeks}
+                      onChange={(e) => setTotalLessonWeeks(Number(e.target.value) as 12 | 13)}
+                      className="w-full px-4 py-2.5 border-2 border-blue-900/30 rounded-xl text-sm font-bold bg-white text-[#0f2b59] caret-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden disabled:bg-slate-100 shadow-xs"
+                    >
+                      <option value={12} className="text-[#0f2b59] font-bold">12 Lessons + 1 Sharing Week (13 Total)</option>
+                      <option value={13} className="text-[#0f2b59] font-bold">13 Lessons + 1 Sharing Week (14 Total)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Manual Week 1 Date Setup & Auto-Generation */}
+                <div className="p-5 bg-blue-50/70 border border-blue-200 rounded-2xl space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-blue-200/70 pb-3">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-blue-900 shrink-0" />
+                      <h4 className="text-xs font-black text-blue-950 uppercase tracking-wider">
+                        {currentQuarter.quarterName} Schedule: Week 1 Date Setup
+                      </h4>
+                    </div>
+                    <span className="text-[11px] font-semibold text-blue-800 bg-blue-100/80 px-2.5 py-0.5 rounded-full">
+                      Auto-generates subsequent weeks (Week 2–{totalLessonWeeks + 1})
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-[#0f2b59] flex items-center justify-between">
+                        <span>Week 1 Ministerial Prep Date (Thursday)</span>
+                        <span className="text-[10px] text-blue-800/70 font-normal">Auto-links to Sunday</span>
+                      </label>
+                      <input
+                        type="date"
+                        disabled={isQuarterReadOnly}
+                        value={week1ThursdayDate}
+                        onChange={(e) => handleThursdayChange(e.target.value)}
+                        className="w-full px-4 py-2.5 bg-white border-2 border-blue-900/30 rounded-xl text-xs font-bold text-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden disabled:bg-slate-100 shadow-xs"
+                      />
+                      {week1ThursdayDate && (
+                        <p className="text-[11px] font-semibold text-blue-900">
+                          {formatDateDisplay(week1ThursdayDate, { showDayOfWeek: true })}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-[#0f2b59] flex items-center justify-between">
+                        <span>Week 1 Sunday School Date (Sunday)</span>
+                        <span className="text-[10px] text-blue-800/70 font-normal">Auto-links to Thursday</span>
+                      </label>
+                      <input
+                        type="date"
+                        disabled={isQuarterReadOnly}
+                        value={week1SundayDate}
+                        onChange={(e) => handleSundayChange(e.target.value)}
+                        className="w-full px-4 py-2.5 bg-white border-2 border-blue-900/30 rounded-xl text-xs font-bold text-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden disabled:bg-slate-100 shadow-xs"
+                      />
+                      {week1SundayDate && (
+                        <p className="text-[11px] font-semibold text-blue-900">
+                          {formatDateDisplay(week1SundayDate, { showDayOfWeek: true })}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Collapsible Auto-Generated Weekly Schedule Breakdown */}
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowSchedulePreview(!showSchedulePreview)}
+                      className="text-xs font-bold text-blue-900 hover:text-blue-950 flex items-center gap-1.5 transition cursor-pointer"
+                    >
+                      <span>{showSchedulePreview ? 'Hide' : 'View'} Generated {totalLessonWeeks + 1}-Week Calendar Preview</span>
+                      <ChevronRight className={`w-3.5 h-3.5 transition-transform ${showSchedulePreview ? 'rotate-90' : ''}`} />
+                    </button>
+
+                    {showSchedulePreview && (
+                      <div className="mt-3 bg-white rounded-xl border border-blue-200 overflow-hidden shadow-xs">
+                        <div className="max-h-60 overflow-y-auto divide-y divide-slate-100 text-xs">
+                          {getQuarterWeeklySchedule(
+                            {
+                              ...currentQuarter,
+                              week1ThursdayDate,
+                              week1SundayDate,
+                              totalLessonWeeks
+                            }
+                          ).map((item) => (
+                            <div
+                              key={item.weekNumber}
+                              className={`px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1 hover:bg-slate-50 transition ${
+                                item.isSharingAdmonitionWeek ? 'bg-amber-50/60 font-semibold' : ''
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                                  item.isSharingAdmonitionWeek
+                                    ? 'bg-amber-200 text-amber-900'
+                                    : 'bg-blue-100 text-blue-900'
+                                }`}>
+                                  Week {item.weekNumber}
+                                </span>
+                                <span className="font-bold text-slate-800 line-clamp-1">{item.topic}</span>
+                              </div>
+
+                              <div className="flex items-center gap-3 text-[11px] text-slate-600 shrink-0">
+                                <span title="Ministerial Preparatory Class Date">
+                                  <strong>Prep (Thu):</strong> {formatDateDisplay(item.prepDate)}
+                                </span>
+                                <span className="text-slate-300">•</span>
+                                <span title="Sunday School Date" className="text-blue-950 font-bold">
+                                  <strong>Sun:</strong> {formatDateDisplay(item.sundayDate)}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {!isQuarterReadOnly && (
+                  <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                    <button
+                      onClick={handleSaveQuarterDetails}
+                      className="px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+                    >
+                      <Save className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Save Quarter Settings</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* Stepper Navigation Buttons */}
+                <div className="flex items-center justify-between gap-3 pt-4 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setSetupStep(1)}
+                    className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                  >
+                    <ArrowRight className="w-4 h-4 rotate-180" />
+                    <span>Back to Step 1: Academic Year</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSetupStep(3)}
+                    className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition cursor-pointer"
+                  >
+                    <span>Proceed to Step 3: Lesson Curriculum</span>
+                    <ArrowRight className="w-4 h-4 text-amber-400" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* STEP 3: Lesson Curriculum */}
+          {setupStep === 3 && (
+            <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-xs space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <BookOpen className="w-5 h-5 text-blue-900" />
+                    <h3 className="text-xl font-black text-slate-900 font-['Cinzel',serif]">
+                      Step 3: {currentQuarter.quarterName} Lesson Curriculum
+                    </h3>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Edit weekly lesson topics, scripture readings, memory verses, and spiritual objectives for Quarter {selectedQuarterNumber}.
+                  </p>
+                </div>
+
+                {!isQuarterReadOnly && (
+                  <button
+                    onClick={() => setShowBatchModal(true)}
+                    className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer self-start sm:self-auto"
+                  >
+                    <FileText className="w-3.5 h-3.5 text-amber-300" />
+                    <span>Batch Paste Lessons Text</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Mandatory Sharing & Admonition Week Notice */}
+              <div className="p-4 bg-amber-50 border border-amber-300 rounded-2xl flex items-start gap-3">
+                <Sparkles className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
+                <div>
+                  <h5 className="text-xs font-black text-amber-900 uppercase tracking-wider">
+                    Mandatory Sharing & Admonition Week (Week {totalLessonWeeks + 1})
+                  </h5>
+                  <p className="text-xs text-amber-800 mt-0.5">
+                    This quarter includes {totalLessonWeeks} teaching lessons plus Week {totalLessonWeeks + 1} dedicated to quarterly testimonies and mutual admonition.
+                  </p>
+                </div>
+              </div>
+
+              {/* Weekly Lessons Master Table & Editor */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pt-2">
                 {/* Left: Lessons List */}
                 <div className="lg:col-span-5 space-y-2 max-h-[500px] overflow-y-auto pr-1">
                   {currentQuarter.lessons?.map((lesson) => {
@@ -986,7 +1133,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                     <div className="pt-2 flex justify-end">
                       <button
                         onClick={handleSaveSingleLesson}
-                        className="px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition"
+                        className="px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
                       >
                         <Save className="w-3.5 h-3.5 text-amber-400" />
                         <span>Save Week {editingWeekNumber} Lesson</span>
@@ -994,60 +1141,191 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                     </div>
                   )}
                 </div>
+              </div>
 
+              {/* Stepper Navigation Buttons */}
+              <div className="flex items-center justify-between gap-3 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setSetupStep(2)}
+                  className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  <ArrowRight className="w-4 h-4 rotate-180" />
+                  <span>Back to Step 2: Quarter Setup</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSetupStep(4)}
+                  className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition cursor-pointer"
+                >
+                  <span>Proceed to Step 4: Review & Dispatch</span>
+                  <ArrowRight className="w-4 h-4 text-amber-400" />
+                </button>
               </div>
             </div>
+          )}
 
-          </div>
+          {/* STEP 4: Review & Dispatch */}
+          {setupStep === 4 && (
+            <div className="space-y-6">
+              <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-xs space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Send className="w-5 h-5 text-blue-900" />
+                      <h3 className="text-xl font-black text-slate-900 font-['Cinzel',serif]">
+                        Step 4: Curriculum Review & Live Distribution
+                      </h3>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Verify curriculum completeness and push active lessons live to all registered Sunday School classes.
+                    </p>
+                  </div>
+                </div>
 
-        </div>
-      )}
+                {/* Pre-flight Curriculum Readiness Checklist */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50/70 space-y-3">
+                    <span className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-2">
+                      <CheckCircle className="w-4 h-4 text-emerald-600" />
+                      <span>Academic & Quarter Readiness</span>
+                    </span>
+                    <ul className="space-y-2 text-xs text-slate-700">
+                      <li className="flex items-center justify-between">
+                        <span>Academic Year:</span>
+                        <strong className="text-blue-950 font-bold">{yearName}</strong>
+                      </li>
+                      <li className="flex items-center justify-between">
+                        <span>Overall Theme:</span>
+                        <strong className="text-blue-950 font-bold truncate max-w-[200px]" title={overallTheme}>{overallTheme}</strong>
+                      </li>
+                      <li className="flex items-center justify-between">
+                        <span>Active Quarter:</span>
+                        <strong className="text-emerald-700 font-bold">Quarter {sundaySchoolYear.activeQuarterNumber}</strong>
+                      </li>
+                      <li className="flex items-center justify-between">
+                        <span>Selected Quarter:</span>
+                        <strong className="text-blue-950 font-bold">Quarter {selectedQuarterNumber} ({currentQuarter.quarterName})</strong>
+                      </li>
+                    </ul>
+                  </div>
 
-      {/* Tab 2: Sunday School Year Setup */}
-      {activeTab === 'YEAR_SETUP' && (
-        <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm space-y-6 max-w-2xl">
-          <div>
-            <h3 className="text-lg font-black text-slate-900 font-['Cinzel',serif]">
-              Sunday School Year Setup
-            </h3>
-            <p className="text-xs text-slate-500 mt-1">
-              Configure the active Sunday School year and global theme distributed across all four quarters and national registers.
-            </p>
-          </div>
+                  <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50/70 space-y-3">
+                    <span className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-blue-900" />
+                      <span>Schedule & Lessons Loaded</span>
+                    </span>
+                    <ul className="space-y-2 text-xs text-slate-700">
+                      <li className="flex items-center justify-between">
+                        <span>Week 1 Prep (Thu):</span>
+                        <strong className="text-blue-950 font-bold">{formatDateDisplay(week1ThursdayDate)}</strong>
+                      </li>
+                      <li className="flex items-center justify-between">
+                        <span>Week 1 Sunday School:</span>
+                        <strong className="text-blue-950 font-bold">{formatDateDisplay(week1SundayDate)}</strong>
+                      </li>
+                      <li className="flex items-center justify-between">
+                        <span>Teaching Weeks:</span>
+                        <strong className="text-blue-950 font-bold">{totalLessonWeeks} Lessons + 1 Sharing Week</strong>
+                      </li>
+                      <li className="flex items-center justify-between">
+                        <span>Curriculum Population:</span>
+                        <span className="font-bold text-emerald-700">
+                          {currentQuarter.lessons?.length || 0} / {totalLessonWeeks + 1} Weeks
+                        </span>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
 
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-[#0f2b59]">Sunday School Year</label>
-              <input
-                type="text"
-                value={yearName}
-                onChange={(e) => setYearName(e.target.value)}
-                className="w-full px-4 py-2.5 bg-white border-2 border-blue-900/30 rounded-xl text-sm font-bold text-[#0f2b59] placeholder:text-blue-900/40 caret-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden shadow-xs"
-                placeholder="e.g. 2026/2027"
-              />
+                {/* Primary Distribution Action Card */}
+                <div className="p-6 bg-gradient-to-br from-blue-900 via-indigo-950 to-blue-950 text-white rounded-2xl border-2 border-blue-400/40 space-y-4 shadow-md">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-400/20 text-amber-300 text-[10px] font-black uppercase tracking-wider">
+                        <Sparkles className="w-3 h-3" />
+                        <span>Live Synchronization</span>
+                      </div>
+                      <h4 className="text-lg font-black font-['Cinzel',serif] text-white">
+                        Distribute Quarter {selectedQuarterNumber} Curriculum to All Classes
+                      </h4>
+                      <p className="text-xs text-blue-200/90 max-w-xl">
+                        Instantly synchronizes this approved lesson schedule across all <strong>{allClasses.length} registered classes</strong>, updating teacher dashboards and attendance registers in real-time.
+                      </p>
+                    </div>
+
+                    <button
+                      disabled={isDistributing || isQuarterReadOnly}
+                      onClick={handleDistributeToAllClasses}
+                      className="px-6 py-3 bg-amber-400 hover:bg-amber-300 active:scale-98 text-slate-950 font-black rounded-xl text-xs flex items-center gap-2 shadow-lg transition cursor-pointer shrink-0 disabled:opacity-50"
+                    >
+                      <Send className="w-4 h-4" />
+                      <span>{isDistributing ? 'Distributing Curriculum...' : 'Distribute Lessons Now'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Quarter Archival & Transition Controls */}
+                <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h5 className="text-xs font-black uppercase tracking-wider text-slate-800">
+                      Quarter Transition & Lifecycle Management
+                    </h5>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {currentQuarter.status === 'ACTIVE'
+                        ? `When Quarter ${currentQuarter.quarterNumber} is concluded, archive it as read-only and activate Quarter ${Math.min(4, currentQuarter.quarterNumber + 1)}.`
+                        : currentQuarter.status === 'ARCHIVED'
+                        ? 'This quarter is in read-only archive status. Authorized officers may unlock it for correction.'
+                        : 'This quarter is upcoming and will become active when previous quarters conclude.'}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    {currentQuarter.status === 'ACTIVE' && currentQuarter.quarterNumber < 4 && (
+                      <button
+                        onClick={() => setShowArchiveConfirm(true)}
+                        className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition cursor-pointer"
+                      >
+                        <FolderArchive className="w-4 h-4 text-amber-400" />
+                        <span>Archive & Activate Next</span>
+                      </button>
+                    )}
+                    {currentQuarter.status === 'ARCHIVED' && (
+                      <button
+                        type="button"
+                        onClick={() => void handleArchivedEditLock(!currentQuarter.archiveEditUnlocked)}
+                        className={`px-4 py-2.5 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition cursor-pointer ${currentQuarter.archiveEditUnlocked ? 'bg-emerald-700 hover:bg-emerald-800' : 'bg-amber-700 hover:bg-amber-800'}`}
+                      >
+                        {currentQuarter.archiveEditUnlocked ? <Archive className="w-4 h-4" /> : <Edit3 className="w-4 h-4" />}
+                        <span>{currentQuarter.archiveEditUnlocked ? 'Save & Re-lock Archive' : 'Unlock for Authorized Correction'}</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Stepper Navigation Buttons */}
+                <div className="flex items-center justify-between gap-3 pt-4 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setSetupStep(3)}
+                    className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                  >
+                    <ArrowRight className="w-4 h-4 rotate-180" />
+                    <span>Back to Step 3: Lesson Curriculum</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('CLASS_PORTAL_EXPLORER')}
+                    className="px-4 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                  >
+                    <Building2 className="w-4 h-4 text-amber-600" />
+                    <span>Open Class Portals Explorer</span>
+                  </button>
+                </div>
+              </div>
             </div>
+          )}
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-[#0f2b59]">Overall Theme for the Year</label>
-              <textarea
-                rows={3}
-                value={overallTheme}
-                onChange={(e) => setOverallTheme(e.target.value)}
-                className="w-full px-4 py-2.5 bg-white border-2 border-blue-900/30 rounded-xl text-sm font-bold text-[#0f2b59] placeholder:text-blue-900/40 caret-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden shadow-xs"
-                placeholder="e.g. Walking in the Light of His Glory (1 John 1:7)"
-              />
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3 pt-2">
-              <button
-                onClick={handleSaveYearDetails}
-                className="px-5 py-2.5 bg-blue-900 hover:bg-blue-800 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition"
-              >
-                <Save className="w-4 h-4 text-amber-400" />
-                <span>Update Sunday School Year</span>
-              </button>
-            </div>
-          </div>
         </div>
       )}
 

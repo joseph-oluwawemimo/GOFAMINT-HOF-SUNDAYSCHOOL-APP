@@ -743,19 +743,19 @@ export const CloudUserManagementPanel: React.FC<CloudUserManagementPanelProps> =
                               <button
                                 type="button"
                                 onClick={() => openEditLogin(u)}
-                                className="px-2.5 py-1 text-blue-800 hover:bg-blue-50 rounded-lg text-xs font-bold flex items-center gap-1 transition"
+                                className="h-9 px-3 text-slate-700 hover:text-slate-950 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
                                 title="Edit staff details or reset the password"
                               >
-                                <Pencil className="w-3.5 h-3.5" />
+                                <Pencil className="w-3.5 h-3.5 text-slate-500" />
                                 <span>Edit Login</span>
                               </button>
                               <button
                                 type="button"
                                 onClick={() => setDeleteTarget(u)}
-                                className="px-2.5 py-1 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg text-xs font-bold flex items-center gap-1 transition"
+                                className="h-9 px-3 text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
                                 title="Delete this login identity"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
+                                <Trash2 className="w-3.5 h-3.5 text-red-500" />
                                 <span>Delete</span>
                               </button>
                             </div>
@@ -794,19 +794,19 @@ export const CloudUserManagementPanel: React.FC<CloudUserManagementPanelProps> =
                             <button
                               type="button"
                               onClick={() => openEditLogin(u)}
-                              className="px-2.5 py-1 text-blue-800 hover:bg-blue-50 rounded-lg text-xs font-bold flex items-center gap-1 transition"
+                              className="h-9 px-3 text-slate-700 hover:text-slate-950 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
                               title="Edit class display name or reset the password"
                             >
-                              <Pencil className="w-3.5 h-3.5" />
+                              <Pencil className="w-3.5 h-3.5 text-slate-500" />
                               <span>Edit Login</span>
                             </button>
                             <button
                               type="button"
                               onClick={() => setDeleteTarget(u)}
-                              className="px-2.5 py-1 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg text-xs font-bold flex items-center gap-1 transition"
+                              className="h-9 px-3 text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
                               title="Delete this class login identity"
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
+                              <Trash2 className="w-3.5 h-3.5 text-red-500" />
                               <span>Delete</span>
                             </button>
                             </div>

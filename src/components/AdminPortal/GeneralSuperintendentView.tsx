@@ -106,30 +106,42 @@ export const GeneralSuperintendentView: React.FC<GeneralSuperintendentViewProps>
   return (
     <div className="space-y-6">
       
-      {/* Top Banner */}
-      <div className="bg-gradient-to-r from-blue-950 via-slate-900 to-amber-950 text-white rounded-3xl p-6 sm:p-8 shadow-xl border-2 border-amber-400/40 relative overflow-hidden">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
-          <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-400/20 border border-amber-400/50 rounded-full text-xs font-black text-amber-300 uppercase tracking-wider">
+      {/* Top Presiding Authority Banner */}
+      <div className="bg-gradient-to-br from-blue-950 via-slate-900 to-indigo-950 text-white rounded-3xl p-5 sm:p-7 shadow-xl border border-amber-400/30 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-80 h-80 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="relative z-10 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-400/15 border border-amber-400/40 rounded-full text-xs font-bold text-amber-300 uppercase tracking-wider w-fit">
               <Crown className="w-3.5 h-3.5" />
               <span>Primary Administrative Authority</span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-black font-['Cinzel',serif] tracking-wide text-white">
+            <div className="text-xs text-slate-300/80 font-medium">
+              Academic Year: <strong className="text-amber-300 font-bold">{sundaySchoolYear.yearName}</strong>
+            </div>
+          </div>
+
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold font-['Cinzel',serif] tracking-wide text-white">
               General Superintendent Council
             </h1>
-            <p className="text-xs sm:text-sm text-blue-100 max-w-2xl leading-relaxed">
-              Presiding Officer: <strong>{currentAdmin.profileName}</strong> ({currentAdmin.username}) • Highest administrative oversight for GOFAMINT_HOF Sunday School Directorate, officer credential approvals, and national class authorizations.
+            <p className="text-xs text-blue-200/90 mt-1 max-w-2xl leading-relaxed">
+              Presiding Officer: <strong className="text-white">{currentAdmin.profileName}</strong> ({currentAdmin.username}) • Highest administrative oversight for credential approvals, governance, and curriculum dispatch.
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="bg-white/10 backdrop-blur-md border border-white/20 px-4 py-2.5 rounded-2xl text-center">
-              <span className="text-[10px] uppercase font-bold text-amber-300 block">Active Year</span>
-              <span className="text-sm font-black text-white">{sundaySchoolYear.yearName}</span>
+          {/* Quick Metric Strip */}
+          <div className="grid grid-cols-3 gap-2.5 sm:gap-4 pt-1">
+            <div className="bg-white/10 backdrop-blur-md border border-white/15 px-3 sm:px-4 py-2.5 rounded-2xl text-center">
+              <span className="text-[10px] uppercase font-bold text-amber-300 block truncate">Active Quarter</span>
+              <span className="text-base sm:text-lg font-black text-white">Q{sundaySchoolYear.activeQuarterNumber}</span>
             </div>
-            <div className="bg-white/10 backdrop-blur-md border border-white/20 px-4 py-2.5 rounded-2xl text-center">
-              <span className="text-[10px] uppercase font-bold text-amber-300 block">Approved Classes</span>
-              <span className="text-sm font-black text-white">{approvedClasses.length}</span>
+            <div className="bg-white/10 backdrop-blur-md border border-white/15 px-3 sm:px-4 py-2.5 rounded-2xl text-center">
+              <span className="text-[10px] uppercase font-bold text-amber-300 block truncate">Officers</span>
+              <span className="text-base sm:text-lg font-black text-emerald-300">{authorizedOfficerApproved}/{authorizedOfficerTotal}</span>
+            </div>
+            <div className="bg-white/10 backdrop-blur-md border border-white/15 px-3 sm:px-4 py-2.5 rounded-2xl text-center">
+              <span className="text-[10px] uppercase font-bold text-amber-300 block truncate">Classes</span>
+              <span className="text-base sm:text-lg font-black text-white">{approvedClasses.length}</span>
             </div>
           </div>
         </div>
@@ -149,89 +161,91 @@ export const GeneralSuperintendentView: React.FC<GeneralSuperintendentViewProps>
         )}
       </div>
 
-      {/* Navigation Sub-Tabs */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-2">
-        <button
-          onClick={() => setActiveTab('OVERVIEW')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
-            activeTab === 'OVERVIEW'
-              ? 'bg-blue-900 text-white shadow-sm'
-              : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
-          }`}
-        >
-          <TrendingUp className="w-4 h-4" />
-          <span>Executive Overview</span>
-        </button>
+      {/* Navigation Sub-Tabs - Mobile-Optimized Horizontal Scroll Bar */}
+      <div className="overflow-x-auto no-scrollbar py-1 -mx-4 px-4 sm:mx-0 sm:px-0 border-b border-slate-200">
+        <div className="inline-flex items-center gap-2 min-w-max p-1 bg-slate-100 rounded-2xl border border-slate-200">
+          <button
+            onClick={() => setActiveTab('OVERVIEW')}
+            className={`h-10 px-4 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              activeTab === 'OVERVIEW'
+                ? 'bg-blue-950 text-white shadow-sm ring-1 ring-blue-900'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-white/80'
+            }`}
+          >
+            <TrendingUp className="w-4 h-4" />
+            <span>Executive Overview</span>
+          </button>
 
-        <button
-          onClick={() => setActiveTab('PORTAL_OVERSIGHT')}
-          className={`px-4 py-2 rounded-xl text-xs font-black transition flex items-center gap-2 ${
-            activeTab === 'PORTAL_OVERSIGHT'
-              ? 'bg-emerald-900 text-white shadow-sm ring-2 ring-emerald-400/40'
-              : 'bg-emerald-50 text-emerald-900 hover:bg-emerald-100 border border-emerald-300'
-          }`}
-        >
-          <ExternalLink className="w-4 h-4" />
-          <span>Enter Any Officer Portal</span>
-        </button>
+          <button
+            onClick={() => setActiveTab('PORTAL_OVERSIGHT')}
+            className={`h-10 px-4 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              activeTab === 'PORTAL_OVERSIGHT'
+                ? 'bg-emerald-900 text-white shadow-sm ring-1 ring-emerald-800'
+                : 'text-emerald-800 hover:bg-emerald-50'
+            }`}
+          >
+            <ExternalLink className="w-4 h-4 text-emerald-500" />
+            <span>Officer Portals</span>
+          </button>
 
-        <button
-          onClick={() => setActiveTab('CLASS_PORTAL_EXPLORER')}
-          className={`px-4 py-2 rounded-xl text-xs font-black transition flex items-center gap-2 ${
-            activeTab === 'CLASS_PORTAL_EXPLORER'
-              ? 'bg-amber-900 text-white shadow-sm ring-2 ring-amber-400/50'
-              : 'bg-amber-50 text-amber-900 hover:bg-amber-100 border border-amber-300'
-          }`}
-        >
-          <Building2 className="w-4 h-4 text-amber-600" />
-          <span>Department & Class Portals (5 Dashboards)</span>
-        </button>
+          <button
+            onClick={() => setActiveTab('CLASS_PORTAL_EXPLORER')}
+            className={`h-10 px-4 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              activeTab === 'CLASS_PORTAL_EXPLORER'
+                ? 'bg-amber-900 text-white shadow-sm ring-1 ring-amber-800'
+                : 'text-amber-900 hover:bg-amber-50'
+            }`}
+          >
+            <Building2 className="w-4 h-4 text-amber-600" />
+            <span>Class Dashboards (5)</span>
+          </button>
 
-        <button
-          onClick={() => setActiveTab('ADMIN_APPROVALS')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
-            activeTab === 'ADMIN_APPROVALS'
-              ? 'bg-blue-900 text-white shadow-sm'
-              : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
-          }`}
-        >
-          <ShieldCheck className="w-4 h-4" />
-          <span>Officer Profile Approvals</span>
-          {pendingAdmins.length > 0 && (
-            <span className="px-2 py-0.5 bg-amber-400 text-slate-900 text-[10px] font-black rounded-full">
-              {pendingAdmins.length}
-            </span>
-          )}
-        </button>
+          <button
+            onClick={() => setActiveTab('ADMIN_APPROVALS')}
+            className={`h-10 px-4 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              activeTab === 'ADMIN_APPROVALS'
+                ? 'bg-blue-950 text-white shadow-sm ring-1 ring-blue-900'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-white/80'
+            }`}
+          >
+            <ShieldCheck className="w-4 h-4" />
+            <span>Officer Approvals</span>
+            {pendingAdmins.length > 0 && (
+              <span className="px-2 py-0.5 bg-amber-400 text-slate-950 text-[10px] font-black rounded-full">
+                {pendingAdmins.length}
+              </span>
+            )}
+          </button>
 
-        <button
-          onClick={() => setActiveTab('CLASS_APPROVALS')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
-            activeTab === 'CLASS_APPROVALS'
-              ? 'bg-blue-900 text-white shadow-sm'
-              : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
-          }`}
-        >
-          <Building className="w-4 h-4" />
-          <span>Class Approvals</span>
-          {pendingClasses.length > 0 && (
-            <span className="px-2 py-0.5 bg-red-500 text-white text-[10px] font-black rounded-full">
-              {pendingClasses.length}
-            </span>
-          )}
-        </button>
+          <button
+            onClick={() => setActiveTab('CLASS_APPROVALS')}
+            className={`h-10 px-4 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              activeTab === 'CLASS_APPROVALS'
+                ? 'bg-blue-950 text-white shadow-sm ring-1 ring-blue-900'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-white/80'
+            }`}
+          >
+            <Building className="w-4 h-4" />
+            <span>Class Approvals</span>
+            {pendingClasses.length > 0 && (
+              <span className="px-2 py-0.5 bg-red-500 text-white text-[10px] font-black rounded-full">
+                {pendingClasses.length}
+              </span>
+            )}
+          </button>
 
-        <button
-          onClick={() => setActiveTab('ALL_CLASSES')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
-            activeTab === 'ALL_CLASSES'
-              ? 'bg-blue-900 text-white shadow-sm'
-              : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
-          }`}
-        >
-          <School className="w-4 h-4" />
-          <span>National Class Directory ({allClasses.length})</span>
-        </button>
+          <button
+            onClick={() => setActiveTab('ALL_CLASSES')}
+            className={`h-10 px-4 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              activeTab === 'ALL_CLASSES'
+                ? 'bg-blue-950 text-white shadow-sm ring-1 ring-blue-900'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-white/80'
+            }`}
+          >
+            <School className="w-4 h-4" />
+            <span>National Directory ({allClasses.length})</span>
+          </button>
+        </div>
       </div>
 
       {activeTab === 'PORTAL_OVERSIGHT' && (
