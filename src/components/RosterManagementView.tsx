@@ -19,7 +19,12 @@ import {
   AlertCircle,
   MessageCircle,
   Clock,
-  UserCheck
+  UserCheck,
+  Share2,
+  Link2,
+  Copy,
+  Check,
+  X
 } from 'lucide-react';
 import {
   Member,
@@ -87,6 +92,38 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
 
   // Camera Modal
   const [isCameraOpen, setIsCameraOpen] = useState(false);
+
+  // One-Time Visitor Profile Link Modal State
+  const [activeLinkModalMember, setActiveLinkModalMember] = useState<Member | null>(null);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [isGeneratingLink, setIsGeneratingLink] = useState(false);
+
+  const handleGenerateVisitorLink = async (member: Member) => {
+    try {
+      setIsGeneratingLink(true);
+      const token = 'vis_' + Math.random().toString(36).substring(2, 12) + Math.random().toString(36).substring(2, 12) + Date.now().toString(36);
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+      const updatedMember: Member = {
+        ...member,
+        oneTimeProfileToken: {
+          token,
+          expiresAt,
+          isUsed: false
+        },
+        updatedAt: new Date().toISOString()
+      };
+
+      await onSaveMember(updatedMember);
+      setActiveLinkModalMember(updatedMember);
+      setCopiedLink(false);
+    } catch (err: any) {
+      console.error('Failed to generate visitor link:', err);
+      alert('Could not generate visitor link.');
+    } finally {
+      setIsGeneratingLink(false);
+    }
+  };
 
   const handleRequestCloseModal = () => {
     const isDirty = Boolean(fullName.trim() || phone.trim() || address.trim() || prayerRequests.trim() || notes.trim());
@@ -521,25 +558,37 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                           </span>
                         )}
                       </div>
-                      {member.conversionStatus === 'PENDING_APPROVAL' ? (
-                        <span className="inline-flex items-center gap-1 text-amber-800 font-bold bg-amber-50 border border-amber-300 px-2 py-1 rounded text-xs">
-                          <Clock className="w-3 h-3 text-amber-600 animate-pulse" />
-                          <span>Awaiting Approval from Enrollment Officer</span>
-                        </span>
-                      ) : qual.isQualified && !isReadOnly ? (
+                      <div className="flex items-center gap-2 flex-wrap">
                         <button
-                          onClick={() => onConvertVisitorToStudent(member.id)}
-                          className="px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 shadow-xs bg-emerald-600 hover:bg-emerald-700 text-white"
-                          title="Request promotion to official student"
+                          type="button"
+                          onClick={() => handleGenerateVisitorLink(member)}
+                          disabled={isGeneratingLink || isReadOnly}
+                          className="px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-300 cursor-pointer disabled:opacity-50"
+                          title="Generate passwordless one-time link for visitor to complete their profile"
                         >
-                          <ArrowRightLeft className="w-3 h-3" />
-                          <span>Request Conversion to Student</span>
+                          <Link2 className="w-3.5 h-3.5" />
+                          <span>One-Time Link</span>
                         </button>
-                      ) : isReadOnly ? (
-                        <span className="text-[11px] font-semibold text-slate-500">Read-only oversight</span>
-                      ) : (
-                        <span className="text-[11px] font-semibold text-slate-500">Available after 3 consecutive attendances</span>
-                      )}
+                        {member.conversionStatus === 'PENDING_APPROVAL' ? (
+                          <span className="inline-flex items-center gap-1 text-amber-800 font-bold bg-amber-50 border border-amber-300 px-2 py-1 rounded text-xs">
+                            <Clock className="w-3 h-3 text-amber-600 animate-pulse" />
+                            <span>Awaiting Approval from Enrollment Officer</span>
+                          </span>
+                        ) : qual.isQualified && !isReadOnly ? (
+                          <button
+                            onClick={() => onConvertVisitorToStudent(member.id)}
+                            className="px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 shadow-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                            title="Request promotion to official student"
+                          >
+                            <ArrowRightLeft className="w-3 h-3" />
+                            <span>Request Conversion to Student</span>
+                          </button>
+                        ) : isReadOnly ? (
+                          <span className="text-[11px] font-semibold text-slate-500">Read-only oversight</span>
+                        ) : (
+                          <span className="text-[11px] font-semibold text-slate-500">Available after 3 consecutive attendances</span>
+                        )}
+                      </div>
                     </div>
                   );
                 })()}
@@ -778,6 +827,92 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
           }
         }}
       />
+
+      {/* One-Time Visitor Link Modal */}
+      {activeLinkModalMember && activeLinkModalMember.oneTimeProfileToken && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-purple-100 border border-purple-300 flex items-center justify-center text-purple-700">
+                  <Link2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm text-slate-900">
+                    One-Time Profile Link
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    For {activeLinkModalMember.fullName}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveLinkModalMember(null)}
+                className="text-slate-400 hover:text-slate-700 p-1 rounded-md"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Send this secure passwordless link to <strong>{activeLinkModalMember.fullName}</strong>. They can complete their profile, address, and upload a photo directly without logging in.
+            </p>
+
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                Unique Visitor URL
+              </span>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={`${window.location.origin}/#visitor-profile/${activeLinkModalMember.oneTimeProfileToken.token}`}
+                  className="flex-1 bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-800 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const url = `${window.location.origin}/#visitor-profile/${activeLinkModalMember.oneTimeProfileToken?.token}`;
+                    void navigator.clipboard.writeText(url);
+                    setCopiedLink(true);
+                    setTimeout(() => setCopiedLink(false), 2000);
+                  }}
+                  className="px-3 py-1.5 bg-blue-900 hover:bg-blue-800 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shrink-0"
+                >
+                  {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedLink ? 'Copied!' : 'Copy'}</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="pt-2 flex flex-col sm:flex-row items-center gap-2">
+              <a
+                href={`https://wa.me/?text=${encodeURIComponent(
+                  `Hello ${activeLinkModalMember.fullName}! Welcome to GOFAMINT House of Favor Sunday School. Please take a moment to complete your visitor profile here: ${window.location.origin}/#visitor-profile/${activeLinkModalMember.oneTimeProfileToken.token}`
+                )}`}
+                target="_blank"
+                rel="noreferrer"
+                className="w-full sm:flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-2 text-center"
+              >
+                <MessageCircle className="w-4 h-4 text-white" />
+                <span>Send via WhatsApp</span>
+              </a>
+              <button
+                type="button"
+                onClick={() => setActiveLinkModalMember(null)}
+                className="w-full sm:w-auto px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-[10px] text-amber-800 font-medium">
+              🔒 <strong>Single-use security:</strong> After the visitor confirms and saves their profile, this one-time link is permanently invalidated.
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

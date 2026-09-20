@@ -667,15 +667,42 @@ export function computeTop3PunctualityHonors(
 
 /**
  * Computes the calendar-appropriate active week for a given quarter.
+ * Aligns perfectly with the weekly schedule derived by getQuarterWeeklySchedule,
+ * supporting week1SundayDate, startDate, and default quarter dates.
  * Clamped between 1 and totalWeeks (default 12 or 13).
  */
 export function getCurrentCalendarWeek(quarter?: QuarterData | null, now: Date = new Date()): number {
-  if (!quarter?.startDate) return 1;
-  const start = parseDateSafe(quarter.startDate);
-  const diffTime = now.getTime() - start.getTime();
-  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-  if (diffDays < 0) return 1;
-  const week = Math.floor(diffDays / 7) + 1;
-  const maxWeeks = quarter.totalLessonWeeks ? (quarter.hasSharingAdmonitionWeek ? quarter.totalLessonWeeks + 1 : quarter.totalLessonWeeks) : 13;
-  return Math.max(1, Math.min(maxWeeks, week));
+  if (!quarter) return 1;
+  const schedule = getQuarterWeeklySchedule(quarter, now.getFullYear());
+  if (!schedule || schedule.length === 0) return 1;
+
+  const todayIso = formatDateISO(now);
+
+  // 1. Direct match on Sunday date
+  const sundayMatch = schedule.find(s => s.sundayDate === todayIso);
+  if (sundayMatch) return sundayMatch.weekNumber;
+
+  // 2. Direct match on Prep Thursday date
+  const prepMatch = schedule.find(s => s.prepDate === todayIso);
+  if (prepMatch) return prepMatch.weekNumber;
+
+  // 3. Range check: Monday through Sunday of each scheduled week
+  for (const item of schedule) {
+    const sunDate = parseDateSafe(item.sundayDate);
+    const monDate = new Date(sunDate);
+    monDate.setDate(sunDate.getDate() - 6);
+    monDate.setHours(0, 0, 0, 0);
+    const endOfSun = new Date(sunDate);
+    endOfSun.setHours(23, 59, 59, 999);
+    if (now >= monDate && now <= endOfSun) {
+      return item.weekNumber;
+    }
+  }
+
+  // 4. If before the first scheduled week, return week 1
+  const firstSun = parseDateSafe(schedule[0].sundayDate);
+  if (now < firstSun) return 1;
+
+  // 5. If after the last scheduled week, return the last week
+  return schedule[schedule.length - 1].weekNumber;
 }

@@ -17,7 +17,7 @@ import confetti from 'canvas-confetti';
 import jsQR from 'jsqr';
 import { GofamintLogo } from '../GofamintLogo';
 import { calculateWorkerProfileCompleteness } from '../../utils/workerProfileUtils';
-import { getQuarterWeeklySchedule } from '../../utils/quarterScheduleUtils';
+import { getQuarterWeeklySchedule, getCurrentCalendarWeek } from '../../utils/quarterScheduleUtils';
 import { INITIAL_SUNDAY_SCHOOL_YEAR } from '../../data/mockQuarterLessons';
 import { ClockInScheduleSettingsModal } from './ClockInScheduleSettingsModal';
 
@@ -89,23 +89,36 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
   const [updateAddressInput, setUpdateAddressInput] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
 
-  // Complaint 4: Sunday's own 12-Week schedule sync
+  // Sunday 12-Week schedule sync — week is ALWAYS derived from today's date
   const resolvedYear = sundaySchoolYear || INITIAL_SUNDAY_SCHOOL_YEAR;
   const [selectedQuarterNumber, setSelectedQuarterNumber] = useState<QuarterNumber>(
     resolvedYear.activeQuarterNumber || 1
   );
-  const [selectedWeek, setSelectedWeek] = useState<number>(1);
 
-  // Sync selected quarter when sundaySchoolYear updates
+  const activeQuarter = useMemo(() => {
+    return resolvedYear.quarters.find(q => q.quarterNumber === selectedQuarterNumber) || resolvedYear.quarters[0];
+  }, [resolvedYear, selectedQuarterNumber]);
+
+  // Auto-derive the calendar-current week from today's date and the active quarter schedule.
+  // Never defaults to Week 1 — always reflects where we actually are in the 12-week plan.
+  const calendarCurrentWeek = useMemo(() => getCurrentCalendarWeek(activeQuarter), [activeQuarter]);
+
+  const [selectedWeek, setSelectedWeek] = useState<number>(() => getCurrentCalendarWeek(
+    resolvedYear.quarters.find(q => q.quarterNumber === (resolvedYear.activeQuarterNumber || 1)) || resolvedYear.quarters[0]
+  ));
+
+  // Sync selected quarter when sundaySchoolYear loads/updates from cloud
   useEffect(() => {
     if (sundaySchoolYear?.activeQuarterNumber) {
       setSelectedQuarterNumber(sundaySchoolYear.activeQuarterNumber);
     }
   }, [sundaySchoolYear?.activeQuarterNumber]);
 
-  const activeQuarter = useMemo(() => {
-    return resolvedYear.quarters.find(q => q.quarterNumber === selectedQuarterNumber) || resolvedYear.quarters[0];
-  }, [resolvedYear, selectedQuarterNumber]);
+  // When the active quarter changes (e.g. after cloud hydration), jump to the
+  // calendar-correct week for that quarter. Do NOT fall back to Week 1.
+  useEffect(() => {
+    setSelectedWeek(getCurrentCalendarWeek(activeQuarter));
+  }, [activeQuarter]);
 
   const quarterSchedule = useMemo(() => {
     if (!activeQuarter) return [];
@@ -117,12 +130,20 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
     return quarterSchedule.find(s => s.weekNumber === selectedWeek) || quarterSchedule[0];
   }, [quarterSchedule, selectedWeek]);
 
-  const todayIso = new Date().toISOString().split('T')[0];
-  const targetSundayDate = activeWeekInfo?.sundayDate || config.serviceDate || todayIso;
-  const isTargetDatePast = targetSundayDate < todayIso;
-  const isTargetDateToday = targetSundayDate === todayIso;
+  // Single-click idempotency guard: tracks worker IDs for in-flight clock-in writes.
+  // A second tap while a write is in-flight is silently dropped — no duplicate records.
+  const pendingClockInIds = useRef<Set<string>>(new Set());
 
-  // Attendance pool for Sunday
+  // Use actual today's date — never trust a stale config.serviceDate for the current session.
+  const todayIso = new Date().toISOString().split('T')[0];
+  const targetSundayDate = activeWeekInfo?.sundayDate || todayIso;
+  const isTargetDatePast = targetSundayDate < todayIso;
+  const isTargetDateFuture = targetSundayDate > todayIso;
+  const isTargetDateToday = targetSundayDate === todayIso;
+  // A live clock-in is only valid when the selected week corresponds to today.
+  const isCurrentWeekLive = isTargetDateToday && selectedWeek === calendarCurrentWeek;
+
+  // Attendance pool for Sunday — all records across all dates for this session
   const attendancePool = allSundayAttendance || todayAttendance;
 
   const sundayAttendanceMap = useMemo(() => {
@@ -222,94 +243,121 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
     worker: WorkerProfile, 
     method: 'QR_SCAN' | 'NAME_SEARCH' | 'DEPT_QUICK_ACCESS' | 'MANUAL_OVERRIDE'
   ) => {
-    const todayStr = config.serviceDate || new Date().toISOString().split('T')[0];
-    
-    // 0. Enforce Sunday schedule window
-    const nowCheck = new Date();
-    const isNowSunday = nowCheck.getDay() === 0;
-    const nowMins = nowCheck.getHours() * 60 + nowCheck.getMinutes();
+    // --- IDEMPOTENCY GUARD: one tap only ---
+    // Prevents double-click / rapid-tap from firing multiple simultaneous writes.
+    if (pendingClockInIds.current.has(worker.id)) return;
+    pendingClockInIds.current.add(worker.id);
 
-    const [sOpenH, sOpenM] = (config.sundayOpenTime || '07:00').split(':').map(Number);
-    const [sCloseH, sCloseM] = (config.sundayCloseTime || '11:30').split(':').map(Number);
-    const sundayOpenMinutes = sOpenH * 60 + sOpenM;
-    const sundayCloseMinutes = sCloseH * 60 + sCloseM;
-
-    const isNowAllowed = isNowSunday && nowMins >= sundayOpenMinutes && nowMins <= sundayCloseMinutes;
-
-    if (!isNowAllowed) {
-      alert(`Sunday Clock-in Terminal is restricted: Clock-in is only permitted on Sundays between ${config.sundayOpenTime || '07:00'} and ${config.sundayCloseTime || '11:30'}.`);
-      return;
-    }
-
-    // 1. Check for Duplicate Clock-In
-    const existing = todayAttendance.find(
-      a => (a.workerId === worker.id || (a.workerName || '').toLowerCase() === (worker.fullName || '').toLowerCase()) && a.serviceDate === todayStr
-    );
-
-    if (existing) {
-      playAudioFeedback('duplicate');
-      setDuplicateWarning({ worker, existingRecord: existing });
-      return;
-    }
-
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    const { status, isLate } = evaluatePunctuality(now);
-
-    const newRecord: WorkerAttendanceRecord = {
-      id: `${worker.id}_${todayStr}`,
-      workerId: worker.id,
-      workerName: worker.fullName,
-      department: worker.department,
-      serviceDate: todayStr,
-      serviceName: config.serviceName || 'Sunday Morning Service',
-      clockInTime: timeStr,
-      timestamp: now.getTime(),
-      status,
-      isLate,
-      method,
-      createdAt: now.toISOString()
-    };
-
-    await onClockIn(newRecord);
-
-    if (isLate) {
-      playAudioFeedback('late');
-    } else {
-      playAudioFeedback('success');
-    }
-
-    // Trigger celebration effects
-    if (config.showCelebration) {
-      confetti({
-        particleCount: isLate ? 35 : 70,
-        spread: 60,
-        origin: { y: 0.6 }
-      });
-    }
-
-    setCelebrationWorker({ worker, record: newRecord });
-    setSearchQuery('');
-
-    // Check profile completeness: prompt if < 70% or missing phone
-    const completeness = calculateWorkerProfileCompleteness(worker);
-    if (completeness.percentage < 70 || !worker.phone || worker.phone.trim().length < 7) {
-      setProfilePromptWorker(worker);
-      setUpdatePhoneInput(worker.phone || '');
-      setUpdateAddressInput(worker.address && worker.address !== 'Assembly District' ? worker.address : '');
-    }
-
-    // Auto-dismiss celebration after 4.5 seconds for kiosk throughput
-    setTimeout(() => {
-      setCelebrationWorker(prev => {
-        if (prev?.record.id === newRecord.id) {
-          return null;
+    try {
+      // 0a. Live clock-in is ONLY valid for the current week and today's date.
+      //     Past and future weeks do not accept live clock-ins.
+      if (!isCurrentWeekLive) {
+        if (isTargetDatePast) {
+          alert(`Week ${selectedWeek} is a past date (${targetSundayDate}). Use the Attendance Register to make a manual correction.`);
+        } else if (isTargetDateFuture) {
+          alert(`Week ${selectedWeek} is a future date (${targetSundayDate}). Live clock-in is not available for future weeks.`);
+        } else {
+          alert(`Week ${selectedWeek} is not the current week (Week ${calendarCurrentWeek}). Please select Week ${calendarCurrentWeek} to clock in.`);
         }
-        return prev;
-      });
-    }, 4500);
+        return;
+      }
 
-  }, [config, todayAttendance, onClockIn, playAudioFeedback]);
+      // 0b. Enforce Sunday schedule window — use actual current time, not any stored state.
+      const nowCheck = new Date();
+      const isNowSunday = nowCheck.getDay() === 0;
+      const nowMins = nowCheck.getHours() * 60 + nowCheck.getMinutes();
+
+      const [sOpenH, sOpenM] = (config.sundayOpenTime || '07:00').split(':').map(Number);
+      const [sCloseH, sCloseM] = (config.sundayCloseTime || '11:30').split(':').map(Number);
+      const sundayOpenMinutes = sOpenH * 60 + sOpenM;
+      const sundayCloseMinutes = sCloseH * 60 + sCloseM;
+      const isNowAllowed = isNowSunday && nowMins >= sundayOpenMinutes && nowMins <= sundayCloseMinutes;
+
+      if (!isNowAllowed) {
+        alert(`Sunday Clock-in Terminal is restricted: Clock-in is only permitted on Sundays between ${config.sundayOpenTime || '07:00'} and ${config.sundayCloseTime || '11:30'}.`);
+        return;
+      }
+
+      // Always use today's actual date — never a stale config.serviceDate.
+      const todayStr = new Date().toISOString().split('T')[0];
+
+      // 1. Check for Duplicate Clock-In against the full attendance pool.
+      //    Use workerId as the authoritative key (name matching is a fallback).
+      const existing = attendancePool.find(
+        a => a.workerId === worker.id && a.serviceDate === todayStr
+      );
+
+      if (existing) {
+        playAudioFeedback('duplicate');
+        setDuplicateWarning({ worker, existingRecord: existing });
+        return;
+      }
+
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const { status, isLate } = evaluatePunctuality(now);
+
+      // 2. Build the record — stamp weekNumber and quarterNumber durably.
+      //    These fields are optional on legacy records but always present on new ones.
+      const newRecord: WorkerAttendanceRecord = {
+        id: `${worker.id}_${todayStr}`,
+        workerId: worker.id,
+        workerName: worker.fullName,
+        department: worker.department,
+        serviceDate: todayStr,
+        serviceName: config.serviceName || 'Sunday Morning Service',
+        clockInTime: timeStr,
+        timestamp: now.getTime(),
+        status,
+        isLate,
+        method,
+        weekNumber: selectedWeek,
+        quarterNumber: selectedQuarterNumber,
+        createdAt: now.toISOString()
+      };
+
+      await onClockIn(newRecord);
+
+      if (isLate) {
+        playAudioFeedback('late');
+      } else {
+        playAudioFeedback('success');
+      }
+
+      // Trigger celebration effects
+      if (config.showCelebration) {
+        confetti({
+          particleCount: isLate ? 35 : 70,
+          spread: 60,
+          origin: { y: 0.6 }
+        });
+      }
+
+      setCelebrationWorker({ worker, record: newRecord });
+      setSearchQuery('');
+
+      // Check profile completeness: prompt if < 70% or missing phone
+      const completeness = calculateWorkerProfileCompleteness(worker);
+      if (completeness.percentage < 70 || !worker.phone || worker.phone.trim().length < 7) {
+        setProfilePromptWorker(worker);
+        setUpdatePhoneInput(worker.phone || '');
+        setUpdateAddressInput(worker.address && worker.address !== 'Assembly District' ? worker.address : '');
+      }
+
+      // Auto-dismiss celebration after 4.5 seconds for kiosk throughput
+      setTimeout(() => {
+        setCelebrationWorker(prev => {
+          if (prev?.record.id === newRecord.id) return null;
+          return prev;
+        });
+      }, 4500);
+
+    } finally {
+      // Always release the guard — even if the write failed — so retry is possible.
+      pendingClockInIds.current.delete(worker.id);
+    }
+
+  }, [config, attendancePool, onClockIn, playAudioFeedback, isCurrentWeekLive, isTargetDatePast, isTargetDateFuture, selectedWeek, calendarCurrentWeek, targetSundayDate, selectedQuarterNumber]);
 
   const handleSaveProfileUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -755,6 +803,9 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
             <div className="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar">
               {quarterSchedule.map(item => {
                 const isSelected = item.weekNumber === selectedWeek;
+                const isCurrent = item.weekNumber === calendarCurrentWeek && item.sundayDate === todayIso;
+                const isPast = item.sundayDate < todayIso;
+                const isFuture = item.sundayDate > todayIso;
                 return (
                   <button
                     key={item.weekNumber}
@@ -762,6 +813,8 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
                     className={`px-3.5 py-2 rounded-xl text-xs font-bold shrink-0 transition flex flex-col items-center cursor-pointer ${
                       isSelected
                         ? 'bg-blue-600 text-white shadow-md ring-2 ring-amber-400'
+                        : isCurrent
+                        ? 'bg-emerald-800 text-white hover:bg-emerald-700'
                         : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
                     }`}
                   >
@@ -770,6 +823,16 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
                     </span>
                     <span className="text-[9px] opacity-80 font-mono mt-0.5">
                       Sun: {item.sundayDate.slice(5)}
+                    </span>
+                    {/* Status badge */}
+                    <span className={`text-[8px] font-black uppercase mt-0.5 px-1 rounded ${
+                      isCurrent
+                        ? 'bg-emerald-400 text-emerald-950'
+                        : isPast
+                        ? 'bg-slate-600 text-slate-300'
+                        : 'bg-blue-800 text-blue-200'
+                    }`}>
+                      {isCurrent ? 'CURRENT' : isPast ? 'PAST' : 'FUTURE'}
                     </span>
                   </button>
                 );
@@ -786,8 +849,19 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
               <div className="text-sm font-bold text-white line-clamp-1">
                 {activeWeekInfo?.topic || `Lesson ${selectedWeek}`}
               </div>
-              <span className="text-[11px] text-amber-300 font-mono">
-                Date: {targetSundayDate} ({isTargetDatePast ? 'Past Date' : isTargetDateToday ? 'Today' : 'Future Date'})
+              <span className="text-[11px] font-mono flex items-center gap-1.5">
+                <span className={isCurrentWeekLive ? 'text-emerald-400' : isTargetDatePast ? 'text-slate-400' : 'text-blue-300'}>
+                  {targetSundayDate}
+                </span>
+                <span className={`font-black uppercase text-[9px] px-1.5 py-0.5 rounded ${
+                  isCurrentWeekLive
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                    : isTargetDatePast
+                    ? 'bg-slate-700 text-slate-300'
+                    : 'bg-blue-800/40 text-blue-200 border border-blue-700/40'
+                }`}>
+                  {isCurrentWeekLive ? '✓ CURRENT — Live Clock-In Active' : isTargetDatePast ? 'PAST — Read Only' : 'FUTURE — Not Yet Active'}
+                </span>
               </span>
             </div>
 
@@ -1065,6 +1139,31 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
                 <Settings className="w-4 h-4 text-amber-400" />
                 <span>Adjust Schedule</span>
               </button>
+            </div>
+          )}
+
+          {/* Week Lock Banner — shown in Terminal when selected week is not the live current week */}
+          {!isCurrentWeekLive && (
+            <div className={`border-2 rounded-2xl p-4 flex items-start gap-3 shadow-sm ${
+              isTargetDatePast
+                ? 'bg-slate-50 border-slate-300'
+                : 'bg-blue-50 border-blue-300'
+            }`}>
+              <div className={`p-2.5 rounded-xl shrink-0 ${isTargetDatePast ? 'bg-slate-300 text-slate-700' : 'bg-blue-300 text-blue-900'}`}>
+                <Lock className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className={`text-sm font-black flex items-center gap-2 ${isTargetDatePast ? 'text-slate-800' : 'text-blue-900'}`}>
+                  Week {selectedWeek} — {isTargetDatePast ? 'Past Date — Clock-In Locked' : 'Future Date — Not Yet Active'}
+                </h3>
+                <p className={`text-xs mt-0.5 leading-relaxed max-w-2xl ${isTargetDatePast ? 'text-slate-600' : 'text-blue-800'}`}>
+                  {isTargetDatePast
+                    ? `This Sunday (${targetSundayDate}) has already passed. Live clock-in is disabled. To correct attendance for this week, use the Sunday Attendance Register (Read-Only corrections tab).`
+                    : `This Sunday (${targetSundayDate}) has not yet arrived. Live clock-in will only become available on that day.`
+                  }
+                  {' '}Switch to <strong>Week {calendarCurrentWeek}</strong> to clock in today's attendance.
+                </p>
+              </div>
             </div>
           )}
 

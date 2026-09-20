@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Camera, RefreshCw, Check, X, Upload, FlipHorizontal, AlertCircle } from 'lucide-react';
 
+import { compressImage } from '../utils/imageCompression';
+
 interface CameraModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -101,9 +103,10 @@ export const CameraModal: React.FC<CameraModalProps> = ({
     startCamera(facingMode);
   };
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (capturedPhoto) {
-      onCapture(capturedPhoto);
+      const compressed = await compressImage(capturedPhoto);
+      onCapture(compressed);
       handleClose();
     }
   };
@@ -118,30 +121,22 @@ export const CameraModal: React.FC<CameraModalProps> = ({
     onClose();
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = 400;
-        canvas.height = 400;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          const minDim = Math.min(img.width, img.height);
-          const sx = (img.width - minDim) / 2;
-          const sy = (img.height - minDim) / 2;
-          ctx.drawImage(img, sx, sy, minDim, minDim, 0, 0, 400, 400);
-          const base64 = canvas.toDataURL('image/jpeg', 0.82);
-          setCapturedPhoto(base64);
-        }
+    try {
+      const compressed = await compressImage(file);
+      setCapturedPhoto(compressed);
+    } catch (err) {
+      console.warn('Could not compress uploaded image:', err);
+      // Fallback to basic file reader
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setCapturedPhoto(event.target?.result as string);
       };
-      img.src = event.target?.result as string;
-    };
-    reader.readAsDataURL(file);
+      reader.readAsDataURL(file);
+    }
   };
 
   if (!isOpen) return null;

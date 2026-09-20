@@ -84,6 +84,20 @@ import type { User } from '@supabase/supabase-js';
 import { isApprovedClassStatus, isExactClassAssignment } from './utils/accessControl';
 import { usePersistedState } from './hooks/usePersistedState';
 import { getCurrentCalendarWeek } from './utils/quarterScheduleUtils';
+import { VisitorProfileCompletionView } from './views/VisitorProfileCompletionView';
+import { backgroundStateManager } from './utils/backgroundStateManager';
+
+const getVisitorTokenFromUrl = (): string | null => {
+  if (typeof window === 'undefined') return null;
+  const hash = window.location.hash || '';
+  const hashMatch = hash.match(/#\/?visitor-profile\/([a-zA-Z0-9_-]+)/);
+  if (hashMatch && hashMatch[1]) return hashMatch[1];
+  const search = window.location.search || '';
+  const params = new URLSearchParams(search);
+  const paramToken = params.get('visitor_token');
+  if (paramToken) return paramToken;
+  return null;
+};
 
 const ADMIN_PORTAL_ROLES = new Set([
   'GENERAL_SUPERINTENDENT',
@@ -102,6 +116,17 @@ const CLASS_PORTAL_ROLES = new Set(['TEACHER', 'CLASS_SECRETARY', 'TEACHER / CLA
 type ProfileResolutionState = 'idle' | 'loading' | 'ready' | 'missing' | 'unapproved' | 'invalid' | 'error';
 
 export default function App() {
+  const [visitorToken, setVisitorToken] = useState<string | null>(() => getVisitorTokenFromUrl());
+
+  useEffect(() => {
+    backgroundStateManager.init();
+    const handleHashChange = () => {
+      setVisitorToken(getVisitorTokenFromUrl());
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
   // Cloud Auth Gate — nothing below renders until a Supabase user is signed in
   const [cloudUser, setCloudUser] = useState<User | null>(null);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
@@ -1399,6 +1424,18 @@ export default function App() {
     setShowAdminPortal(true);
   };
 
+  if (visitorToken) {
+    return (
+      <VisitorProfileCompletionView
+        token={visitorToken}
+        onProfileCompleted={() => {
+          window.location.hash = '';
+          setVisitorToken(null);
+        }}
+      />
+    );
+  }
+
   if (isCheckingAuth || isSystemInitialized === null) {
     return (
       <div className="min-h-screen bg-blue-950 flex flex-col items-center justify-center text-slate-300 p-4 text-center">
@@ -1746,6 +1783,8 @@ export default function App() {
             onQuickAddMember={handleQuickAddMember}
             onNavigateToRoster={() => setActiveTab('ROSTER_MANAGEMENT')}
             onOpenQuarterTransition={() => setIsQuarterTransitionOpen(true)}
+            onUpdateMember={handleSaveMember}
+            onSaveBulkMembers={handleSaveBulkMembers}
             currencySymbol={currencySymbol}
           />
         )}

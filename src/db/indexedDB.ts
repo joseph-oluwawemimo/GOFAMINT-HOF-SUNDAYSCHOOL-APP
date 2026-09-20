@@ -2028,14 +2028,39 @@ export async function getAllWorkerAttendance(serviceDate?: string, forceCloudRef
 }
 
 export async function saveWorkerAttendance(record: WorkerAttendanceRecord): Promise<WorkerAttendanceRecord> {
+  // 1. Local write first — always succeeds regardless of network state.
   const res = await putInStore<WorkerAttendanceRecord>('workerAttendance', record);
+  notifyLocalStoreChange('workerAttendance');
+
+  // 2. Immediate durable cloud push — serialised per record, with outbox retry on failure.
+  //    Uses the same pushToCloud pattern as every other write path in this file.
+  const { cloudSaveWorkerAttendance } = await import('../services/supabaseDatabase');
+  void pushToCloud(
+    `Save worker attendance ${record.id}`,
+    () => cloudSaveWorkerAttendance(record),
+    { collectionName: 'workerAttendance', action: 'save', docId: record.id, data: record }
+  );
+
   return res;
 }
 
 export async function saveBulkWorkerAttendance(records: WorkerAttendanceRecord[]): Promise<WorkerAttendanceRecord[]> {
   for (const r of records) {
+    // Local write first for every record.
     await putInStore<WorkerAttendanceRecord>('workerAttendance', r);
   }
+  notifyLocalStoreChange('workerAttendance');
+
+  // Push each record to Supabase durably.
+  const { cloudSaveWorkerAttendance } = await import('../services/supabaseDatabase');
+  for (const r of records) {
+    void pushToCloud(
+      `Save worker attendance ${r.id}`,
+      () => cloudSaveWorkerAttendance(r),
+      { collectionName: 'workerAttendance', action: 'save', docId: r.id, data: r }
+    );
+  }
+
   return records;
 }
 

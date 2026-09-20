@@ -138,6 +138,110 @@ export function createApp() {
       timestamp: Date.now()
     });
   });
+
+  // --- One-Time Visitor Profile Public Endpoints ---
+  app.get('/api/visitor-profile/:token', async (req, res) => {
+    try {
+      const token = String(req.params.token || '').trim();
+      if (!token) return res.status(400).json({ error: 'Token is required.' });
+
+      const db = getSupabaseAdmin();
+      const { data: rows, error } = await db.from('members').select('*');
+      if (error) throw error;
+
+      const member = (rows || []).find((r: any) => r.data?.oneTimeProfileToken?.token === token);
+      if (!member) {
+        return res.status(404).json({ error: 'Invalid or expired visitor link.' });
+      }
+
+      const tokenMeta = member.data.oneTimeProfileToken;
+      if (tokenMeta.isUsed) {
+        return res.status(410).json({ error: 'This one-time link has already been used.' });
+      }
+
+      if (tokenMeta.expiresAt && new Date(tokenMeta.expiresAt).getTime() < Date.now()) {
+        return res.status(410).json({ error: 'This one-time link has expired.' });
+      }
+
+      // Return public editable fields only — do NOT leak internal credentials or notes
+      const publicData = {
+        id: member.id,
+        fullName: member.data.fullName || '',
+        phone: member.data.phone || '',
+        address: member.data.address || '',
+        occupation: member.data.occupation || '',
+        gender: member.data.gender || undefined,
+        ageGroup: member.data.ageGroup || undefined,
+        prayerRequests: member.data.prayerRequests || '',
+        photoBase64: member.data.photoBase64 || undefined
+      };
+
+      res.json(publicData);
+    } catch (err: any) {
+      console.error('[Server] Error fetching visitor profile by token:', err);
+      res.status(500).json({ error: 'Internal server error.' });
+    }
+  });
+
+  app.post('/api/visitor-profile/:token', async (req, res) => {
+    try {
+      const token = String(req.params.token || '').trim();
+      if (!token) return res.status(400).json({ error: 'Token is required.' });
+
+      const db = getSupabaseAdmin();
+      const { data: rows, error } = await db.from('members').select('*');
+      if (error) throw error;
+
+      const member = (rows || []).find((r: any) => r.data?.oneTimeProfileToken?.token === token);
+      if (!member) {
+        return res.status(404).json({ error: 'Invalid or expired visitor link.' });
+      }
+
+      const tokenMeta = member.data.oneTimeProfileToken;
+      if (tokenMeta.isUsed) {
+        return res.status(410).json({ error: 'This one-time link has already been used.' });
+      }
+
+      if (tokenMeta.expiresAt && new Date(tokenMeta.expiresAt).getTime() < Date.now()) {
+        return res.status(410).json({ error: 'This one-time link has expired.' });
+      }
+
+      const { fullName, phone, address, occupation, gender, ageGroup, prayerRequests, photoBase64 } = req.body || {};
+
+      const updatedData = {
+        ...member.data,
+        fullName: fullName || member.data.fullName,
+        phone: phone !== undefined ? phone : member.data.phone,
+        address: address !== undefined ? address : member.data.address,
+        occupation: occupation !== undefined ? occupation : member.data.occupation,
+        gender: gender || member.data.gender,
+        ageGroup: ageGroup || member.data.ageGroup,
+        prayerRequests: prayerRequests !== undefined ? prayerRequests : member.data.prayerRequests,
+        photoBase64: photoBase64 !== undefined ? photoBase64 : member.data.photoBase64,
+        oneTimeProfileToken: {
+          ...tokenMeta,
+          isUsed: true,
+          usedAt: new Date().toISOString()
+        },
+        updatedAt: new Date().toISOString()
+      };
+
+      const { error: updateErr } = await db
+        .from('members')
+        .update({
+          data: updatedData,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', member.id);
+
+      if (updateErr) throw updateErr;
+
+      res.json({ success: true, memberId: member.id });
+    } catch (err: any) {
+      console.error('[Server] Error saving visitor profile by token:', err);
+      res.status(500).json({ error: 'Internal server error.' });
+    }
+  });
   app.post('/api/gemini/assistant', async (req, res) => {
     try {
       const c = await caller(req, res);

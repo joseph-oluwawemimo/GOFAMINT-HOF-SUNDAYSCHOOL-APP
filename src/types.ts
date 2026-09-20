@@ -225,6 +225,13 @@ export interface Member {
   conversionStatus?: 'NONE' | 'PENDING_APPROVAL' | 'APPROVED' | 'DENIED';
   conversionRequestedAt?: string;
   conversionRequestedBy?: string;
+  displayOrder?: number;
+  oneTimeProfileToken?: {
+    token: string;
+    expiresAt: string;
+    isUsed: boolean;
+    usedAt?: string;
+  };
   createdAt: string;
   updatedAt: string;
 }
@@ -438,6 +445,13 @@ export interface WeeklyOfferingRecord {
   recordedBy?: string;
   recordedAt?: string;
   notes?: string;
+  changesAudit?: Array<{
+    originalAmount: number;
+    newAmount: number;
+    timestamp: string;
+    actor?: string;
+    reason?: string;
+  }>;
   updatedAt: string;
 }
 
@@ -705,6 +719,10 @@ export interface WorkerAttendanceRecord {
   status: SundayAttendanceStatus;
   isLate: boolean;
   method: 'QR_SCAN' | 'NAME_SEARCH' | 'DEPT_QUICK_ACCESS' | 'MANUAL_OVERRIDE';
+  /** Week within the quarter (1–13). Optional on legacy records; always set on new clock-ins. */
+  weekNumber?: number;
+  /** Quarter within the Sunday School year. Optional on legacy records; always set on new clock-ins. */
+  quarterNumber?: QuarterNumber;
   notes?: string;
   createdAt: string;
 }
