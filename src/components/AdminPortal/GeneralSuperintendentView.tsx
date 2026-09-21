@@ -190,14 +190,14 @@ export const GeneralSuperintendentView: React.FC<GeneralSuperintendentViewProps>
 
           <button
             onClick={() => setActiveTab('CLASS_PORTAL_EXPLORER')}
-            className={`h-10 px-4 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+            className={`h-10 px-4 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
               activeTab === 'CLASS_PORTAL_EXPLORER'
                 ? 'bg-amber-900 text-white shadow-sm ring-1 ring-amber-800'
                 : 'text-amber-900 hover:bg-amber-50'
             }`}
           >
-            <Building2 className="w-4 h-4 text-amber-600" />
-            <span>Class Dashboards (5)</span>
+            <School className="w-4 h-4 text-amber-600" />
+            <span>Class Inspection</span>
           </button>
 
           <button

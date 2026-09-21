@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Trophy,
   Award,
@@ -17,8 +17,10 @@ import {
   Check,
   ArrowRight,
   ShieldCheck,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Lock
 } from 'lucide-react';
+import { getCurrentCalendarWeek } from '../utils/quarterScheduleUtils';
 import confetti from 'canvas-confetti';
 import {
   Member,
@@ -73,6 +75,35 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
   const [selectedAwardCategory, setSelectedAwardCategory] = useState<AwardCategory>('OVERALL');
   const [showQuarterReviewModal, setShowQuarterReviewModal] = useState(false);
   const [reviewSuccessFeedback, setReviewSuccessFeedback] = useState<string | null>(null);
+
+  // Lesson 12 completion guard (Phase 21)
+  const currentCalendarWeek = useMemo(() => {
+    return getCurrentCalendarWeek(quarterData, new Date());
+  }, [quarterData]);
+
+  const hasWeek12CompletedRecords = useMemo(() => {
+    const hasOffering = offerings.some(o => o.weekNumber === 12 && (o.amount > 0 || o.remittanceStatus === 'REMITTED' || o.remittanceStatus === 'AUDITED'));
+    const hasGrades = grades.some(g => g.weekNumber === 12 && (g.attendance === 'PRESENT' || g.attendance === 'ABSENT' || g.lessonTotal > 0));
+    return hasOffering || hasGrades;
+  }, [offerings, grades]);
+
+  const isLesson12Completed = (currentCalendarWeek > 12) || (currentCalendarWeek >= 12 && hasWeek12CompletedRecords);
+
+  const handleQuarterTransitionClick = () => {
+    if (!isLesson12Completed) {
+      alert("Quarter transition and quarter-end student review become available after Lesson 12.");
+      return;
+    }
+    if (onOpenQuarterTransition) onOpenQuarterTransition();
+  };
+
+  const handleQuarterReviewClick = () => {
+    if (!isLesson12Completed) {
+      alert("Quarter transition and quarter-end student review become available after Lesson 12.");
+      return;
+    }
+    setShowQuarterReviewModal(true);
+  };
 
   // Trigger celebratory confetti when visiting awards
   const triggerCelebration = () => {
@@ -178,34 +209,52 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
           {onOpenQuarterTransition && (
             <button
               id="btn-quarter-transition-in-analysis"
-              onClick={onOpenQuarterTransition}
-              className="px-3.5 py-2.5 bg-teal-700 hover:bg-teal-600 text-white rounded-lg text-xs font-black flex items-center gap-1.5 transition shadow-xs cursor-pointer"
-              title="Forward active students and eligible visitors to the next Quarter"
+              onClick={handleQuarterTransitionClick}
+              disabled={!isLesson12Completed}
+              className={`px-3.5 py-2.5 rounded-lg text-xs font-black flex items-center gap-1.5 transition shadow-xs cursor-pointer ${
+                isLesson12Completed
+                  ? 'bg-teal-700 hover:bg-teal-600 text-white'
+                  : 'bg-slate-200 text-slate-400 opacity-60 cursor-not-allowed border border-slate-300'
+              }`}
+              title={isLesson12Completed ? "Forward active students and eligible visitors to the next Quarter" : "Quarter transition and quarter-end student review become available after Lesson 12."}
             >
-              <Sparkles className="w-4 h-4 text-amber-300" />
+              {!isLesson12Completed ? <Lock className="w-3.5 h-3.5 text-slate-400" /> : <Sparkles className="w-4 h-4 text-amber-300" />}
               <span>Quarter Transition</span>
             </button>
           )}
 
           <button
             id="btn-quarter-review"
-            onClick={() => setShowQuarterReviewModal(true)}
-            className="px-3.5 py-2.5 bg-amber-500 hover:bg-amber-400 text-blue-950 rounded-lg text-xs font-black flex items-center gap-1.5 transition shadow-xs"
+            onClick={handleQuarterReviewClick}
+            disabled={!isLesson12Completed}
+            className={`px-3.5 py-2.5 rounded-lg text-xs font-black flex items-center gap-1.5 transition shadow-xs ${
+              isLesson12Completed
+                ? 'bg-amber-500 hover:bg-amber-400 text-blue-950 cursor-pointer'
+                : 'bg-slate-200 text-slate-400 opacity-60 cursor-not-allowed border border-slate-300'
+            }`}
+            title={isLesson12Completed ? "Review qualifying visitors" : "Quarter transition and quarter-end student review become available after Lesson 12."}
           >
-            <Sparkles className="w-4 h-4 text-blue-950" />
+            {!isLesson12Completed ? <Lock className="w-3.5 h-3.5 text-slate-400" /> : <Sparkles className="w-4 h-4 text-blue-950" />}
             <span>Quarter-End Student Review ({qualifyingVisitors.length} Qualify)</span>
           </button>
 
           <button
             id="btn-print-official-return"
             onClick={handlePrint}
-            className="px-4 py-2.5 bg-blue-900 hover:bg-blue-800 text-white rounded-lg text-xs font-bold flex items-center gap-2 transition shadow-xs"
+            className="px-4 py-2.5 bg-blue-900 hover:bg-blue-800 text-white rounded-lg text-xs font-bold flex items-center gap-2 transition shadow-xs cursor-pointer"
           >
             <Printer className="w-4 h-4 text-amber-300" />
             <span>Print Official Return</span>
           </button>
         </div>
       </div>
+
+      {!isLesson12Completed && (
+        <div className="p-3 bg-amber-50 border border-amber-300 text-amber-900 rounded-lg text-xs font-bold flex items-center gap-2 print:hidden">
+          <Lock className="w-4 h-4 text-amber-700 shrink-0" />
+          <span>Quarter transition and quarter-end student review become available after Lesson 12.</span>
+        </div>
+      )}
 
       {reviewSuccessFeedback && (
         <div className="p-3 bg-emerald-50 border border-emerald-300 text-emerald-800 rounded-lg text-xs font-bold flex items-center gap-2 print:hidden">

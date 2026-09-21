@@ -537,8 +537,8 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
               : 'bg-amber-50 text-amber-900 hover:bg-amber-100 border border-amber-300'
           }`}
         >
-          <Building2 className="w-4 h-4 text-amber-600" />
-          <span>Department & Class Portals (5 Dashboards)</span>
+          <School className="w-4 h-4 text-amber-600" />
+          <span>Class Inspection</span>
         </button>
 
         <button

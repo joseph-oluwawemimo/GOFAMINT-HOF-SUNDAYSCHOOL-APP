@@ -59,7 +59,6 @@ import { Header } from './components/Header';
 import { Navigation } from './components/Navigation';
 import { AuthModal } from './components/AuthModal';
 import { OpeningFlowView } from './components/OpeningFlowView';
-import { QuarterSelectorBar } from './components/QuarterSelectorBar';
 import { GradingMatrixView } from './components/GradingMatrixView';
 import { RosterManagementView } from './components/RosterManagementView';
 import { WelfareFollowUpView } from './components/WelfareFollowUpView';
@@ -68,6 +67,7 @@ import { QuarterAnalysisView } from './components/QuarterAnalysisView';
 import { Week12AnalyticsView } from './components/Week12AnalyticsView';
 import { ClassDiscussionView } from './components/ClassDiscussionView';
 import { QRPortalView } from './components/QRPortalView';
+import { VisitorReportCardView } from './components/VisitorReportCardView';
 import { AIAssistantView } from './components/AIAssistantView';
 import { SyncSettingsView } from './components/SyncSettingsView';
 import { AdminPortalRoot } from './components/AdminPortal/AdminPortalRoot';
@@ -311,6 +311,7 @@ export default function App() {
   // Modal / Transition Props
   const [preSelectedSponsorId, setPreSelectedSponsorId] = useState<string | null>(null);
   const [aiInitialPrompt, setAiInitialPrompt] = useState<string | undefined>(undefined);
+  const [selectedReportMemberId, setSelectedReportMemberId] = useState<string>('');
 
   // Online / Offline Network Listeners
   useEffect(() => {
@@ -1756,14 +1757,6 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
-        {/* 4-Quarter Global Selector & Status Bar */}
-        <QuarterSelectorBar
-          selectedQuarter={selectedQuarter}
-          activeQuarterNumber={sundaySchoolYear?.activeQuarterNumber || classProfile?.quarter || 1}
-          sundaySchoolYear={sundaySchoolYear}
-          onSelectQuarter={handleQuarterChange}
-        />
-
         {activeTab === 'GRADING_MATRIX' && (
           <GradingMatrixView
             selectedWeek={selectedWeek}
@@ -1786,6 +1779,7 @@ export default function App() {
             onUpdateMember={handleSaveMember}
             onSaveBulkMembers={handleSaveBulkMembers}
             currencySymbol={currencySymbol}
+            sundaySchoolYear={sundaySchoolYear || undefined}
           />
         )}
 
@@ -1858,6 +1852,54 @@ export default function App() {
             grades={grades}
             classProfile={classProfile}
           />
+        )}
+
+        {/* SUNDAY SCHOOL REPORT CARD (Phases 16 & 17) */}
+        {activeTab === 'REPORT_CARD' && (
+          <div className="space-y-6 animate-fade-in max-w-5xl mx-auto">
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-200">
+                  Official Record
+                </span>
+                <h2 className="text-xl font-black text-slate-900 mt-1 font-['Cinzel',serif]">
+                  Sunday School Report Card
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Authoritative weekly scorecard synchronized with official curriculum lessons.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-600">Select Member:</span>
+                <select
+                  value={selectedReportMemberId || members[0]?.id || ''}
+                  onChange={(e) => setSelectedReportMemberId(e.target.value)}
+                  className="px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 outline-none focus:border-indigo-600 cursor-pointer shadow-xs"
+                >
+                  {members.map(m => (
+                    <option key={m.id} value={m.id}>
+                      {m.fullName} ({m.memberType})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {members.length === 0 ? (
+              <div className="bg-white p-12 rounded-2xl border border-slate-200 text-center text-slate-500">
+                <p className="text-sm font-bold">No registered members in this class yet.</p>
+              </div>
+            ) : (
+              <VisitorReportCardView
+                memberId={selectedReportMemberId || members[0]?.id}
+                members={members}
+                grades={grades}
+                classProfile={classProfile}
+                lessons={currentQuarterLessons}
+              />
+            )}
+          </div>
         )}
 
         {activeTab === 'AI_ASSISTANT' && (

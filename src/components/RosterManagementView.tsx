@@ -24,8 +24,15 @@ import {
   Link2,
   Copy,
   Check,
-  X
+  X,
+  UserMinus,
+  MoreVertical,
+  Award,
+  Printer,
+  Download
 } from 'lucide-react';
+import { normalizePhoneNumber, findDuplicateMemberByPhone } from '../utils/phoneUtils';
+import { GofamintLogo } from './GofamintLogo';
 import {
   Member,
   MemberType,
@@ -76,6 +83,18 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
   const [editingMember, setEditingMember] = useState<Member | null>(null);
   const [targetType, setTargetType] = useState<MemberType>('VISITOR');
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
+  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
+
+  // Student Movement Modal State (Phase 25)
+  const [isMovementModalOpen, setIsMovementModalOpen] = useState(false);
+  const [movementMemberId, setMovementMemberId] = useState('');
+  const [movementReasonCategory, setMovementReasonCategory] = useState('Relocation');
+  const [movementDate, setMovementDate] = useState(new Date().toISOString().split('T')[0]);
+  const [movementNotes, setMovementNotes] = useState('');
+  const [isSavingMovement, setIsSavingMovement] = useState(false);
+
+  // Student Enrollment Certification Card State (Phases 14 & 15)
+  const [viewingCertificateMember, setViewingCertificateMember] = useState<Member | null>(null);
 
   // Form Fields
   const [fullName, setFullName] = useState('');
@@ -181,10 +200,20 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
     e.preventDefault();
     if (!fullName.trim()) return;
 
+    // Phone Intelligence & Duplicate Detection (Phases 5 & 10)
+    const normalizedPhone = normalizePhoneNumber(phone.trim());
+    if (normalizedPhone) {
+      const duplicate = findDuplicateMemberByPhone(members, normalizedPhone, editingMember?.id);
+      if (duplicate) {
+        alert(`A profile with this phone number already exists: ${duplicate.fullName} (${duplicate.memberType === 'STUDENT' ? 'Student' : 'Visitor'}).`);
+        return;
+      }
+    }
+
     const memberToSave: Member = {
       id: editingMember ? editingMember.id : `mem_${Date.now()}`,
       fullName: fullName.trim(),
-      phone: phone.trim(),
+      phone: normalizedPhone || phone.trim(),
       address: address.trim(),
       occupation: occupation.trim(),
       // Only the Enrollment Officer certification workflow may change status.
@@ -211,6 +240,46 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
       setSaveMemberError(error instanceof Error ? error.message : 'The member profile could not be saved. Please retry.');
     } finally {
       setIsSavingMember(false);
+    }
+  };
+
+  const handleMovementSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!movementMemberId) return;
+    const targetMember = members.find(m => m.id === movementMemberId);
+    if (!targetMember) return;
+
+    setIsSavingMovement(true);
+    try {
+      const fullReason = `${movementReasonCategory}${movementNotes ? ': ' + movementNotes.trim() : ''}`;
+      const updated: Member = {
+        ...targetMember,
+        status: 'LEFT_CLASS',
+        departureDate: movementDate,
+        departureReason: fullReason,
+        departureWeek: currentWeek,
+        statusHistory: [
+          ...(targetMember.statusHistory || []),
+          {
+            fromStatus: targetMember.status,
+            toStatus: 'LEFT_CLASS',
+            date: movementDate,
+            reason: fullReason,
+            authorizedBy: classProfile?.name || 'Class Secretary'
+          }
+        ],
+        updatedAt: new Date().toISOString()
+      };
+      await onSaveMember(updated);
+      setIsMovementModalOpen(false);
+      setMovementMemberId('');
+      setMovementNotes('');
+      alert(`Student movement successfully recorded for ${targetMember.fullName}. Historical records remain safely preserved.`);
+    } catch (err: any) {
+      console.error('Failed to record student movement:', err);
+      alert(`Could not record student movement: ${err?.message || 'Database error'}`);
+    } finally {
+      setIsSavingMovement(false);
     }
   };
 
@@ -252,33 +321,53 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
         <div className="flex flex-wrap items-center gap-2.5">
           {!isReadOnly ? (
             <>
-              <button
-                id="btn-mass-import-members"
-                onClick={() => setIsBulkImportOpen(true)}
-                className="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold flex items-center gap-2 shadow-xs transition active:scale-95"
-                title="Import multiple members by pasting Name and Phone Number"
-              >
-                <Sparkles className="w-4 h-4 text-amber-300" />
-                <span>📥 Mass Import (Name & Phone)</span>
-              </button>
-
-              <button
-                id="btn-add-student"
-                onClick={() => openAddModal('STUDENT')}
-                className="px-4 py-2.5 bg-blue-900 hover:bg-blue-800 text-white rounded-lg text-xs font-bold flex items-center gap-2 shadow-xs transition active:scale-95"
-              >
-                <UserPlus className="w-4 h-4" />
-                <span>+ Add Student</span>
-              </button>
-
+              {/* Add Visitor is the primary addition action (Phase 22) */}
               <button
                 id="btn-add-visitor"
                 onClick={() => openAddModal('VISITOR')}
-                className="px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold flex items-center gap-2 shadow-xs transition active:scale-95"
+                className="px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold flex items-center gap-2 shadow-xs transition active:scale-95 cursor-pointer"
               >
                 <HeartHandshake className="w-4 h-4" />
                 <span>+ Add Visitor</span>
               </button>
+
+              {/* Log Student Movement Button (Phase 25) */}
+              <button
+                id="btn-log-student-movement"
+                onClick={() => setIsMovementModalOpen(true)}
+                className="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-lg text-xs font-bold flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
+                title="Record student departure due to marriage, relocation, transfer, etc."
+              >
+                <UserMinus className="w-4 h-4 text-slate-500" />
+                <span>Log Student Movement</span>
+              </button>
+
+              {/* Subtle More Actions Menu for Mass Import (Phase 23) */}
+              <div className="relative">
+                <button
+                  type="button"
+                  id="btn-roster-more-menu"
+                  onClick={() => setIsMoreMenuOpen(!isMoreMenuOpen)}
+                  className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold border border-slate-300 transition cursor-pointer"
+                  title="More actions"
+                >
+                  <MoreVertical className="w-4 h-4" />
+                </button>
+                {isMoreMenuOpen && (
+                  <div className="absolute right-0 mt-1 w-56 bg-white border border-slate-200 rounded-xl shadow-xl py-1.5 z-20 animate-in fade-in">
+                    <button
+                      onClick={() => {
+                        setIsMoreMenuOpen(false);
+                        setIsBulkImportOpen(true);
+                      }}
+                      className="w-full px-3.5 py-2 text-left text-xs font-bold flex items-center gap-2 hover:bg-slate-50 text-slate-700 cursor-pointer"
+                    >
+                      <Sparkles className="w-4 h-4 text-amber-500" />
+                      <span>Mass Import Students</span>
+                    </button>
+                  </div>
+                )}
+              </div>
             </>
           ) : (
             <span className="px-3 py-1.5 rounded bg-slate-100 text-slate-500 text-xs font-bold border border-slate-200">
@@ -593,6 +682,23 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                   );
                 })()}
 
+                {/* Student Enrollment Certificate Action (Phases 14 & 15) */}
+                {member.memberType === 'STUDENT' && (
+                  <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-bold text-blue-900 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                      Certified Student
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setViewingCertificateMember(member)}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 cursor-pointer"
+                      title="Download/Print Enrollment Certification Card"
+                    >
+                      <Award className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Download Certificate</span>
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })
@@ -909,6 +1015,212 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
 
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-[10px] text-amber-800 font-medium">
               🔒 <strong>Single-use security:</strong> After the visitor confirms and saves their profile, this one-time link is permanently invalidated.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Log Student Movement / Departure Modal (Phase 25) */}
+      {isMovementModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto" onClick={() => setIsMovementModalOpen(false)}>
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full shadow-2xl overflow-hidden my-8" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center gap-2">
+                <UserMinus className="w-5 h-5 text-rose-600" />
+                <h3 className="font-black text-slate-900 text-base">
+                  Log Student Movement / Departure
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsMovementModalOpen(false)}
+                className="text-slate-400 hover:text-slate-700 text-sm font-bold cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleMovementSubmit} className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Select Student <span className="text-blue-600">*</span>
+                </label>
+                <select
+                  required
+                  value={movementMemberId}
+                  onChange={(e) => setMovementMemberId(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none focus:border-blue-600 cursor-pointer"
+                >
+                  <option value="">-- Choose Student --</option>
+                  {members.filter(m => m.status !== 'LEFT_CLASS').map(m => (
+                    <option key={m.id} value={m.id}>
+                      {m.fullName} ({m.memberType})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Reason for Movement <span className="text-blue-600">*</span>
+                </label>
+                <select
+                  required
+                  value={movementReasonCategory}
+                  onChange={(e) => setMovementReasonCategory(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none focus:border-blue-600 cursor-pointer"
+                >
+                  <option value="Relocation">Relocation</option>
+                  <option value="Marriage">Marriage</option>
+                  <option value="Transfer">Transfer to another assembly</option>
+                  <option value="Work / School">Work / School posting</option>
+                  <option value="Family Emergency">Family Emergency</option>
+                  <option value="Other">Other legitimate reason</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Departure Date <span className="text-blue-600">*</span>
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={movementDate}
+                  onChange={(e) => setMovementDate(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none focus:border-blue-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Notes / Details
+                </label>
+                <textarea
+                  rows={2}
+                  value={movementNotes}
+                  onChange={(e) => setMovementNotes(e.target.value)}
+                  placeholder="e.g. Relocated to another city for employment"
+                  className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:border-blue-600"
+                />
+              </div>
+
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-900 leading-relaxed">
+                <strong>Historical Data Preservation:</strong> This updates the student's current status without deleting their historical existence. Past attendance, scores, and class records remain intact.
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsMovementModalOpen(false)}
+                  className="px-4 py-2 text-slate-600 hover:text-slate-900 text-xs font-bold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingMovement}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-black shadow-xs transition cursor-pointer"
+                >
+                  {isSavingMovement ? 'Saving...' : 'Record Student Movement'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Student Enrollment Certification Card Modal (Phases 14 & 15) */}
+      {viewingCertificateMember && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs overflow-y-auto" onClick={() => setViewingCertificateMember(null)}>
+          <div className="bg-white border-2 border-amber-300 rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden my-8" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-blue-900 text-white p-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Award className="w-5 h-5 text-amber-300" />
+                <h3 className="font-black text-sm uppercase tracking-wider text-amber-300">
+                  Student Enrollment Certificate
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewingCertificateMember(null)}
+                className="text-slate-300 hover:text-white text-sm font-bold cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div id="enrollment-certificate-card" className="p-6 bg-gradient-to-b from-amber-50/50 via-white to-amber-50/30 text-center space-y-4 border-b border-slate-200">
+              <div className="flex justify-center">
+                <GofamintLogo className="w-16 h-16" />
+              </div>
+
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-widest text-amber-900 bg-amber-100 px-3 py-1 rounded-full border border-amber-300">
+                  THE GOSPEL FAITH MISSION INTERNATIONAL (GOFAMINT)
+                </span>
+                <h2 className="text-xl sm:text-2xl font-black text-blue-950 mt-2 font-serif tracking-tight">
+                  CERTIFICATE OF ENROLLMENT
+                </h2>
+                <p className="text-xs text-slate-500 italic mt-0.5">
+                  Directorate of Christian Education & Sunday School
+                </p>
+              </div>
+
+              <div className="flex justify-center">
+                <div className="w-20 h-20 rounded-full border-4 border-amber-400 overflow-hidden shadow-md bg-slate-100 flex items-center justify-center">
+                  {viewingCertificateMember.photoBase64 ? (
+                    <img src={viewingCertificateMember.photoBase64} alt={viewingCertificateMember.fullName} className="w-full h-full object-cover" />
+                  ) : (
+                    <Users className="w-10 h-10 text-slate-400" />
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider block">This is to certify that</span>
+                <h3 className="text-xl sm:text-2xl font-black text-slate-900 border-b-2 border-amber-300 pb-1 inline-block px-4">
+                  {viewingCertificateMember.fullName}
+                </h3>
+                <p className="text-xs text-slate-600 max-w-sm mx-auto pt-2 leading-relaxed">
+                  has completed the required three-week Sunday School consistency period and is officially certified and enrolled as a student of:
+                </p>
+                <div className="pt-1 font-black text-blue-900 text-base">
+                  {classProfile?.name || 'Sunday School Class'}
+                </div>
+                <div className="text-xs text-slate-500 font-semibold">
+                  Department: <strong>{classProfile?.department || 'General'}</strong>
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-amber-200/80 grid grid-cols-2 gap-3 text-left text-[11px] text-slate-600 bg-white/80 p-3 rounded-xl border border-amber-200">
+                <div>
+                  <span className="block text-slate-400 text-[9px] uppercase font-bold">Certification Date</span>
+                  <strong className="text-slate-800">{viewingCertificateMember.enrolledDate || viewingCertificateMember.certifiedAt ? new Date(viewingCertificateMember.enrolledDate || viewingCertificateMember.certifiedAt!).toLocaleDateString() : new Date().toLocaleDateString()}</strong>
+                </div>
+                <div>
+                  <span className="block text-slate-400 text-[9px] uppercase font-bold">Authorized By</span>
+                  <strong className="text-slate-800">{viewingCertificateMember.certifiedBy || 'Enrollment Officer'}</strong>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => setViewingCertificateMember(null)}
+                className="px-4 py-2 text-slate-600 hover:text-slate-900 text-xs font-bold cursor-pointer"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs cursor-pointer"
+              >
+                <Printer className="w-4 h-4 text-amber-300" />
+                <span>Print / Save Certificate</span>
+              </button>
             </div>
           </div>
         </div>

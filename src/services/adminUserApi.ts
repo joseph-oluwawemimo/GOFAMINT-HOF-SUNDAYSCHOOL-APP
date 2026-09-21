@@ -104,6 +104,46 @@ export async function deleteClassApi(classId: string): Promise<{ success: boolea
   return result.ok ? { success: true, message: result.data.message } : { success: false, error: result.data.error || `Request failed (${result.status})` };
 }
 
+export async function updateClassApi(classId: string, updates: { className?: string; department?: string; password?: string }): Promise<{ success: boolean; message?: string; class?: any; error?: string }> {
+  const result = await request(`/api/admin/classes/${encodeURIComponent(classId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(updates)
+  });
+  return result.ok ? { success: true, message: result.data.message, class: result.data.class } : { success: false, error: result.data.error || `Request failed (${result.status})` };
+}
+
+export async function fetchDepartmentsApi(): Promise<{ success: boolean; departments?: string[]; error?: string }> {
+  const result = await request('/api/admin/departments', { method: 'GET' });
+  return result.ok ? { success: true, departments: result.data.departments || [] } : { success: false, error: result.data.error || `Request failed (${result.status})` };
+}
+
+export async function createDepartmentApi(name: string): Promise<{ success: boolean; department?: string; message?: string; error?: string }> {
+  const result = await request('/api/admin/departments', {
+    method: 'POST',
+    body: JSON.stringify({ name })
+  });
+  return result.ok ? { success: true, department: result.data.department, message: result.data.message } : { success: false, error: result.data.error || `Request failed (${result.status})` };
+}
+
+export async function deleteDepartmentApi(name: string): Promise<{ success: boolean; message?: string; error?: string }> {
+  const result = await request(`/api/admin/departments/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  return result.ok ? { success: true, message: result.data.message } : { success: false, error: result.data.error || `Request failed (${result.status})` };
+}
+
+export async function fetchClassInspectionApi(classId: string): Promise<{
+  success: boolean;
+  classId?: string;
+  members?: any[];
+  grades?: any[];
+  offerings?: any[];
+  absenceLogs?: any[];
+  adminComments?: any[];
+  error?: string;
+}> {
+  const result = await request(`/api/admin/classes/${encodeURIComponent(classId)}/inspection`, { method: 'GET' });
+  return result.ok ? { success: true, ...result.data } : { success: false, error: result.data.error || `Request failed (${result.status})` };
+}
+
 export async function approveClassApi(classId: string, classData?: any): Promise<{ success: boolean; message?: string; class?: any; error?: string }> {
   const result = await request('/api/admin/classes/approve', {
     method: 'POST',

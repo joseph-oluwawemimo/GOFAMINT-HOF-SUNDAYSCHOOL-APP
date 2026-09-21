@@ -630,6 +630,23 @@ export function getAbsenceUrgency(consecutiveWeeks: number): {
 }
 
 /**
+ * Determines whether a member was historically a STUDENT at a specific week.
+ * Preserves historical independence: If a visitor converted to student at lesson 4,
+ * in weeks 1, 2, and 3 they remain historically classified as a VISITOR.
+ */
+export function isMemberStudentAtWeek(member: Member, weekNumber: number): boolean {
+  if (member.memberType === 'VISITOR') {
+    return false;
+  }
+  // Member is currently a STUDENT
+  // If they converted from a visitor at a designated lesson/week, earlier weeks remain VISITOR
+  if (member.convertedFromVisitorAtLesson && weekNumber < member.convertedFromVisitorAtLesson) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * Calculates Week Summary Header Bar Metrics from real data
  */
 export function calculateWeekSummary(
@@ -668,7 +685,9 @@ export function calculateWeekSummary(
 
     totalScoreSum += (grade.lessonTotal || 0);
 
-    if (member.memberType === 'STUDENT') {
+    const isStudentAtThisWeek = isMemberStudentAtWeek(member, weekNumber);
+
+    if (isStudentAtThisWeek) {
       studentCount++;
     } else {
       visitorCount++;
@@ -730,9 +749,10 @@ export function generate2DTrendData(
 
     for (const g of weekPresentGrades) {
       const m = members.find(mem => mem.id === g.memberId);
-      if (m?.memberType === 'STUDENT') {
+      if (!m) continue;
+      if (isMemberStudentAtWeek(m, w)) {
         students++;
-      } else if (m?.memberType === 'VISITOR') {
+      } else {
         visitors++;
       }
     }
@@ -748,3 +768,4 @@ export function generate2DTrendData(
 
   return weeksData;
 }
+

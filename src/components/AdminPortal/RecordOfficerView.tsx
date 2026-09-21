@@ -87,8 +87,10 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
   const currentLesson = activeQuarterObj?.lessons?.find(l => l.weekNumber === selectedWeek);
 
   // Load real weekly collation data directly from Class Register records across current quarter
-  const loadCollationData = async () => {
-    setIsLoading(true);
+  const loadCollationData = async (isBackground = false) => {
+    if (!collationData && !isBackground) {
+      setIsLoading(true);
+    }
     try {
       // Load current week & all members concurrently
       const [currentWeekData, allMembersResult] = await Promise.all([
@@ -112,10 +114,10 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
     }
   };
 
-  useDatabaseSync(loadCollationData, ['members', 'grades', 'offerings', 'absenceLogs', 'classes']);
+  useDatabaseSync(() => loadCollationData(true), ['members', 'grades', 'offerings', 'absenceLogs', 'classes']);
 
   useEffect(() => {
-    loadCollationData();
+    loadCollationData(false);
   }, [selectedQuarter, selectedWeek]);
 
   // Handle Class Register Inspection
@@ -234,6 +236,20 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
       return acc;
     }, {} as Record<string, DepartmentSummary>)
   );
+
+  // Dedicated Onboarded Attendee List for Selected Week (Phase 42)
+  const weeklyOnboardedAttendees = useMemo(() => {
+    return allMembersList.filter(m => {
+      const qEnr = m.quarterEnrollments?.[selectedQuarter as QuarterNumber];
+      const firstWeek = qEnr?.firstLessonWeek || m.firstLessonWeek || 1;
+      const matchesWeek = firstWeek === selectedWeek;
+      const matchesDept = selectedDepartment === 'ALL' || m.department === selectedDepartment;
+      const q = (searchQuery || '').toLowerCase();
+      const matchesSearch = !q || m.fullName.toLowerCase().includes(q) || (m.phone || '').includes(q) || (m.className || '').toLowerCase().includes(q);
+
+      return matchesWeek && matchesDept && matchesSearch;
+    });
+  }, [allMembersList, selectedQuarter, selectedWeek, selectedDepartment, searchQuery]);
 
   // Compute Quarter Analysis for the Selected Quarter (No Cross-Quarter Cumulative!)
   const quarterAnalysis = useMemo(() => {
@@ -729,15 +745,14 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
               <thead>
                 <tr className="bg-slate-900 text-white text-[11px] font-black uppercase tracking-wider">
                   <th className="p-3.5 pl-4 border-b border-slate-800">Class & Department</th>
-                  <th className="p-3.5 text-center border-b border-slate-800 bg-slate-800/80">Student Present</th>
-                  <th className="p-3.5 text-center border-b border-slate-800">Current Visitor Present</th>
-                  <th className="p-3.5 text-center border-b border-slate-800">New Visitors</th>
-                  <th className="p-3.5 text-center border-b border-slate-800">Class Members Absent</th>
-                  <th className="p-3.5 text-center border-b border-slate-800 bg-indigo-900/90 text-amber-300">Total Present</th>
-                  <th className="p-3.5 text-center border-b border-slate-800">Registered Class Members</th>
-                  <th className="p-3.5 text-center border-b border-slate-800">Onboarded</th>
-                  <th className="p-3.5 text-right border-b border-slate-800">Offering</th>
-                  <th className="p-3.5 pr-4 text-center border-b border-slate-800">Actions</th>
+                  <th className="p-3.5 text-center border-b border-slate-800 bg-indigo-900/90 text-amber-300">TOTAL PRESENT</th>
+                  <th className="p-3.5 text-center border-b border-slate-800 text-rose-300">TOTAL ABSENT</th>
+                  <th className="p-3.5 text-center border-b border-slate-800">REGISTERED CLASS MEMBERS</th>
+                  <th className="p-3.5 text-center border-b border-slate-800 text-teal-300">TOTAL ONBOARDED</th>
+                  <th className="p-3.5 text-center border-b border-slate-800 bg-slate-800/80">ENROLLED</th>
+                  <th className="p-3.5 text-center border-b border-slate-800 text-amber-200">TOTAL CLASS MEMBERS</th>
+                  <th className="p-3.5 text-center border-b border-slate-800">CLASS COUNT</th>
+                  <th className="p-3.5 pr-4 text-center border-b border-slate-800">ACTIONS</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -747,41 +762,32 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
                       <div className="font-black text-slate-900 text-xs">{row.className}</div>
                       <div className="text-[10px] text-slate-400 font-semibold">{row.department} • {row.teachersInCharge}</div>
                     </td>
-                    <td className="p-3.5 text-center font-bold text-slate-800 bg-slate-50/50">
-                      {row.studentPresent}
-                    </td>
-                    <td className="p-3.5 text-center font-semibold text-indigo-700">
-                      {row.currentVisitorPresent}
-                    </td>
-                    <td className="p-3.5 text-center font-bold text-purple-700">
-                      {row.newVisitors > 0 ? (
-                        <span className="bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full font-black">
-                          +{row.newVisitors}
-                        </span>
-                      ) : (
-                        '0'
-                      )}
+                    <td className="p-3.5 text-center font-black text-indigo-950 bg-indigo-50/80 text-sm">
+                      {row.totalPresent}
                     </td>
                     <td className="p-3.5 text-center font-semibold text-rose-700">
                       {row.classMembersAbsent}
-                    </td>
-                    <td className="p-3.5 text-center font-black text-indigo-950 bg-indigo-50/80 text-sm">
-                      {row.totalPresent}
                     </td>
                     <td className="p-3.5 text-center font-bold text-slate-800">
                       {row.registeredClassMembers}
                     </td>
                     <td className="p-3.5 text-center font-bold text-teal-700">
                       {row.onboarded > 0 ? (
-                        <span className="bg-teal-100 text-teal-800 px-2 py-0.5 rounded-full font-black">
+                        <span className="bg-teal-100 text-teal-800 px-2.5 py-1 rounded-full font-black">
                           {row.onboarded}
                         </span>
                       ) : (
                         '0'
                       )}
                     </td>
-                    <td className="p-3.5 text-right font-black text-emerald-700">
-                      ₦{row.offering.toLocaleString()}
+                    <td className="p-3.5 text-center font-bold text-slate-800 bg-slate-50/50">
+                      {row.studentPresent}
+                    </td>
+                    <td className="p-3.5 text-center font-black text-slate-900 bg-amber-50/40">
+                      {row.endingActiveClassMembers || row.registeredClassMembers}
+                    </td>
+                    <td className="p-3.5 text-center text-slate-500 font-medium">
+                      Class {idx + 1} of {filteredRows.length}
                     </td>
                     <td className="p-3.5 pr-4 text-center">
                       <button
@@ -796,26 +802,17 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
                   </tr>
                 ))}
               </tbody>
-              {/* Grand Totals Footer */}
+              {/* Grand Totals Footer (Phase 40) */}
               <tfoot>
                 <tr className="bg-slate-900 text-white font-black border-t-2 border-slate-700 text-xs">
                   <td className="p-4 pl-4 uppercase tracking-wider text-amber-300">
-                    Grand Totals ({filteredRows.length} Classes)
-                  </td>
-                  <td className="p-4 text-center bg-slate-800 text-white">
-                    {filteredStudentPresent}
-                  </td>
-                  <td className="p-4 text-center text-indigo-300">
-                    {filteredCurrentVisitorPresent}
-                  </td>
-                  <td className="p-4 text-center text-purple-300">
-                    {filteredNewVisitors}
-                  </td>
-                  <td className="p-4 text-center text-rose-300">
-                    {filteredClassMembersAbsent}
+                    TOTALS
                   </td>
                   <td className="p-4 text-center bg-indigo-950 text-amber-300 text-sm font-black">
                     {filteredTotalPresent}
+                  </td>
+                  <td className="p-4 text-center text-rose-300">
+                    {filteredClassMembersAbsent}
                   </td>
                   <td className="p-4 text-center text-slate-200">
                     {filteredRegisteredClassMembers}
@@ -823,8 +820,14 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
                   <td className="p-4 text-center text-teal-300">
                     {filteredOnboarded}
                   </td>
-                  <td className="p-4 text-right text-emerald-300 text-sm">
-                    ₦{filteredOffering.toLocaleString()}
+                  <td className="p-4 text-center bg-slate-800 text-white">
+                    {filteredStudentPresent}
+                  </td>
+                  <td className="p-4 text-center text-amber-200 font-black">
+                    {filteredEndingActive}
+                  </td>
+                  <td className="p-4 text-center text-slate-300">
+                    {filteredRows.length} Classes
                   </td>
                   <td className="p-4 pr-4 text-center text-slate-400 text-[10px]">
                     Unified Record
@@ -928,6 +931,71 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Phase 42: Dedicated Onboarded Attendee List */}
+      <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-3">
+          <div className="space-y-0.5">
+            <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
+              <UserPlus className="w-4 h-4 text-teal-600" />
+              <span>Week {selectedWeek} Onboarded Attendees</span>
+            </h3>
+            <p className="text-xs text-slate-500">
+              List of attendees onboarded during Week {selectedWeek} (Quarter {selectedQuarter}).
+            </p>
+          </div>
+          <span className="text-xs font-bold text-teal-900 bg-teal-50 px-2.5 py-1 rounded-lg border border-teal-200">
+            {weeklyOnboardedAttendees.length} Onboarded Attendee{weeklyOnboardedAttendees.length !== 1 ? 's' : ''}
+          </span>
+        </div>
+
+        {weeklyOnboardedAttendees.length === 0 ? (
+          <div className="p-8 text-center text-slate-400 text-xs">
+            No attendees were onboarded in Week {selectedWeek} for the selected filter.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="bg-slate-900 text-white text-[10px] font-black uppercase tracking-wider">
+                <tr>
+                  <th className="p-3 pl-4">Name</th>
+                  <th className="p-3">Department</th>
+                  <th className="p-3">Class</th>
+                  <th className="p-3">Phone Number</th>
+                  <th className="p-3">Onboarding Date</th>
+                  <th className="p-3 text-center">Status</th>
+                  <th className="p-3 text-center pr-4">Week</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-slate-700">
+                {weeklyOnboardedAttendees.map((m) => (
+                  <tr key={m.id} className="hover:bg-slate-50">
+                    <td className="p-3 pl-4 font-black text-slate-900">{m.fullName}</td>
+                    <td className="p-3 text-slate-600">{m.department || 'General'}</td>
+                    <td className="p-3 font-bold text-teal-900">{m.className || 'General Class'}</td>
+                    <td className="p-3 font-mono text-slate-600">{m.phone || '—'}</td>
+                    <td className="p-3 text-slate-500 text-[11px]">
+                      {m.createdAt ? new Date(m.createdAt).toLocaleDateString() : `Week ${selectedWeek}`}
+                    </td>
+                    <td className="p-3 text-center">
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        m.memberType === 'STUDENT'
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                          : 'bg-purple-100 text-purple-800 border border-purple-300'
+                      }`}>
+                        {m.memberType === 'STUDENT' ? 'Enrolled' : 'Onboarded'}
+                      </span>
+                    </td>
+                    <td className="p-3 text-center font-bold pr-4">
+                      Week {selectedWeek}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
         </>
       ) : activeTab === 'QUARTER_ANALYSIS' ? (
         /* QUARTER ANALYSIS TAB */
@@ -979,7 +1047,7 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
               </span>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
               <div className="bg-white p-4 rounded-2xl border-2 border-blue-200 shadow-xs">
                 <span className="text-[10px] font-black text-blue-900 uppercase tracking-wider block">Registered Students</span>
                 <h4 className="text-xl font-black text-blue-950 mt-1">{quarterAnalysis.registeredStudentPopulation}</h4>
@@ -1008,12 +1076,6 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
                 <span className="text-[10px] font-bold text-blue-200 uppercase tracking-wider block">Avg. Total Weekly</span>
                 <h4 className="text-xl font-black text-white mt-1">{quarterAnalysis.avgWeeklyAttendance}</h4>
                 <p className="text-[10px] text-blue-200 mt-0.5">Per lesson average</p>
-              </div>
-
-              <div className="bg-indigo-950 text-white p-4 rounded-2xl border border-indigo-900 shadow-xs">
-                <span className="text-[10px] font-bold text-indigo-200 uppercase tracking-wider block">Grand Total Att.</span>
-                <h4 className="text-xl font-black text-amber-300 mt-1">{quarterAnalysis.totalAttendance}</h4>
-                <p className="text-[10px] text-indigo-200 mt-0.5">12-Week aggregate</p>
               </div>
 
               <div className="bg-emerald-900 text-white p-4 rounded-2xl border border-emerald-800 shadow-xs">

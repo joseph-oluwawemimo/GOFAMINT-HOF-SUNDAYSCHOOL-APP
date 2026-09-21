@@ -452,6 +452,8 @@ export interface WeeklyOfferingRecord {
     actor?: string;
     reason?: string;
   }>;
+  isChildrenAccount?: boolean;
+  accountType?: 'GENERAL' | 'CHILDREN';
   updatedAt: string;
 }
 
@@ -480,6 +482,7 @@ export type ActiveTab =
   | 'QUARTER_ANALYSIS'
   | 'QR_PORTAL'
   | 'CLASS_DISCUSSION'
+  | 'REPORT_CARD'
   | 'AI_ASSISTANT'
   | 'DATABASE_SETTINGS';
 
@@ -550,6 +553,8 @@ export interface TreasuryExpenditure {
   authorizedBy: string;
   receiptNumber?: string;
   notes?: string;
+  isChildrenAccount?: boolean;
+  accountType?: 'GENERAL' | 'CHILDREN';
   createdAt: string;
 }
 

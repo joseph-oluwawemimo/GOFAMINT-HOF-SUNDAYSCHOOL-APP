@@ -1205,6 +1205,29 @@ export async function auditOfferingRecord(
   return auditResult;
 }
 
+export async function moveOfferingToChildrenAccount(
+  classId: string,
+  quarterNumber: number,
+  weekNumber: number
+): Promise<WeeklyOfferingRecord> {
+  const canonicalId = `${classId}_q${quarterNumber}_w${weekNumber}`;
+  const allOfferings = await getAllOfferings();
+  const existing = allOfferings.find(o => o.id === canonicalId || (o.classId === classId && o.quarterNumber === quarterNumber && o.weekNumber === weekNumber));
+
+  if (!existing) {
+    throw new Error('Offering record not found to move.');
+  }
+
+  const updated: WeeklyOfferingRecord = {
+    ...existing,
+    isChildrenAccount: true,
+    accountType: 'CHILDREN',
+    updatedAt: new Date().toISOString()
+  };
+
+  return await putInStore<WeeklyOfferingRecord>('offerings', updated);
+}
+
 export async function bulkAuditOfferings(
   items: Array<{ classId: string; quarterNumber: number; weekNumber: number; auditedAmount?: number }>,
   auditedBy: string
@@ -2549,12 +2572,23 @@ export async function massCreateClasses(
 
 export async function deleteClassFromDirectory(classId: string): Promise<boolean> {
   try {
+    // 1. Delete on server using authoritative admin endpoint
+    try {
+      const { deleteClassApi } = await import('../services/adminUserApi');
+      const apiRes = await deleteClassApi(classId);
+      if (!apiRes.success) {
+        console.warn('Server class delete returned notice:', apiRes.error);
+      }
+    } catch (apiErr) {
+      console.warn('Server class delete API error:', apiErr);
+    }
+
+    // 2. Delete from local IndexedDB
     await deleteFromStore('allClasses', classId, true);
-    await pushToCloud('deleteClass', () => cloudDeleteClass(classId), {
-      collectionName: 'classes',
-      action: 'delete',
-      docId: classId
-    });
+    const active = await getClassProfile();
+    if (active && active.id === classId) {
+      await deleteFromStore('classProfile', classId, true);
+    }
     return true;
   } catch (e) {
     console.error('Failed to delete class from directory:', e);
@@ -2679,12 +2713,12 @@ export async function approveClassById(classId: string, approvedBy: string = 'Ge
   return authoritativeClass;
 }
 
-// Departments Management (Controlled by General Secretary)
+// Departments Management (Controlled by General Secretary & General Superintendent)
 export async function getAllDepartmentsList(): Promise<string[]> {
   try {
     const year = await getSundaySchoolYear();
     if (year.departments && year.departments.length > 0) {
-      return year.departments;
+      return Array.from(new Set(year.departments.filter(Boolean)));
     }
   } catch (e) {
     console.warn('Error reading departments:', e);
@@ -2695,7 +2729,19 @@ export async function getAllDepartmentsList(): Promise<string[]> {
 export async function addDepartmentToYear(newDepartment: string): Promise<string[]> {
   const year = await getSundaySchoolYear();
   const trimmed = newDepartment.trim();
-  if (!trimmed || year.departments.includes(trimmed)) {
+  if (!trimmed) {
+    return year.departments;
+  }
+
+  // Persist to Supabase through authoritative server endpoint
+  try {
+    const { createDepartmentApi } = await import('../services/adminUserApi');
+    await createDepartmentApi(trimmed);
+  } catch (apiErr) {
+    console.warn('Server department creation warning:', apiErr);
+  }
+
+  if (year.departments.includes(trimmed)) {
     return year.departments;
   }
   const updatedList = [...year.departments, trimmed];
@@ -2764,52 +2810,43 @@ export async function updateDepartmentNameInYear(oldName: string, newName: strin
 }
 
 export async function deleteDepartmentFromYear(departmentName: string): Promise<string[]> {
+  // 1. Validate whether classes currently depend on this department
+  const classes = await getAllClassesDirectory();
+  const currentClass = await getClassProfile();
+  const activeClasses = [...classes];
+  if (currentClass && !activeClasses.some(c => c.id === currentClass.id)) {
+    activeClasses.push(currentClass);
+  }
+
+  const dependentClasses = activeClasses.filter(c => c.department === departmentName);
+  if (dependentClasses.length > 0) {
+    const classNames = dependentClasses.map(c => c.className || c.id).join(', ');
+    throw new Error(
+      `Cannot delete department "${departmentName}" because ${dependentClasses.length} class(es) (${classNames}) currently belong to it. Please reassign or delete these classes first.`
+    );
+  }
+
+  // 2. Safe to delete: Delete from Supabase via authoritative server endpoint
+  try {
+    const { deleteDepartmentApi } = await import('../services/adminUserApi');
+    const res = await deleteDepartmentApi(departmentName);
+    if (!res.success) {
+      throw new Error(res.error || `Could not delete department "${departmentName}".`);
+    }
+  } catch (apiErr: any) {
+    console.error('Server department deletion error:', apiErr);
+    throw apiErr;
+  }
+
+  // 3. Update local IndexedDB SundaySchoolYear
   const year = await getSundaySchoolYear();
   const updatedList = year.departments.filter(d => d !== departmentName);
-  const fallbackDept = updatedList[0] || 'General';
   const updatedYear: SundaySchoolYear = {
     ...year,
     departments: updatedList,
     updatedAt: new Date().toISOString()
   };
   await saveSundaySchoolYear(updatedYear);
-
-  // Reassign classes assigned to the deleted department
-  const classes = await getAllClassesDirectory();
-  for (const c of classes) {
-    if (c.department === departmentName) {
-      const updatedClass: ClassProfile = {
-        ...c,
-        department: fallbackDept as any,
-        updatedAt: new Date().toISOString()
-      };
-      await saveClassToDirectory(updatedClass);
-    }
-  }
-
-  // Reassign active class profile if matching
-  const currentClass = await getClassProfile();
-  if (currentClass && currentClass.department === departmentName) {
-    const updatedClass: ClassProfile = {
-      ...currentClass,
-      department: fallbackDept as any,
-      updatedAt: new Date().toISOString()
-    };
-    await putInStore('classProfile', updatedClass);
-  }
-
-  // Reassign workers assigned to the deleted department
-  const workers = await getAllWorkers();
-  for (const w of workers) {
-    if (w.department === departmentName) {
-      const updatedWorker: WorkerProfile = {
-        ...w,
-        department: fallbackDept,
-        updatedAt: new Date().toISOString()
-      };
-      await putInStore('workers', updatedWorker);
-    }
-  }
 
   return updatedList;
 }
@@ -3164,6 +3201,8 @@ export async function getRealTreasurySummary(quarterNumber: number = 1) {
       const rawAmt = Number(o.amount) || 0;
       if (rawAmt <= 0) continue;
 
+      const isChild = o.isChildrenAccount || o.accountType === 'CHILDREN';
+
       clsRecorded += rawAmt;
 
       if (o.remittanceStatus === 'AUDITED') {
@@ -3213,22 +3252,43 @@ export async function getRealTreasurySummary(quarterNumber: number = 1) {
     return e.quarterNumber === quarterNumber || (e.quarterNumber === undefined && quarterNumber === 1);
   });
 
-  const totalExpenditure = quarterExpenditures.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
-  const netIncome = cumulativeAuditedIncome - totalExpenditure;
+  // Segregate normal expenditures from Children Account expenditures (Phase 31)
+  const normalExpenditures = quarterExpenditures.filter(e => !e.isChildrenAccount && e.accountType !== 'CHILDREN');
+  const childrenExpenditures = quarterExpenditures.filter(e => e.isChildrenAccount || e.accountType === 'CHILDREN');
+
+  // Segregate normal audited offerings from Children Account offerings
+  const normalAuditedOfferings = auditedOfferingsList.filter(o => !o.isChildrenAccount && o.accountType !== 'CHILDREN');
+  const childrenAuditedOfferings = auditedOfferingsList.filter(o => o.isChildrenAccount || o.accountType === 'CHILDREN');
+
+  const totalExpenditure = normalExpenditures.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+  const normalAuditedTotal = normalAuditedOfferings.reduce((sum, o) => sum + (Number(o.auditedAmount !== undefined ? o.auditedAmount : o.amount) || 0), 0);
+  const netIncome = normalAuditedTotal - totalExpenditure;
+
+  // Children Account Totals (Phase 31)
+  const childrenAuditedIncome = childrenAuditedOfferings.reduce((sum, o) => sum + (Number(o.auditedAmount !== undefined ? o.auditedAmount : o.amount) || 0), 0);
+  const childrenTotalExpenditure = childrenExpenditures.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+  const childrenNetBalance = childrenAuditedIncome - childrenTotalExpenditure;
 
   return {
     totalRecorded,
     pendingRemittance,
     pendingAudit,
-    cumulativeAuditedIncome,
-    totalIncome: cumulativeAuditedIncome, // for backward compatibility
+    cumulativeAuditedIncome: normalAuditedTotal,
+    totalIncome: normalAuditedTotal, // for backward compatibility
     totalExpenditure,
     netIncome,
     netBalance: netIncome, // for backward compatibility
     classOfferingsBreakdown,
     pendingRemittancesList: pendingRemittancesList.sort((a, b) => b.weekNumber - a.weekNumber),
     auditedOfferingsList: auditedOfferingsList.sort((a, b) => (b.auditedAt || '').localeCompare(a.auditedAt || '')),
-    expenditures: quarterExpenditures
+    expenditures: normalExpenditures,
+    childrenAccount: {
+      auditedIncome: childrenAuditedIncome,
+      totalExpenditure: childrenTotalExpenditure,
+      netBalance: childrenNetBalance,
+      inflows: childrenAuditedOfferings,
+      expenditures: childrenExpenditures
+    }
   };
 }
 

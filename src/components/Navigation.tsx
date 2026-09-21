@@ -6,7 +6,8 @@ import {
   BarChart3,
   QrCode,
   MessageSquare,
-  Database
+  Database,
+  GraduationCap
 } from 'lucide-react';
 import { ActiveTab } from '../types';
 
@@ -67,6 +68,11 @@ export const Navigation: React.FC<NavigationProps> = ({
       id: 'QR_PORTAL',
       label: 'QR Result Portal',
       icon: QrCode
+    },
+    {
+      id: 'REPORT_CARD',
+      label: 'Sunday School Report Card',
+      icon: GraduationCap
     }
   ];
 
@@ -90,28 +96,33 @@ export const Navigation: React.FC<NavigationProps> = ({
           const isActive = activeTab === item.id || 
             (item.id === 'WELFARE_FOLLOW_UP' && activeTab === 'ABSENCE_CARE') ||
             (item.id === 'QUARTER_ANALYSIS' && activeTab === 'WEEK_12_ANALYTICS');
+          const isReportCard = item.id === 'REPORT_CARD';
 
           return (
-            <button
-              key={item.id}
-              ref={isActive ? activeTabRef : null}
-              id={`nav-tab-${(item.id || '').toLowerCase()}`}
-              onClick={() => onTabChange(item.id)}
-              className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[44px] rounded-lg text-xs sm:text-sm font-bold transition-all duration-150 relative whitespace-nowrap touch-manipulation cursor-pointer ${
-                isActive
-                  ? 'bg-blue-900 text-white shadow-xs border border-blue-800'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-transparent'
-              }`}
-            >
-              <Icon className={`w-4 h-4 ${isActive ? 'text-amber-400' : 'text-slate-500'}`} />
-              <span className="tracking-tight">{item.label}</span>
+            <React.Fragment key={item.id}>
+              {isReportCard && <div className="h-6 w-px bg-slate-200 mx-1.5 shrink-0" />}
+              <button
+                ref={isActive ? activeTabRef : null}
+                id={`nav-tab-${(item.id || '').toLowerCase()}`}
+                onClick={() => onTabChange(item.id)}
+                className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[44px] rounded-lg text-xs sm:text-sm font-bold transition-all duration-150 relative whitespace-nowrap touch-manipulation cursor-pointer ${
+                  isActive
+                    ? 'bg-blue-900 text-white shadow-xs border border-blue-800'
+                    : isReportCard
+                    ? 'text-indigo-900 bg-indigo-50/70 hover:bg-indigo-100/80 border border-indigo-200/80'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-transparent'
+                }`}
+              >
+                <Icon className={`w-4 h-4 ${isActive ? 'text-amber-400' : isReportCard ? 'text-indigo-700' : 'text-slate-500'}`} />
+                <span className="tracking-tight">{item.label}</span>
 
-              {item.badge !== undefined && item.badge > 0 && (
-                <span className={`px-1.5 py-0.5 text-[10px] font-black rounded-md ml-0.5 ${item.badgeColor || 'bg-blue-600 text-white'}`}>
-                  {item.badge}
-                </span>
-              )}
-            </button>
+                {item.badge !== undefined && item.badge > 0 && (
+                  <span className={`px-1.5 py-0.5 text-[10px] font-black rounded-md ml-0.5 ${item.badgeColor || 'bg-blue-600 text-white'}`}>
+                    {item.badge}
+                  </span>
+                )}
+              </button>
+            </React.Fragment>
           );
         })}
       </div>

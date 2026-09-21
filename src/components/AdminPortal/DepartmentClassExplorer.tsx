@@ -44,6 +44,7 @@ import {
   deleteMemberFromDB,
   getClassProfile
 } from '../../db/indexedDB';
+import { fetchClassInspectionApi } from '../../services/adminUserApi';
 import { RosterManagementView } from '../RosterManagementView';
 import { GradingMatrixView } from '../GradingMatrixView';
 import { WelfareFollowUpView } from '../WelfareFollowUpView';
@@ -122,13 +123,31 @@ export const DepartmentClassExplorer: React.FC<DepartmentClassExplorerProps> = (
     return GOFAMINT_HOF_12_LESSONS;
   }, [inspectedQuarter]);
 
-  // Load Real Data from IndexedDB whenever selectedClassId or selectedQuarter changes
+  // Load Real Data from Authoritative Server API & IndexedDB whenever selectedClassId or selectedQuarter changes
   useEffect(() => {
     let isMounted = true;
     const loadRealData = async () => {
       if (!selectedClassId) return;
       setIsLoadingClassData(true);
       try {
+        // 1. Live server fetch for selected class inspection (bypasses RLS limits, gets exact entered data)
+        const inspectRes = await fetchClassInspectionApi(selectedClassId);
+        if (inspectRes.success && inspectRes.members) {
+          if (inspectRes.members.length > 0) {
+            await saveBulkMembersToDB(inspectRes.members);
+          }
+          if (isMounted) {
+            setClassMembers(inspectRes.members);
+            setClassGrades(inspectRes.grades || []);
+            setClassOfferings(inspectRes.offerings || []);
+            setClassAbsenceLogs(inspectRes.absenceLogs || []);
+            setClassComments(inspectRes.adminComments || []);
+            setIsLoadingClassData(false);
+            return;
+          }
+        }
+
+        // 2. Fallback to local IndexedDB if offline
         const [members, grades, offerings, logs, comments] = await Promise.all([
           getMembersByClass(selectedClassId, selectedQuarter),
           getGradesByClass(selectedClassId, selectedQuarter),
@@ -243,29 +262,45 @@ export const DepartmentClassExplorer: React.FC<DepartmentClassExplorerProps> = (
   return (
     <div className="space-y-6">
       
-      {/* Full Access Authority Header Banner */}
-      <div className="bg-gradient-to-r from-blue-950 via-slate-900 to-indigo-950 text-white rounded-3xl p-6 sm:p-8 shadow-xl border-2 border-amber-400/40 relative overflow-hidden">
+      {/* Full Access Authority Header Banner — CLASS INSPECTION */}
+      <div className="bg-gradient-to-r from-blue-950 via-slate-900 to-indigo-950 text-white rounded-3xl p-6 sm:p-8 shadow-xl border-2 border-amber-400/50 relative overflow-hidden space-y-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
           <div className="space-y-2">
             <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-400/20 border border-amber-400/50 rounded-full text-xs font-black text-amber-300 uppercase tracking-wider">
-              <ShieldCheck className="w-3.5 h-3.5" />
-              <span>Full System Direct Access • {currentAdmin.title}</span>
+              <Lock className="w-3.5 h-3.5" />
+              <span>READ-ONLY INSPECTION MODE • {currentAdmin.title}</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-black font-['Cinzel',serif] tracking-wide text-white">
-              Department & Class Portal Explorer
+              CLASS INSPECTION
             </h1>
             <p className="text-xs sm:text-sm text-blue-100 max-w-3xl leading-relaxed">
-              Hierarchy: <strong>{currentAdmin.profileName}</strong> ({currentAdmin.username}) → <strong>Every Department</strong> → <strong>Every Class</strong>. Real data synchronization across all register consoles with read-only administrative oversight and official feedback.
+              Read-only inspection showing the actual records entered by class secretaries & teachers. Selecting any class instantly loads its live attendance, marks, visitors, and follow-up data.
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+            {/* Quick Class Selector */}
+            <div className="bg-white/10 backdrop-blur-xs border border-amber-400/40 rounded-2xl p-2 flex items-center gap-2">
+              <span className="text-xs font-bold text-amber-300 pl-2">Select Class:</span>
+              <select
+                value={selectedClassId}
+                onChange={(e) => setSelectedClassId(e.target.value)}
+                className="px-3 py-1.5 bg-slate-900 border border-amber-400/60 rounded-xl text-xs font-black text-amber-200 outline-none cursor-pointer focus:ring-2 focus:ring-amber-400 shadow-sm"
+              >
+                {allClasses.map(c => (
+                  <option key={c.id} value={c.id} className="bg-slate-900 text-white font-bold">
+                    {c.className} ({c.department})
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <button
               onClick={() => setShowMatrixInfo(!showMatrixInfo)}
               className="px-3.5 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl text-xs font-bold text-amber-300 transition flex items-center gap-1.5"
             >
               <Info className="w-3.5 h-3.5" />
-              <span>{showMatrixInfo ? 'Hide Matrix' : 'Permission Matrix'}</span>
+              <span>{showMatrixInfo ? 'Hide Matrix' : 'Policy'}</span>
             </button>
             {onBackToOverview && (
               <button
@@ -601,6 +636,7 @@ export const DepartmentClassExplorer: React.FC<DepartmentClassExplorerProps> = (
                   onOpenAddVisitorWithReferral={() => setActiveDashboardTab('REGISTRATION')}
                   onNavigateToRoster={() => setActiveDashboardTab('REGISTRATION')}
                   currencySymbol="₦"
+                  sundaySchoolYear={sundaySchoolYear}
                 />
               )}
 

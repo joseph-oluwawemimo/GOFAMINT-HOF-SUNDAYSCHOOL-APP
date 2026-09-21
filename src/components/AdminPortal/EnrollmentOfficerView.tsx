@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   UserCheck,
   Users,
@@ -208,15 +208,31 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
     return matchesDept && matchesSearch;
   });
 
-  // Filtered Totals
-  const totalPrevEnrolled = filteredRows.reduce((s, r) => s + r.previouslyEnrolledStudents, 0);
-  const totalOnboarded = filteredRows.reduce((s, r) => s + r.onboarded, 0);
-  const totalNewVisitors = filteredRows.reduce((s, r) => s + r.newVisitors, 0);
+  // Filtered Totals (Phase 33 Single Source of Truth)
+  const totalEnrolledStudents = filteredRows.reduce((s, r) => s + r.previouslyEnrolledStudents, 0);
   const totalNewlyEnrolled = filteredRows.reduce((s, r) => s + r.newlyEnrolled, 0);
+  const totalStudents = totalEnrolledStudents + totalNewlyEnrolled;
+
+  const totalVisitorsOnboarded = filteredRows.reduce((s, r) => s + r.onboarded, 0);
+  const totalNewlyOnboarded = filteredRows.reduce((s, r) => s + r.newVisitors, 0);
+  const totalVisitors = totalVisitorsOnboarded + totalNewlyOnboarded;
+
+  const totalClassMembers = totalStudents + totalVisitors;
   const totalVisitorToStudent = filteredRows.reduce((s, r) => s + r.visitorToStudent, 0);
-  const totalCurrentStudents = filteredRows.reduce((s, r) => s + r.currentStudentCount, 0);
-  const totalCurrentVisitors = filteredRows.reduce((s, r) => s + r.currentVisitorCount, 0);
-  const totalActiveCensus = totalCurrentStudents + totalCurrentVisitors;
+
+  // Group Eligible Candidates by Department -> Class (Phase 12 & 34)
+  const groupedCandidates = useMemo(() => {
+    const groups: Record<string, Record<string, EligibleVisitorCandidate[]>> = {};
+
+    for (const cand of eligibleCandidates) {
+      const dept = (cand.department || 'GENERAL DEPARTMENT').toUpperCase();
+      const cls = cand.className || 'General Class';
+      if (!groups[dept]) groups[dept] = {};
+      if (!groups[dept][cls]) groups[dept][cls] = [];
+      groups[dept][cls].push(cand);
+    }
+    return groups;
+  }, [eligibleCandidates]);
 
   // Cumulative Totals
   const cumulativeStats = collationData?.cumulativeTotals || {
@@ -261,14 +277,14 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
       `"Week ${selectedWeek} Totals"`,
       `"ALL CLASSES (${filteredRows.length})"`,
       '""',
-      totalPrevEnrolled,
-      totalOnboarded,
-      totalNewVisitors,
+      totalEnrolledStudents,
+      totalVisitorsOnboarded,
+      totalNewlyOnboarded,
       totalNewlyEnrolled,
       totalVisitorToStudent,
-      totalCurrentStudents,
-      totalCurrentVisitors,
-      totalActiveCensus
+      totalStudents,
+      totalVisitors,
+      totalClassMembers
     ];
 
     const csvContent = [headers.join(','), ...dataRows.map(r => r.join(',')), totalsRow.join(',')].join('\n');
@@ -490,42 +506,42 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
         </div>
       </div>
 
-      {/* Primary KPI Highlights Card */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Previously Enrolled</span>
-          <h3 className="text-xl sm:text-2xl font-black text-slate-900 mt-1">{totalPrevEnrolled}</h3>
-          <p className="text-[11px] text-slate-500 mt-0.5">Students prior to W{selectedWeek}</p>
+      {/* Primary KPI Highlights Card (Phase 33 Clear Distinctions) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <div className="bg-white p-4 rounded-2xl border-2 border-teal-600 shadow-xs">
+          <span className="text-[10px] font-black text-teal-900 uppercase tracking-wider block">Total Students</span>
+          <h3 className="text-xl sm:text-2xl font-black text-teal-950 mt-1">{totalStudents}</h3>
+          <p className="text-[10px] text-teal-700 mt-0.5 font-bold">
+            Enrolled ({totalEnrolledStudents}) + Newly Enrolled ({totalNewlyEnrolled})
+          </p>
         </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Onboarded</span>
-          <h3 className="text-xl sm:text-2xl font-black text-teal-700 mt-1">{totalOnboarded}</h3>
-          <p className="text-[11px] text-teal-600 mt-0.5">Visitors in W{selectedWeek}</p>
+        <div className="bg-white p-4 rounded-2xl border-2 border-purple-500 shadow-xs">
+          <span className="text-[10px] font-black text-purple-900 uppercase tracking-wider block">Total Visitors</span>
+          <h3 className="text-xl sm:text-2xl font-black text-purple-950 mt-1">{totalVisitors}</h3>
+          <p className="text-[10px] text-purple-700 mt-0.5 font-bold">
+            Onboarded ({totalVisitorsOnboarded}) + Newly Onboarded ({totalNewlyOnboarded})
+          </p>
         </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">New Visitors</span>
-          <h3 className="text-xl sm:text-2xl font-black text-purple-700 mt-1">{totalNewVisitors}</h3>
-          <p className="text-[11px] text-purple-600 mt-0.5">First-Time Visitors</p>
-        </div>
-
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Newly Enrolled</span>
-          <h3 className="text-xl sm:text-2xl font-black text-emerald-700 mt-1">{totalNewlyEnrolled}</h3>
-          <p className="text-[11px] text-emerald-600 mt-0.5">Became Students in W{selectedWeek}</p>
+        <div className="bg-teal-950 text-white p-4 rounded-2xl border-2 border-amber-400 shadow-xs">
+          <span className="text-[10px] font-black text-amber-300 uppercase tracking-wider block">Total Class Members</span>
+          <h3 className="text-xl sm:text-2xl font-black text-amber-300 mt-1">{totalClassMembers}</h3>
+          <p className="text-[10px] text-teal-200 mt-0.5 font-medium">
+            Total Students ({totalStudents}) + Total Visitors ({totalVisitors})
+          </p>
         </div>
 
         <div className="bg-amber-400 text-slate-950 p-4 rounded-2xl border border-amber-500 shadow-xs">
           <span className="text-[10px] font-black uppercase tracking-wider block text-slate-900">Visitor → Student</span>
           <h3 className="text-xl sm:text-2xl font-black mt-1 text-slate-950">{totalVisitorToStudent}</h3>
-          <p className="text-[11px] font-bold text-slate-800 mt-0.5">Conversions in W{selectedWeek}</p>
+          <p className="text-[10px] font-bold text-slate-800 mt-0.5">Conversions in W{selectedWeek}</p>
         </div>
 
-        <div className="bg-teal-950 text-white p-4 rounded-2xl border border-teal-800 shadow-xs">
-          <span className="text-[10px] font-bold text-teal-300 uppercase tracking-wider block">Total Active Census</span>
-          <h3 className="text-xl sm:text-2xl font-black text-amber-300 mt-1">{totalActiveCensus}</h3>
-          <p className="text-[11px] text-teal-200 mt-0.5">Students + Visitors</p>
+        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Reporting Classes</span>
+          <h3 className="text-xl sm:text-2xl font-black text-slate-800 mt-1">{filteredRows.length}</h3>
+          <p className="text-[10px] text-slate-500 mt-0.5">Week {selectedWeek}, Quarter {selectedQuarter}</p>
         </div>
       </div>
 
@@ -547,7 +563,7 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
                   <span>Weekly Enrollment Table (Week {selectedWeek}, Quarter {selectedQuarter})</span>
                 </h2>
                 <p className="text-xs text-slate-500">
-                  Tracking the progression pipeline: Previously Enrolled Students, Onboarded, New Visitors, Newly Enrolled, and Visitor → Student conversions.
+                  Tracking progression: Enrolled Students, Visitors Onboarded, Newly Enrolled, and Newly Onboarded.
                 </p>
               </div>
 
@@ -573,106 +589,96 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
                     <tr className="bg-slate-900 text-white text-[11px] font-black uppercase tracking-wider">
-                      <th className="p-3.5 pl-4 border-b border-slate-800 text-center">Week</th>
-                      <th className="p-3.5 border-b border-slate-800">Class & Department</th>
-                      <th className="p-3.5 text-center border-b border-slate-800 bg-slate-800/80">Previously Enrolled Students</th>
-                      <th className="p-3.5 text-center border-b border-slate-800 text-teal-300">Onboarded</th>
-                      <th className="p-3.5 text-center border-b border-slate-800 text-purple-300">New Visitors</th>
+                      <th className="p-3.5 pl-4 border-b border-slate-800">Class & Department</th>
+                      <th className="p-3.5 text-center border-b border-slate-800 bg-slate-800/80">Enrolled Students</th>
+                      <th className="p-3.5 text-center border-b border-slate-800 text-teal-300">Visitors Onboarded</th>
                       <th className="p-3.5 text-center border-b border-slate-800 text-emerald-300">Newly Enrolled</th>
-                      <th className="p-3.5 text-center border-b border-slate-800 bg-amber-400 text-slate-950 font-black">Visitor → Student</th>
-                      <th className="p-3.5 pr-4 text-center border-b border-slate-800">Drill-Down / Actions</th>
+                      <th className="p-3.5 text-center border-b border-slate-800 text-purple-300">Newly Onboarded</th>
+                      <th className="p-3.5 text-center border-b border-slate-800 text-amber-300">Total Class Members</th>
+                      <th className="p-3.5 pr-4 text-center border-b border-slate-800">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-slate-700">
-                    {filteredRows.map((row, idx) => (
-                      <tr key={row.classId || idx} className="hover:bg-teal-50/40 transition">
-                        <td className="p-3.5 text-center font-black text-slate-500">
-                          W{row.weekNumber}
-                        </td>
-                        <td className="p-3.5">
-                          <div className="font-black text-slate-900 text-xs">{row.className}</div>
-                          <div className="text-[10px] text-slate-400 font-semibold">{row.department}</div>
-                        </td>
-                        <td className="p-3.5 text-center font-bold text-slate-800 bg-slate-50/50">
-                          {row.previouslyEnrolledStudents}
-                        </td>
-                        <td className="p-3.5 text-center font-bold text-teal-700">
-                          {row.onboarded > 0 ? (
-                            <span className="bg-teal-100 text-teal-800 px-2.5 py-1 rounded-full font-black">
-                              +{row.onboarded}
-                            </span>
-                          ) : (
-                            '0'
-                          )}
-                        </td>
-                        <td className="p-3.5 text-center font-bold text-purple-700">
-                          {row.newVisitors > 0 ? (
-                            <span className="bg-purple-100 text-purple-800 px-2.5 py-1 rounded-full font-black">
-                              +{row.newVisitors}
-                            </span>
-                          ) : (
-                            '0'
-                          )}
-                        </td>
-                        <td className="p-3.5 text-center font-black text-emerald-700">
-                          {row.newlyEnrolled > 0 ? (
-                            <span className="bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full font-black">
-                              {row.newlyEnrolled}
-                            </span>
-                          ) : (
-                            '0'
-                          )}
-                        </td>
-                        <td className="p-3.5 text-center font-black text-slate-950 bg-amber-50">
-                          {row.visitorToStudent > 0 ? (
+                    {filteredRows.map((row, idx) => {
+                      const rowTotalStudents = (row.previouslyEnrolledStudents || 0) + (row.newlyEnrolled || 0);
+                      const rowTotalVisitors = (row.onboarded || 0) + (row.newVisitors || 0);
+                      const rowTotalMembers = rowTotalStudents + rowTotalVisitors;
+
+                      return (
+                        <tr key={row.classId || idx} className="hover:bg-teal-50/40 transition">
+                          <td className="p-3.5 pl-4">
+                            <div className="font-black text-slate-900 text-xs">{row.className}</div>
+                            <div className="text-[10px] text-slate-400 font-semibold">{row.department}</div>
+                          </td>
+                          <td className="p-3.5 text-center font-bold text-slate-800 bg-slate-50/50">
+                            {row.previouslyEnrolledStudents}
+                          </td>
+                          <td className="p-3.5 text-center font-bold text-teal-700">
+                            {row.onboarded > 0 ? (
+                              <span className="bg-teal-100 text-teal-800 px-2.5 py-1 rounded-full font-black">
+                                {row.onboarded}
+                              </span>
+                            ) : (
+                              '0'
+                            )}
+                          </td>
+                          <td className="p-3.5 text-center font-black text-emerald-700">
+                            {row.newlyEnrolled > 0 ? (
+                              <span className="bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full font-black">
+                                +{row.newlyEnrolled}
+                              </span>
+                            ) : (
+                              '0'
+                            )}
+                          </td>
+                          <td className="p-3.5 text-center font-bold text-purple-700">
+                            {row.newVisitors > 0 ? (
+                              <span className="bg-purple-100 text-purple-800 px-2.5 py-1 rounded-full font-black">
+                                +{row.newVisitors}
+                              </span>
+                            ) : (
+                              '0'
+                            )}
+                          </td>
+                          <td className="p-3.5 text-center font-black text-teal-950 bg-teal-50/30">
+                            {rowTotalMembers}
+                          </td>
+                          <td className="p-3.5 pr-4 text-center">
                             <button
                               onClick={() => setDrillDownRow(row)}
-                              className="bg-amber-400 hover:bg-amber-300 text-slate-950 px-3 py-1 rounded-full font-black text-xs shadow-xs transition inline-flex items-center gap-1 cursor-pointer"
-                              title="Click to drill down on converted members"
+                              className="px-2.5 py-1 bg-slate-100 hover:bg-teal-100 text-teal-900 rounded-lg font-bold text-[11px] transition inline-flex items-center gap-1 cursor-pointer"
                             >
-                              <span>{row.visitorToStudent} Converted</span>
-                              <Eye className="w-3.5 h-3.5" />
+                              <Eye className="w-3 h-3" />
+                              <span>Inspect Class</span>
                             </button>
-                          ) : (
-                            <span className="text-slate-400 font-semibold">0</span>
-                          )}
-                        </td>
-                        <td className="p-3.5 pr-4 text-center">
-                          <button
-                            onClick={() => setDrillDownRow(row)}
-                            className="px-2.5 py-1 bg-slate-100 hover:bg-teal-100 text-teal-900 rounded-lg font-bold text-[11px] transition inline-flex items-center gap-1 cursor-pointer"
-                          >
-                            <Eye className="w-3 h-3" />
-                            <span>Inspect Class</span>
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
-                  {/* Grand Totals Footer */}
+                  {/* Grand Totals Footer (Phase 33) */}
                   <tfoot>
                     <tr className="bg-slate-900 text-white font-black border-t-2 border-slate-700 text-xs">
-                      <td className="p-4 text-center text-amber-300">W{selectedWeek}</td>
-                      <td className="p-4 uppercase tracking-wider text-amber-300">
-                        Grand Totals ({filteredRows.length} Classes)
+                      <td className="p-4 pl-4 uppercase tracking-wider text-amber-300">
+                        TOTAL ({filteredRows.length} Classes)
                       </td>
                       <td className="p-4 text-center bg-slate-800 text-white font-black">
-                        {totalPrevEnrolled}
+                        {totalEnrolledStudents}
                       </td>
                       <td className="p-4 text-center text-teal-300 font-black">
-                        {totalOnboarded}
-                      </td>
-                      <td className="p-4 text-center text-purple-300 font-black">
-                        {totalNewVisitors}
+                        {totalVisitorsOnboarded}
                       </td>
                       <td className="p-4 text-center text-emerald-300 font-black">
                         {totalNewlyEnrolled}
                       </td>
-                      <td className="p-4 text-center bg-amber-400 text-slate-950 font-black text-sm">
-                        {totalVisitorToStudent} Converted
+                      <td className="p-4 text-center text-purple-300 font-black">
+                        {totalNewlyOnboarded}
+                      </td>
+                      <td className="p-4 text-center bg-teal-950 text-amber-300 font-black text-sm">
+                        {totalClassMembers}
                       </td>
                       <td className="p-4 pr-4 text-center text-slate-400 text-[10px]">
-                        Pipeline Ratified
+                        {totalVisitorToStudent} Converted
                       </td>
                     </tr>
                   </tfoot>
@@ -721,18 +727,18 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
       {/* ========================================================= */}
       {activeTab === 'CONSISTENCY_CERTIFICATION' && (
         <div className="space-y-6">
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
               <div className="space-y-1">
                 <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-100 text-amber-900 rounded-full text-xs font-black uppercase">
                   <Award className="w-3.5 h-3.5" />
                   <span>Consistency Evaluation Engine</span>
                 </div>
-                <h2 className="text-lg font-black text-slate-900">
-                  Visitor Consistency Tracking & Student Enrollment Candidates
+                <h2 className="text-xl font-black font-['Cinzel',serif] tracking-wide text-slate-900">
+                  VISITOR CONSISTENCY TRACKING
                 </h2>
                 <p className="text-xs text-slate-500 max-w-2xl">
-                  Evaluated strictly from real Class Register attendance marks. Visitors with 3+ consecutive visits or ≥75% attendance are qualified for certification into official Student status.
+                  Department → Class → Eligible Candidates. Evaluated strictly from real Class Register attendance marks across the 3-week consistency milestone.
                 </p>
               </div>
 
@@ -752,7 +758,7 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
               </div>
             </div>
 
-            {/* Candidates Table */}
+            {/* Candidates Grouped by Department -> Class (Phases 12 & 34) */}
             {eligibleCandidates.length === 0 ? (
               <div className="p-12 text-center text-slate-500 text-xs space-y-2">
                 <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto" />
@@ -760,94 +766,146 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
                 <p className="text-slate-400">As class secretaries onboard visitors and record their attendance in the Class Register, candidates will appear here automatically.</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-slate-900 text-white text-[11px] font-black uppercase">
-                      <th className="p-3.5 pl-4">Visitor Name</th>
-                      <th className="p-3.5">Class & Department</th>
-                      <th className="p-3.5 text-center">First Lesson</th>
-                      <th className="p-3.5 text-center">Consecutive Visits</th>
-                      <th className="p-3.5 text-center">Attendance History</th>
-                      <th className="p-3.5">Eligibility Status</th>
-                      <th className="p-3.5 pr-4 text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-slate-700">
-                    {eligibleCandidates.map((cand, idx) => (
-                      <tr key={cand.member.id || idx} className="hover:bg-slate-50 transition">
-                        <td className="p-3.5 pl-4">
-                          <div className="font-black text-slate-900 text-xs">{cand.member.fullName}</div>
-                          <div className="text-[10px] text-slate-400">{cand.member.phone || 'No phone'} • {cand.member.occupation || 'N/A'}</div>
-                        </td>
-                        <td className="p-3.5">
-                          <div className="font-bold text-slate-800">{cand.className}</div>
-                          <div className="text-[10px] text-slate-400">{cand.department}</div>
-                        </td>
-                        <td className="p-3.5 text-center font-bold text-slate-600">
-                          Week {cand.firstLessonWeek}
-                        </td>
-                        <td className="p-3.5 text-center font-black">
-                          <span className={`px-2.5 py-1 rounded-full text-xs font-black ${
-                            cand.consecutiveVisits >= 3
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : 'bg-slate-100 text-slate-700'
-                          }`}>
-                            {cand.consecutiveVisits} Consecutive
-                          </span>
-                        </td>
-                        <td className="p-3.5 text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            {cand.attendedWeeks.map(w => (
-                              <span key={w} className="w-5 h-5 rounded-full bg-emerald-600 text-white font-bold text-[9px] flex items-center justify-center">
-                                W{w}
-                              </span>
-                            ))}
+              <div className="space-y-8">
+                {Object.entries(groupedCandidates).map(([deptName, classesMap]) => {
+                  const deptCandidates = Object.values(classesMap).flat();
+                  const deptEligible = deptCandidates.filter(c => c.isEligible).length;
+
+                  return (
+                    <div key={deptName} className="space-y-4">
+                      {/* Department Header */}
+                      <div className="flex items-center justify-between border-b-2 border-teal-800 pb-2">
+                        <div className="flex items-center gap-2">
+                          <Building className="w-5 h-5 text-teal-800" />
+                          <h3 className="text-sm font-black tracking-wider text-slate-900 uppercase">
+                            {deptName}
+                          </h3>
+                        </div>
+                        <span className="text-xs font-bold text-teal-900 bg-teal-50 px-2.5 py-0.5 rounded-full border border-teal-200">
+                          {deptCandidates.length} Active Visitor{deptCandidates.length !== 1 ? 's' : ''} ({deptEligible} Eligible)
+                        </span>
+                      </div>
+
+                      {/* Class Groups within Department */}
+                      <div className="space-y-4">
+                        {Object.entries(classesMap).map(([className, classCandidates]) => (
+                          <div key={className} className="bg-slate-50/60 rounded-2xl border border-slate-200 p-4 space-y-3">
+                            <div className="flex items-center justify-between">
+                              <h4 className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                                <Users className="w-4 h-4 text-teal-700" />
+                                <span>{className}</span>
+                                <span className="text-[10px] bg-teal-100 text-teal-900 px-2 py-0.5 rounded-full font-bold">
+                                  {classCandidates.length} visitor{classCandidates.length !== 1 ? 's' : ''}
+                                </span>
+                              </h4>
+                            </div>
+
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-left text-xs bg-white rounded-xl overflow-hidden border border-slate-200">
+                                <thead className="bg-slate-900 text-white text-[10px] font-black uppercase tracking-wider">
+                                  <tr>
+                                    <th className="p-3">Visitor Name</th>
+                                    <th className="p-3 text-center">Week 1</th>
+                                    <th className="p-3 text-center">Week 2</th>
+                                    <th className="p-3 text-center">Week 3</th>
+                                    <th className="p-3 text-center">Consecutive Visits</th>
+                                    <th className="p-3">Consistency / Eligibility</th>
+                                    <th className="p-3 text-right">Action</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 text-slate-700">
+                                  {classCandidates.map((cand) => {
+                                    const w1 = cand.attendedWeeks.includes(1);
+                                    const w2 = cand.attendedWeeks.includes(2);
+                                    const w3 = cand.attendedWeeks.includes(3);
+
+                                    return (
+                                      <tr key={cand.member.id} className="hover:bg-slate-50 transition">
+                                        <td className="p-3">
+                                          <div className="font-black text-slate-900">{cand.member.fullName}</div>
+                                          <div className="text-[10px] text-slate-400">{cand.member.phone || 'No phone'} • {cand.member.occupation || 'Learner'}</div>
+                                        </td>
+                                        <td className="p-3 text-center font-bold">
+                                          {w1 ? (
+                                            <span className="text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full font-black text-[10px]">✓ W1</span>
+                                          ) : (
+                                            <span className="text-slate-300 font-bold">—</span>
+                                          )}
+                                        </td>
+                                        <td className="p-3 text-center font-bold">
+                                          {w2 ? (
+                                            <span className="text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full font-black text-[10px]">✓ W2</span>
+                                          ) : (
+                                            <span className="text-slate-300 font-bold">—</span>
+                                          )}
+                                        </td>
+                                        <td className="p-3 text-center font-bold">
+                                          {w3 ? (
+                                            <span className="text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full font-black text-[10px]">✓ W3</span>
+                                          ) : (
+                                            <span className="text-slate-300 font-bold">—</span>
+                                          )}
+                                        </td>
+                                        <td className="p-3 text-center font-black">
+                                          <span className={`px-2.5 py-1 rounded-full text-xs font-black ${
+                                            cand.consecutiveVisits >= 3
+                                              ? 'bg-emerald-100 text-emerald-800'
+                                              : 'bg-slate-100 text-slate-700'
+                                          }`}>
+                                            {cand.consecutiveVisits} Consecutive
+                                          </span>
+                                        </td>
+                                        <td className="p-3">
+                                          {cand.member.conversionStatus === 'PENDING_APPROVAL' ? (
+                                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 rounded-full font-black text-[10px]">
+                                              <Clock className="w-3 h-3 text-amber-600 animate-pulse" />
+                                              <span>Teacher Requested</span>
+                                            </span>
+                                          ) : cand.isEligible ? (
+                                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-emerald-100 text-emerald-900 rounded-full font-black text-[10px]">
+                                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                              <span>Eligible</span>
+                                            </span>
+                                          ) : (
+                                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-slate-100 text-slate-600 rounded-full font-bold text-[10px]">
+                                              <Clock className="w-3 h-3 text-slate-400" />
+                                              <span>{cand.eligibilityReason || 'In Progress'}</span>
+                                            </span>
+                                          )}
+                                        </td>
+                                        <td className="p-3 text-right">
+                                          <div className="flex items-center justify-end gap-1.5">
+                                            {cand.member.conversionStatus === 'PENDING_APPROVAL' && (
+                                              <button
+                                                onClick={() => handleDenySingle(cand)}
+                                                className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg font-bold text-xs transition inline-flex items-center gap-1 cursor-pointer"
+                                                title="Decline promotion request"
+                                              >
+                                                <X className="w-3.5 h-3.5 text-red-600" />
+                                                <span>Decline</span>
+                                              </button>
+                                            )}
+                                            <button
+                                              onClick={() => setSelectedCandidateForCert(cand)}
+                                              className="px-3 py-1.5 bg-teal-800 hover:bg-teal-700 text-white rounded-xl font-bold text-xs transition inline-flex items-center gap-1 cursor-pointer shadow-xs"
+                                            >
+                                              <Award className="w-3.5 h-3.5 text-amber-300" />
+                                              <span>Certify & Enroll</span>
+                                            </button>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
                           </div>
-                        </td>
-                        <td className="p-3.5">
-                          {cand.member.conversionStatus === 'PENDING_APPROVAL' ? (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-100 text-amber-900 border border-amber-300 rounded-full font-black text-[11px]">
-                              <Clock className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
-                              <span>Requested by Teacher (Pending Certification)</span>
-                            </span>
-                          ) : cand.isEligible ? (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-100 text-emerald-900 rounded-full font-black text-[11px]">
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                              <span>Eligible for Student Enrollment</span>
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-slate-100 text-slate-600 rounded-full font-bold text-[11px]">
-                              <Clock className="w-3.5 h-3.5 text-slate-400" />
-                              <span>{cand.eligibilityReason}</span>
-                            </span>
-                          )}
-                        </td>
-                        <td className="p-3.5 pr-4 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            {cand.member.conversionStatus === 'PENDING_APPROVAL' && (
-                              <button
-                                onClick={() => handleDenySingle(cand)}
-                                className="px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-xl font-bold text-xs transition inline-flex items-center gap-1 cursor-pointer"
-                                title="Decline promotion request and keep as visitor"
-                              >
-                                <X className="w-3.5 h-3.5 text-red-600" />
-                                <span>Decline</span>
-                              </button>
-                            )}
-                            <button
-                              onClick={() => setSelectedCandidateForCert(cand)}
-                              className="px-3.5 py-1.5 bg-teal-800 hover:bg-teal-700 text-white rounded-xl font-bold text-xs transition inline-flex items-center gap-1 cursor-pointer"
-                            >
-                              <Award className="w-3.5 h-3.5 text-amber-300" />
-                              <span>Certify & Enroll</span>
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1249,9 +1307,9 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
                     <tr className="bg-slate-200 font-black text-xs border-t-2 border-slate-900">
                       <td className="p-2.5 text-center border-r border-slate-400">W{selectedWeek}</td>
                       <td className="p-2.5 border-r border-slate-400 uppercase">Grand Totals</td>
-                      <td className="p-2.5 border-r border-slate-400 text-center">{totalPrevEnrolled}</td>
-                      <td className="p-2.5 border-r border-slate-400 text-center">{totalOnboarded}</td>
-                      <td className="p-2.5 border-r border-slate-400 text-center">{totalNewVisitors}</td>
+                      <td className="p-2.5 border-r border-slate-400 text-center">{totalEnrolledStudents}</td>
+                      <td className="p-2.5 border-r border-slate-400 text-center">{totalVisitorsOnboarded}</td>
+                      <td className="p-2.5 border-r border-slate-400 text-center">{totalNewlyOnboarded}</td>
                       <td className="p-2.5 border-r border-slate-400 text-center">{totalNewlyEnrolled}</td>
                       <td className="p-2.5 text-center bg-slate-300 font-black text-sm">{totalVisitorToStudent} Converted</td>
                     </tr>

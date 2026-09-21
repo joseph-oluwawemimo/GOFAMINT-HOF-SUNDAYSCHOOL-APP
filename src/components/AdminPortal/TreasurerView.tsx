@@ -29,6 +29,8 @@ import {
   saveTreasuryExpenditure,
   deleteTreasuryExpenditure,
   getAllOfferings,
+  saveOffering,
+  moveOfferingToChildrenAccount,
   auditOfferingRecord,
   bulkAuditOfferings
 } from '../../db/indexedDB';
@@ -45,7 +47,8 @@ type TreasurerTab =
   | 'WEEKLY_AUDIT'
   | 'QUARTERLY_MATRIX'
   | 'EXPENDITURES'
-  | 'AUDITED_TRAIL';
+  | 'AUDITED_TRAIL'
+  | 'CHILDREN_ACCOUNT';
 
 export const TreasurerView: React.FC<TreasurerViewProps> = ({
   currentAdmin,
@@ -83,6 +86,13 @@ export const TreasurerView: React.FC<TreasurerViewProps> = ({
     pendingRemittancesList: any[];
     auditedOfferingsList: any[];
     expenditures: TreasuryExpenditure[];
+    childrenAccount?: {
+      auditedIncome: number;
+      totalExpenditure: number;
+      netBalance: number;
+      inflows: any[];
+      expenditures: TreasuryExpenditure[];
+    };
   }>({
     totalRecorded: 0,
     pendingRemittance: 0,
@@ -108,7 +118,15 @@ export const TreasurerView: React.FC<TreasurerViewProps> = ({
   const [expenseAmount, setExpenseAmount] = useState('');
   const [expenseCategory, setExpenseCategory] = useState<TreasuryExpenditure['category']>('LESSON_MATERIALS');
   const [expenseNotes, setExpenseNotes] = useState('');
+  const [expenseAccountType, setExpenseAccountType] = useState<'SUNDAY_SCHOOL' | 'CHILDREN'>('SUNDAY_SCHOOL');
   const [isSubmittingExpense, setIsSubmittingExpense] = useState(false);
+
+  // Children Inflow modal state
+  const [showAddChildrenInflowModal, setShowAddChildrenInflowModal] = useState(false);
+  const [childrenInflowAmount, setChildrenInflowAmount] = useState('');
+  const [childrenInflowSource, setChildrenInflowSource] = useState('');
+  const [childrenInflowNotes, setChildrenInflowNotes] = useState('');
+  const [isSubmittingChildrenInflow, setIsSubmittingChildrenInflow] = useState(false);
 
   // Audit Single Modal state
   const [auditTarget, setAuditTarget] = useState<any | null>(null);
@@ -251,6 +269,61 @@ export const TreasurerView: React.FC<TreasurerViewProps> = ({
     }
   };
 
+  const handleMoveToChildrenAccount = async (offering: any) => {
+    try {
+      await moveOfferingToChildrenAccount(
+        offering.classId,
+        offering.quarterNumber || selectedQuarter,
+        offering.weekNumber || selectedWeek
+      );
+      setFeedback(`Moved offering for ${offering.className || 'Children Class'} (Week ${offering.weekNumber || selectedWeek}) to dedicated Children Account.`);
+      setTimeout(() => setFeedback(null), 4000);
+      await loadTreasuryData();
+    } catch (err) {
+      console.error('Failed to move offering to Children Account:', err);
+    }
+  };
+
+  const handleAddChildrenInflow = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const numAmt = parseFloat(childrenInflowAmount);
+    if (isNaN(numAmt) || numAmt <= 0) return;
+
+    setIsSubmittingChildrenInflow(true);
+    try {
+      const newOffering: WeeklyOfferingRecord = {
+        id: `child_inf_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        classId: 'children_dept',
+        quarterNumber: selectedQuarter,
+        weekNumber: selectedWeek,
+        amount: numAmt,
+        auditedAmount: numAmt,
+        remittanceStatus: 'AUDITED',
+        recordedBy: currentAdmin.fullName || currentAdmin.profileName,
+        auditedBy: currentAdmin.fullName || currentAdmin.profileName,
+        recordedAt: new Date().toISOString(),
+        auditedAt: new Date().toISOString(),
+        isChildrenAccount: true,
+        accountType: 'CHILDREN',
+        notes: `${childrenInflowSource.trim() ? `${childrenInflowSource.trim()} - ` : ''}${childrenInflowNotes.trim()}` || 'Children Inflow',
+        updatedAt: new Date().toISOString()
+      };
+
+      await saveOffering(newOffering);
+      await loadTreasuryData();
+      setChildrenInflowSource('');
+      setChildrenInflowAmount('');
+      setChildrenInflowNotes('');
+      setShowAddChildrenInflowModal(false);
+      setFeedback(`Children Inflow ₦${numAmt.toLocaleString()} recorded successfully.`);
+      setTimeout(() => setFeedback(null), 3000);
+    } catch (err) {
+      console.error('Failed to record children inflow:', err);
+    } finally {
+      setIsSubmittingChildrenInflow(false);
+    }
+  };
+
   const handleAddExpense = async (e: React.FormEvent) => {
     e.preventDefault();
     const numAmt = parseFloat(expenseAmount);
@@ -266,6 +339,8 @@ export const TreasurerView: React.FC<TreasurerViewProps> = ({
         date: new Date().toISOString().split('T')[0],
         authorizedBy: currentAdmin.fullName || currentAdmin.profileName,
         notes: expenseNotes.trim() || undefined,
+        isChildrenAccount: expenseAccountType === 'CHILDREN',
+        accountType: expenseAccountType,
         createdAt: new Date().toISOString()
       };
 
@@ -520,6 +595,23 @@ export const TreasurerView: React.FC<TreasurerViewProps> = ({
           <FileCheck className="w-3.5 h-3.5" />
           <span>Audited Ledger Trail ({treasurySummary.auditedOfferingsList.length})</span>
         </button>
+
+        <button
+          onClick={() => setActiveTab('CHILDREN_ACCOUNT')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 shrink-0 ${
+            activeTab === 'CHILDREN_ACCOUNT'
+              ? 'bg-purple-900 text-white shadow-xs'
+              : 'bg-white text-purple-950 hover:bg-purple-50 border border-purple-200'
+          }`}
+        >
+          <Layers className="w-3.5 h-3.5 text-purple-400" />
+          <span>Children Account</span>
+          {treasurySummary.childrenAccount && (treasurySummary.childrenAccount.inflows.length > 0 || treasurySummary.childrenAccount.expenditures.length > 0) && (
+            <span className="px-1.5 py-0.2 bg-purple-200 text-purple-900 rounded-full text-[10px] font-black">
+              {treasurySummary.childrenAccount.inflows.length + treasurySummary.childrenAccount.expenditures.length}
+            </span>
+          )}
+        </button>
       </div>
 
       {/* Tab 1: Pending Remittances Queue */}
@@ -592,13 +684,32 @@ export const TreasurerView: React.FC<TreasurerViewProps> = ({
                         ₦{(row.amount || 0).toLocaleString()}
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <button
-                          onClick={() => handleOpenAuditModal(row)}
-                          className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold inline-flex items-center gap-1.5 shadow-xs transition"
-                        >
-                          <ShieldCheck className="w-3.5 h-3.5 text-amber-300" />
-                          <span>Audit & Accept</span>
-                        </button>
+                        <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                          <button
+                            onClick={() => handleOpenAuditModal(row)}
+                            className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold inline-flex items-center gap-1.5 shadow-xs transition"
+                          >
+                            <ShieldCheck className="w-3.5 h-3.5 text-amber-300" />
+                            <span>Audit & Accept</span>
+                          </button>
+
+                          {(row.department?.toLowerCase().includes('child') || row.isChildrenAccount) && (
+                            row.isChildrenAccount ? (
+                              <span className="px-2 py-0.5 bg-purple-50 text-purple-900 border border-purple-200 rounded-md text-[10px] font-bold">
+                                In Children Account
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => handleMoveToChildrenAccount(row)}
+                                className="px-2.5 py-1.5 bg-purple-100 hover:bg-purple-200 text-purple-900 border border-purple-300 rounded-lg text-xs font-bold inline-flex items-center gap-1 shadow-xs transition"
+                                title="Move to dedicated Children Account"
+                              >
+                                <Layers className="w-3.5 h-3.5 text-purple-700" />
+                                <span>Move to Children Account</span>
+                              </button>
+                            )
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -925,6 +1036,7 @@ export const TreasurerView: React.FC<TreasurerViewProps> = ({
                     <th className="px-3 py-3 text-right">Audited Amount</th>
                     <th className="px-3 py-3">Auditor</th>
                     <th className="px-4 py-3">Audit Date & Time</th>
+                    <th className="px-4 py-3 text-center">Account / Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -940,12 +1052,245 @@ export const TreasurerView: React.FC<TreasurerViewProps> = ({
                       <td className="px-4 py-3 text-slate-500 text-[11px]">
                         {item.auditedAt ? new Date(item.auditedAt).toLocaleString() : 'Verified'}
                       </td>
+                      <td className="px-4 py-3 text-center">
+                        {(item.department?.toLowerCase().includes('child') || item.isChildrenAccount) ? (
+                          item.isChildrenAccount ? (
+                            <span className="px-2 py-0.5 bg-purple-50 text-purple-900 border border-purple-200 rounded-md text-[10px] font-bold">
+                              In Children Account
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => handleMoveToChildrenAccount(item)}
+                              className="px-2.5 py-1 bg-purple-100 hover:bg-purple-200 text-purple-900 border border-purple-300 rounded-lg text-xs font-bold inline-flex items-center gap-1 shadow-xs transition"
+                              title="Move to dedicated Children Account"
+                            >
+                              <Layers className="w-3.5 h-3.5 text-purple-700" />
+                              <span>Move to Children Account</span>
+                            </button>
+                          )
+                        ) : (
+                          <span className="text-[10px] text-slate-400 font-medium">Sunday School</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Tab 6: Children Account */}
+      {activeTab === 'CHILDREN_ACCOUNT' && (
+        <div className="space-y-6">
+          {/* Header Banner */}
+          <div className="bg-gradient-to-r from-purple-950 via-slate-900 to-indigo-950 text-white rounded-3xl p-6 sm:p-8 shadow-xl border-2 border-purple-400/40 relative overflow-hidden">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
+              <div className="space-y-2">
+                <div className="inline-flex items-center gap-2 px-3 py-1 bg-purple-400/20 border border-purple-400/50 rounded-full text-xs font-black text-purple-300 uppercase tracking-wider">
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>Children Directorate • Special Financial Ledger</span>
+                </div>
+                <h2 className="text-xl sm:text-2xl font-black font-['Cinzel',serif] tracking-wide text-white">
+                  Children Account Management & Audit
+                </h2>
+                <p className="text-xs sm:text-sm text-purple-100 max-w-2xl leading-relaxed">
+                  Dedicated, segregated financial management for Children Department classes. Remittances moved here and disbursements logged here are tracked separately from the regular Sunday School general treasury to ensure full transparency and targeted accountability.
+                </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={() => setShowAddChildrenInflowModal(true)}
+                  className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-xs font-black flex items-center gap-2 shadow-xs transition shrink-0"
+                >
+                  <PlusCircle className="w-4 h-4" />
+                  <span>+ Record Children Inflow</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setExpenseAccountType('CHILDREN');
+                    setShowAddExpenseModal(true);
+                  }}
+                  className="px-4 py-2.5 bg-purple-500 hover:bg-purple-400 text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-xs transition shrink-0"
+                >
+                  <DollarSign className="w-4 h-4" />
+                  <span>+ Record Children Expense</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Children Financial KPIs */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="bg-white p-5 rounded-2xl border border-purple-200 bg-purple-50/30 shadow-xs">
+              <span className="text-[10px] font-bold text-purple-900 uppercase block">1. Total Children Inflows</span>
+              <h3 className="text-2xl font-black text-purple-950 mt-1">
+                ₦{(treasurySummary.childrenAccount?.auditedIncome || 0).toLocaleString()}
+              </h3>
+              <p className="text-[11px] text-purple-700 mt-1 font-semibold">
+                {treasurySummary.childrenAccount?.inflows.length || 0} verified collections / direct receipts
+              </p>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border border-red-200 bg-red-50/30 shadow-xs">
+              <span className="text-[10px] font-bold text-red-900 uppercase block">2. Total Children Expenses</span>
+              <h3 className="text-2xl font-black text-red-700 mt-1">
+                ₦{(treasurySummary.childrenAccount?.totalExpenditure || 0).toLocaleString()}
+              </h3>
+              <p className="text-[11px] text-red-600 mt-1 font-semibold">
+                {treasurySummary.childrenAccount?.expenditures.length || 0} dedicated disbursements
+              </p>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border-2 border-purple-500 shadow-xs">
+              <span className="text-[10px] font-bold text-purple-900 uppercase block">3. Children Account Net Balance</span>
+              <h3 className={`text-2xl font-black mt-1 ${
+                (treasurySummary.childrenAccount?.netBalance || 0) >= 0 ? 'text-purple-900' : 'text-red-700'
+              }`}>
+                ₦{(treasurySummary.childrenAccount?.netBalance || 0).toLocaleString()}
+              </h3>
+              <p className="text-[11px] text-purple-700 font-bold mt-1">
+                Inflows minus Dedicated Disbursements
+              </p>
+            </div>
+          </div>
+
+          {/* Inflows Table */}
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-xs overflow-hidden">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-black text-slate-900 font-['Cinzel',serif]">
+                  Children Inflows & Offerings
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Remittances from Children Department classes and direct received funds.
+                </p>
+              </div>
+            </div>
+
+            {(!treasurySummary.childrenAccount?.inflows || treasurySummary.childrenAccount.inflows.length === 0) ? (
+              <div className="p-10 text-center text-slate-400 text-xs">
+                No Children Account inflows recorded yet for Quarter {selectedQuarter}. Use "Move to Children Account" on Children remittances or click "+ Record Children Inflow".
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-700 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200">
+                    <tr>
+                      <th className="px-4 py-3">Source / Class</th>
+                      <th className="px-3 py-3 text-center">Week</th>
+                      <th className="px-3 py-3 text-right">Amount (₦)</th>
+                      <th className="px-3 py-3">Audited / Recorded By</th>
+                      <th className="px-4 py-3">Date</th>
+                      <th className="px-4 py-3">Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {treasurySummary.childrenAccount.inflows.map((item) => (
+                      <tr key={item.id} className="hover:bg-purple-50/30">
+                        <td className="px-4 py-3 font-bold text-slate-900">
+                          {item.className || 'Children Department'}
+                        </td>
+                        <td className="px-3 py-3 text-center font-bold text-slate-800">
+                          Week {item.weekNumber}
+                        </td>
+                        <td className="px-3 py-3 text-right font-black text-purple-900 text-sm">
+                          ₦{(item.auditedAmount || item.amount || 0).toLocaleString()}
+                        </td>
+                        <td className="px-3 py-3 font-bold text-slate-800">
+                          {item.auditedBy || item.recordedBy || 'Treasurer'}
+                        </td>
+                        <td className="px-4 py-3 text-slate-500 text-[11px]">
+                          {item.auditedAt ? new Date(item.auditedAt).toLocaleDateString() : 'Recorded'}
+                        </td>
+                        <td className="px-4 py-3 text-slate-500 text-[11px]">
+                          {item.notes || '-'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Expenses Table */}
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-xs overflow-hidden">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-black text-slate-900 font-['Cinzel',serif]">
+                  Children Disbursements & Expenses
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Tracked expenses and disbursements exclusively for the Children Department.
+                </p>
+              </div>
+            </div>
+
+            {(!treasurySummary.childrenAccount?.expenditures || treasurySummary.childrenAccount.expenditures.length === 0) ? (
+              <div className="p-10 text-center text-slate-400 text-xs">
+                No Children Account expenditures logged yet for Quarter {selectedQuarter}. Click "+ Record Children Expense" to log a disbursement.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-700 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200">
+                    <tr>
+                      <th className="px-4 py-3">Expense Title</th>
+                      <th className="px-3 py-3">Category</th>
+                      <th className="px-3 py-3">Date</th>
+                      <th className="px-3 py-3">Authorized By</th>
+                      <th className="px-3 py-3 text-right">Amount (₦)</th>
+                      <th className="px-3 py-3 text-center">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {treasurySummary.childrenAccount.expenditures.map((exp) => (
+                      <tr key={exp.id} className="hover:bg-slate-50">
+                        <td className="px-4 py-3 font-bold text-slate-900">
+                          <div>{exp.title}</div>
+                          {exp.notes && <div className="text-[10px] text-slate-500 font-normal">{exp.notes}</div>}
+                        </td>
+                        <td className="px-3 py-3">
+                          <span className="text-[10px] bg-purple-100 text-purple-800 px-2 py-0.5 rounded font-bold">
+                            {exp.category}
+                          </span>
+                        </td>
+                        <td className="px-3 py-3 text-slate-600">{exp.date}</td>
+                        <td className="px-3 py-3 text-slate-700 font-medium">{exp.authorizedBy}</td>
+                        <td className="px-3 py-3 text-right font-black text-red-700 text-sm">
+                          ₦{exp.amount.toLocaleString()}
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          <button
+                            onClick={() => handleDeleteExpense(exp.id)}
+                            className="p-1.5 text-slate-400 hover:text-red-600 rounded transition"
+                            title="Delete Expenditure"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-red-50 font-black text-red-950 text-xs border-t-2 border-red-200">
+                    <tr>
+                      <td className="px-4 py-3" colSpan={4}>
+                        TOTAL CHILDREN EXPENDITURES:
+                      </td>
+                      <td className="px-3 py-3 text-right text-base text-red-700">
+                        ₦{(treasurySummary.childrenAccount?.totalExpenditure || 0).toLocaleString()}
+                      </td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -1009,6 +1354,18 @@ export const TreasurerView: React.FC<TreasurerViewProps> = ({
               </div>
 
               <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">Account Destination</label>
+                <select
+                  value={expenseAccountType}
+                  onChange={(e) => setExpenseAccountType(e.target.value as any)}
+                  className="w-full text-xs p-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-emerald-900 font-bold"
+                >
+                  <option value="SUNDAY_SCHOOL">Standard Sunday School General Treasury</option>
+                  <option value="CHILDREN">Dedicated Children Account (Independent Ledger)</option>
+                </select>
+              </div>
+
+              <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">Additional Notes (Optional)</label>
                 <textarea
                   value={expenseNotes}
@@ -1033,6 +1390,84 @@ export const TreasurerView: React.FC<TreasurerViewProps> = ({
                   className="px-4 py-2 bg-emerald-900 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition disabled:opacity-50"
                 >
                   {isSubmittingExpense ? 'Saving...' : 'Record Disbursement'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Add Children Inflow Modal */}
+      {showAddChildrenInflowModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-purple-200 space-y-4 animate-scale-up">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <PlusCircle className="w-5 h-5 text-purple-600" />
+                <h3 className="text-base font-black text-slate-900 font-['Cinzel',serif]">
+                  Record Children Inflow / Direct Receipt
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowAddChildrenInflowModal(false)}
+                className="text-slate-400 hover:text-slate-600 font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleAddChildrenInflow} className="space-y-3">
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">Inflow Source / Donor / Class</label>
+                <input
+                  type="text"
+                  required
+                  value={childrenInflowSource}
+                  onChange={(e) => setChildrenInflowSource(e.target.value)}
+                  placeholder="e.g., Children Harvest Donation / Special Inflow"
+                  className="w-full text-xs p-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-purple-900"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">Amount (₦ NGN)</label>
+                <input
+                  type="number"
+                  required
+                  min="1"
+                  step="any"
+                  value={childrenInflowAmount}
+                  onChange={(e) => setChildrenInflowAmount(e.target.value)}
+                  placeholder="10000"
+                  className="w-full text-xs p-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-purple-900 font-black text-slate-900"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">Audit Notes / Receipt Ref (Optional)</label>
+                <textarea
+                  value={childrenInflowNotes}
+                  onChange={(e) => setChildrenInflowNotes(e.target.value)}
+                  rows={2}
+                  placeholder="Receipt number or specific children program..."
+                  className="w-full text-xs p-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-purple-900"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowAddChildrenInflowModal(false)}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingChildrenInflow}
+                  className="px-4 py-2 bg-purple-900 hover:bg-purple-800 text-white rounded-xl text-xs font-bold transition disabled:opacity-50"
+                >
+                  {isSubmittingChildrenInflow ? 'Recording...' : 'Record Children Inflow'}
                 </button>
               </div>
             </form>

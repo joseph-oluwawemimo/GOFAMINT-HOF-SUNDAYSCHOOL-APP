@@ -698,6 +698,240 @@ export function createApp() {
       r.status(500).json({ error: e.message || 'Failed to create classes.' });
     }
   });
+
+  // ---------------------------------------------------------------------------
+  // AUTHORITATIVE DEPARTMENT MANAGEMENT (Phases 2.1, 2.2, 2.5, 36)
+  // ---------------------------------------------------------------------------
+  app.get('/api/admin/departments', async (req, r) => {
+    const db = getSupabaseAdmin();
+    try {
+      const c = await caller(req, r);
+      if (!c) return;
+      const { data: deptRows, error } = await db.from('departments').select('id, name');
+      if (error) throw error;
+      const set = new Set<string>(['Adult', 'Youth', 'Teenagers', 'Children']);
+      for (const row of deptRows || []) {
+        if (row.name) set.add(row.name);
+        else if (row.id) set.add(row.id);
+      }
+      r.json({ success: true, departments: Array.from(set) });
+    } catch (e: any) {
+      console.error('[Server] fetch departments error:', e);
+      r.status(500).json({ error: e.message || 'Failed to fetch departments.' });
+    }
+  });
+
+  app.post('/api/admin/departments', async (req, r) => {
+    const db = getSupabaseAdmin();
+    try {
+      const c = await caller(req, r, EXEC);
+      if (!c) return;
+      const name = limitedText(req.body?.name, 120);
+      if (!name) return r.status(400).json({ error: 'Department name is required.' });
+
+      const { error } = await db.from('departments')
+        .upsert({ id: name, name, data: {} }, { onConflict: 'id' });
+      if (error) throw error;
+
+      await audit(c, 'CREATE_DEPARTMENT', { department: name }, 'departments', name);
+      r.json({ success: true, department: name, message: `Department "${name}" created successfully.` });
+    } catch (e: any) {
+      console.error('[Server] create department error:', e);
+      r.status(500).json({ error: e.message || 'Failed to create department.' });
+    }
+  });
+
+  app.delete('/api/admin/departments/:name', async (req, r) => {
+    const db = getSupabaseAdmin();
+    try {
+      const c = await caller(req, r, EXEC);
+      if (!c) return;
+      const deptName = limitedText(req.params.name, 120);
+      if (!deptName) return r.status(400).json({ error: 'Department name is required.' });
+
+      // Safety check: verify no classes currently depend on this department
+      const { data: dependentClasses, error: checkError } = await db
+        .from('classes')
+        .select('id, department_id, data')
+        .or(`department_id.eq.${deptName},data->>department.eq.${deptName}`);
+      if (checkError) throw checkError;
+
+      if (dependentClasses && dependentClasses.length > 0) {
+        const classNames = dependentClasses.map(cls => cls.data?.className || cls.id).join(', ');
+        return r.status(400).json({
+          error: `Cannot delete department "${deptName}" because it is currently assigned to ${dependentClasses.length} class(es): ${classNames}. Please reassign those classes to an approved department before deleting.`
+        });
+      }
+
+      const { error: deleteError } = await db.from('departments').delete().eq('id', deptName);
+      if (deleteError) throw deleteError;
+
+      await audit(c, 'DELETE_DEPARTMENT', { department: deptName }, 'departments', deptName);
+      r.json({ success: true, message: `Department "${deptName}" deleted successfully.` });
+    } catch (e: any) {
+      console.error('[Server] delete department error:', e);
+      r.status(500).json({ error: e.message || 'Failed to delete department.' });
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // CLASS EDITING, DELETION & INSPECTION (Phases 2.4, 3, 4)
+  // ---------------------------------------------------------------------------
+  app.patch('/api/admin/classes/:id', async (req, r) => {
+    const db = getSupabaseAdmin();
+    try {
+      const c = await caller(req, r, CLASS_ADMINS);
+      if (!c) return;
+      const classId = limitedText(req.params.id, 120);
+      if (!classId) return r.status(400).json({ error: 'Class ID is required.' });
+
+      const { className, department, password } = req.body || {};
+      const { data: existingClass, error: findError } = await db
+        .from('classes')
+        .select('id, department_id, data')
+        .eq('id', classId)
+        .maybeSingle();
+      if (findError) throw findError;
+      if (!existingClass) return r.status(404).json({ error: `Class ${classId} not found.` });
+
+      const now = new Date().toISOString();
+      const updatedData = {
+        ...(existingClass.data || {}),
+        className: className ? limitedText(className, 160) : existingClass.data?.className,
+        department: department ? limitedText(department, 120) : existingClass.data?.department,
+        updatedAt: now
+      };
+      delete updatedData.password;
+
+      const { error: updateError } = await db.from('classes').update({
+        department_id: updatedData.department,
+        data: updatedData,
+        updated_at: now
+      }).eq('id', classId);
+      if (updateError) throw updateError;
+
+      // If password provided, update Supabase Auth user for this class login
+      if (password && password.length >= 6) {
+        const loginEmail = normalizeClassLoginIdentifier(classId);
+        const { data: profile } = await db.from('profiles').select('id').eq('email', loginEmail).maybeSingle();
+        if (profile?.id) {
+          const { error: pwError } = await db.auth.admin.updateUserById(profile.id, { password });
+          if (pwError) console.warn('[Server] password update for class auth user failed:', pwError);
+        }
+      }
+
+      await audit(c, 'UPDATE_CLASS_PROFILE', { classId, updates: { className, department } }, 'classes', classId);
+      r.json({ success: true, message: `Class ${classId} updated successfully.`, class: updatedData });
+    } catch (e: any) {
+      console.error('[Server] update class error:', e);
+      r.status(500).json({ error: e.message || 'Failed to update class.' });
+    }
+  });
+
+  app.delete('/api/admin/classes/:id', async (req, r) => {
+    const db = getSupabaseAdmin();
+    try {
+      const c = await caller(req, r, CLASS_ADMINS);
+      if (!c) return;
+      const classId = limitedText(req.params.id, 120);
+      if (!classId) return r.status(400).json({ error: 'Class ID is required.' });
+
+      // Clean up profile_class_assignments
+      await db.from('profile_class_assignments').delete().eq('class_id', classId);
+
+      // Clean up dedicated class auth profile if present
+      const loginEmail = normalizeClassLoginIdentifier(classId);
+      const { data: profile } = await db.from('profiles').select('id').eq('email', loginEmail).maybeSingle();
+      if (profile?.id) {
+        await db.from('profiles').delete().eq('id', profile.id);
+        await db.auth.admin.deleteUser(profile.id).catch(() => {});
+      }
+
+      // Delete from classes table
+      const { error: deleteError } = await db.from('classes').delete().eq('id', classId);
+      if (deleteError) throw deleteError;
+
+      await audit(c, 'DELETE_CLASS', { classId }, 'classes', classId);
+      r.json({ success: true, message: `Class ${classId} was permanently deleted.` });
+    } catch (e: any) {
+      console.error('[Server] delete class error:', e);
+      r.status(500).json({ error: e.message || 'Failed to delete class.' });
+    }
+  });
+
+  app.get('/api/admin/classes/:id/inspection', async (req, r) => {
+    const db = getSupabaseAdmin();
+    try {
+      const c = await caller(req, r, EXEC);
+      if (!c) return;
+      const classId = limitedText(req.params.id, 120);
+      if (!classId) return r.status(400).json({ error: 'Class ID is required.' });
+
+      const [membersRes, gradesRes, offeringsRes, logsRes, commentsRes] = await Promise.all([
+        db.from('members').select('*').eq('class_id', classId),
+        db.from('grades').select('*').eq('class_id', classId),
+        db.from('offerings').select('*').eq('class_id', classId),
+        db.from('absence_logs').select('*').eq('class_id', classId),
+        db.from('admin_comments').select('*').eq('class_id', classId),
+      ]);
+
+      const members = (membersRes.data || []).map(row => ({
+        id: row.id,
+        classId: row.class_id,
+        fullName: row.full_name,
+        phone: row.phone,
+        email: row.email,
+        memberType: row.member_type,
+        status: row.status,
+        ...(row.data || {})
+      }));
+
+      const grades = (gradesRes.data || []).map(row => ({
+        id: row.id,
+        classId: row.class_id,
+        weekNumber: row.week_number,
+        quarterNumber: row.quarter_number,
+        studentId: row.student_id,
+        attendanceStatus: row.attendance_status,
+        ...(row.data || {})
+      }));
+
+      const offerings = (offeringsRes.data || []).map(row => ({
+        id: row.id,
+        classId: row.class_id,
+        weekNumber: row.week_number,
+        quarterNumber: row.quarter_number,
+        ...(row.data || {})
+      }));
+
+      const absenceLogs = (logsRes.data || []).map(row => ({
+        id: row.id,
+        classId: row.class_id,
+        memberId: row.member_id,
+        ...(row.data || {})
+      }));
+
+      const adminComments = (commentsRes.data || []).map(row => ({
+        id: row.id,
+        classId: row.class_id,
+        ...(row.data || {})
+      }));
+
+      r.json({
+        success: true,
+        classId,
+        members,
+        grades,
+        offerings,
+        absenceLogs,
+        adminComments
+      });
+    } catch (e: any) {
+      console.error('[Server] class inspection data fetch error:', e);
+      r.status(500).json({ error: e.message || 'Could not fetch class inspection data.' });
+    }
+  });
+
   app.post('/api/classes/:classId/submit-registration', async (req, r) => {
     const db = getSupabaseAdmin();
     try {
@@ -928,6 +1162,23 @@ export function createApp() {
       if (!c) return;
       const classId = req.params.id;
       if (!classId) return r.status(400).json({ error: 'Class ID is required.' });
+
+      // Clean up profile class assignments first to ensure foreign key safety
+      await db.from('profile_class_assignments').delete().eq('class_id', classId);
+
+      // Clean up login profile for this class if exists
+      const loginEmail = normalizeClassLoginIdentifier(classId);
+      const { data: existingLogin } = await db.from('profiles')
+        .select('id').eq('email', loginEmail).maybeSingle();
+      if (existingLogin) {
+        await db.from('profiles').delete().eq('id', existingLogin.id);
+        try {
+          await db.auth.admin.deleteUser(existingLogin.id);
+        } catch (authErr) {
+          console.warn('[Server] Note: Class auth user cleanup:', authErr);
+        }
+      }
+
       const { error } = await db.from('classes').delete().eq('id', classId);
       if (error) throw error;
       await audit(c, 'DELETE_CLASS', { classId }, 'classes', classId);
@@ -935,6 +1186,158 @@ export function createApp() {
     } catch (e: any) {
       console.error('[Server] delete class error:', e);
       r.status(500).json({ error: e.message || 'Failed to delete class.' });
+    }
+  });
+
+  app.patch('/api/admin/classes/:id', async (req, r) => {
+    const db = getSupabaseAdmin();
+    try {
+      const c = await caller(req, r, CLASS_ADMINS);
+      if (!c) return;
+      const classId = req.params.id;
+      if (!classId) return r.status(400).json({ error: 'Class ID is required.' });
+
+      const { className, department, password } = req.body || {};
+      const { data: existingClass, error: findError } = await db.from('classes')
+        .select('*').eq('id', classId).single();
+      if (findError || !existingClass) {
+        return r.status(404).json({ error: 'Class not found.' });
+      }
+
+      const existingData = (existingClass.data && typeof existingClass.data === 'object') ? existingClass.data : {};
+      const updatedData = {
+        ...existingData,
+        className: className ? limitedText(className, 160) : existingData.className,
+        department: department ? limitedText(department, 120) : existingData.department,
+        updatedAt: new Date().toISOString()
+      };
+
+      const updatePayload: Record<string, any> = {
+        data: updatedData,
+        updated_at: new Date().toISOString()
+      };
+      if (department) {
+        updatePayload.department_id = limitedText(department, 120);
+      }
+
+      const { error: updateError } = await db.from('classes').update(updatePayload).eq('id', classId);
+      if (updateError) throw updateError;
+
+      // Update class auth password if provided
+      if (password && String(password).length >= 6) {
+        const loginEmail = normalizeClassLoginIdentifier(classId);
+        const { data: existingLogin } = await db.from('profiles')
+          .select('id').eq('email', loginEmail).maybeSingle();
+        if (existingLogin) {
+          await db.auth.admin.updateUserById(existingLogin.id, { password: String(password) });
+        }
+      }
+
+      await audit(c, 'UPDATE_CLASS', { classId, className, department }, 'classes', classId);
+      r.json({ success: true, message: `Class ${classId} updated successfully.`, class: { ...updatedData, id: classId } });
+    } catch (e: any) {
+      console.error('[Server] update class error:', e);
+      r.status(500).json({ error: e.message || 'Failed to update class.' });
+    }
+  });
+
+  const DEPT_ADMINS: GofamintRole[] = ['SUPER_ADMIN', 'GENERAL_SUPERINTENDENT', 'GENERAL_SECRETARY'];
+
+  app.get('/api/admin/departments', async (req, r) => {
+    const db = getSupabaseAdmin();
+    try {
+      const c = await caller(req, r);
+      if (!c) return;
+      const { data, error } = await db.from('departments').select('*').order('name');
+      if (error) throw error;
+      const departments = (data || []).map((row: any) => row.name || row.id);
+      r.json({ success: true, departments });
+    } catch (e: any) {
+      console.error('[Server] get departments error:', e);
+      r.status(500).json({ error: e.message || 'Failed to get departments.' });
+    }
+  });
+
+  app.post('/api/admin/departments', async (req, r) => {
+    const db = getSupabaseAdmin();
+    try {
+      const c = await caller(req, r, DEPT_ADMINS);
+      if (!c) return;
+      const name = limitedText(req.body?.name, 120).trim();
+      if (!name) return r.status(400).json({ error: 'Department name is required.' });
+
+      const { error } = await db.from('departments')
+        .upsert({ id: name, name, data: {}, updated_at: new Date().toISOString() }, { onConflict: 'id' });
+      if (error) throw error;
+
+      // Update sunday_school_years
+      const { data: years } = await db.from('sunday_school_years').select('*');
+      if (years && years.length > 0) {
+        for (const y of years) {
+          const yData = y.data || {};
+          const currentDepts: string[] = Array.isArray(yData.departments) ? yData.departments : [];
+          if (!currentDepts.includes(name)) {
+            await db.from('sunday_school_years').update({
+              data: { ...yData, departments: [...currentDepts, name], updatedAt: new Date().toISOString() },
+              updated_at: new Date().toISOString()
+            }).eq('id', y.id);
+          }
+        }
+      }
+
+      await audit(c, 'CREATE_DEPARTMENT', { department: name }, 'departments', name);
+      r.json({ success: true, message: `Department "${name}" created successfully.`, department: name });
+    } catch (e: any) {
+      console.error('[Server] create department error:', e);
+      r.status(500).json({ error: e.message || 'Failed to create department.' });
+    }
+  });
+
+  app.delete('/api/admin/departments/:name', async (req, r) => {
+    const db = getSupabaseAdmin();
+    try {
+      const c = await caller(req, r, DEPT_ADMINS);
+      if (!c) return;
+      const deptName = decodeURIComponent(req.params.name || '').trim();
+      if (!deptName) return r.status(400).json({ error: 'Department name is required.' });
+
+      // Safety check: verify whether any class depends on this department!
+      const { data: dependentClasses, error: classQueryError } = await db.from('classes')
+        .select('id, data')
+        .or(`department_id.eq.${deptName},data->>department.eq.${deptName}`);
+      if (classQueryError) throw classQueryError;
+
+      if (dependentClasses && dependentClasses.length > 0) {
+        const classNames = dependentClasses.map((cl: any) => cl.data?.className || cl.id).join(', ');
+        return r.status(400).json({
+          error: `Cannot delete department "${deptName}" because ${dependentClasses.length} class(es) (${classNames}) currently belong to it. Please reassign those classes to an approved department before deleting.`
+        });
+      }
+
+      // Safe to delete from departments table
+      const { error: deleteError } = await db.from('departments').delete().eq('id', deptName);
+      if (deleteError) throw deleteError;
+
+      // Clean up from sunday_school_years
+      const { data: years } = await db.from('sunday_school_years').select('*');
+      if (years && years.length > 0) {
+        for (const y of years) {
+          const yData = y.data || {};
+          const currentDepts: string[] = Array.isArray(yData.departments) ? yData.departments : [];
+          if (currentDepts.includes(deptName)) {
+            await db.from('sunday_school_years').update({
+              data: { ...yData, departments: currentDepts.filter(d => d !== deptName), updatedAt: new Date().toISOString() },
+              updated_at: new Date().toISOString()
+            }).eq('id', y.id);
+          }
+        }
+      }
+
+      await audit(c, 'DELETE_DEPARTMENT', { department: deptName }, 'departments', deptName);
+      r.json({ success: true, message: `Department "${deptName}" deleted successfully.` });
+    } catch (e: any) {
+      console.error('[Server] delete department error:', e);
+      r.status(500).json({ error: e.message || 'Failed to delete department.' });
     }
   });
   app.delete('/api/admin/workers/:id', async (req, r) => {

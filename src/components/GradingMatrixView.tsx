@@ -48,8 +48,10 @@ import {
   LessonInfo,
   AttendanceStatus,
   ClassProfile,
-  AdminComment
+  AdminComment,
+  SundaySchoolYear
 } from '../types';
+import { getCurrentCalendarWeek } from '../utils/quarterScheduleUtils';
 import { GOFAMINT_HOF_12_LESSONS } from '../data/mockQuarterLessons';
 import { OfficialReturnPrintModal } from './OfficialReturnPrintModal';
 import { saveAdminComment } from '../db/indexedDB';
@@ -86,6 +88,7 @@ interface GradingMatrixViewProps {
   onUpdateMember?: (member: Member) => Promise<void> | void;
   onSaveBulkMembers?: (members: Member[]) => Promise<void> | void;
   currencySymbol?: string;
+  sundaySchoolYear?: SundaySchoolYear;
 }
 
 interface ScoreInputProps {
@@ -195,11 +198,27 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
   onNavigateToRoster,
   onUpdateMember,
   onSaveBulkMembers,
-  currencySymbol = '₦'
+  currencySymbol = '₦',
+  sundaySchoolYear
 }) => {
   const isReadOnly = quarterStatus === 'ARCHIVED' || quarterStatus === 'UPCOMING';
   const isUpcoming = quarterStatus === 'UPCOMING';
   useScrollRestoration('grading_matrix');
+
+  // Date-aware Active Week & Schedule Intelligence (Phases 7 & 19)
+  const activeQuarterObj = sundaySchoolYear?.quarters.find(q => q.quarterNumber === selectedQuarter);
+  const activeCalendarWeek = useMemo(() => {
+    return getCurrentCalendarWeek(activeQuarterObj, new Date());
+  }, [activeQuarterObj]);
+
+  const handleSelectWeek = (wk: number) => {
+    if (wk > activeCalendarWeek) {
+      alert(`Week ${wk} is a future Sunday and is not yet available.`);
+      return;
+    }
+    onSelectWeek(wk);
+  };
+
   const [searchFilter, setSearchFilter] = usePersistedState<string>('gofamint_grading_search', '');
   const [typeFilter, setTypeFilter] = usePersistedState<'ALL' | 'STUDENT' | 'VISITOR'>('gofamint_grading_type', 'ALL');
   const [lastSavedTimestamp, setLastSavedTimestamp] = useState<number | null>(null);
@@ -415,24 +434,43 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
 
   const getMemberGrade = (memberId: string): WeeklyGradeRecord => {
     const existing = grades.find(g => g.memberId === memberId && g.weekNumber === selectedWeek);
-    if (existing) return existing;
+    const drafts = backgroundStateManager.getScoreDrafts(classProfile?.id || 'default_class', selectedWeek);
+    const memberDraft = drafts[memberId];
 
-    const member = members.find(m => m.id === memberId);
-    const isExemptBeforeJoin = member && selectedWeek < (member.firstLessonWeek || 1);
+    const baseRecord: WeeklyGradeRecord = existing || (() => {
+      const member = members.find(m => m.id === memberId);
+      const isExemptBeforeJoin = member && selectedWeek < (member.firstLessonWeek || 1);
+
+      return {
+        id: `${memberId}_week_${selectedWeek}`,
+        memberId,
+        weekNumber: selectedWeek,
+        attendance: isExemptBeforeJoin ? 'EXEMPT' : 'PRESENT',
+        punctuality: 0,
+        memoryVerse: 0,
+        classParticipation: 0,
+        lessonTotal: 0,
+        joinedPrayerMeeting: false,
+        postedStatusInsight: false,
+        invitedSomeone: false,
+        updatedAt: new Date().toISOString()
+      };
+    })();
+
+    if (!memberDraft) return baseRecord;
+
+    const punct = memberDraft.punctuality !== undefined ? memberDraft.punctuality : baseRecord.punctuality;
+    const verse = memberDraft.memoryVerse !== undefined ? memberDraft.memoryVerse : baseRecord.memoryVerse;
+    const part = memberDraft.classParticipation !== undefined ? memberDraft.classParticipation : baseRecord.classParticipation;
+    const att = (memberDraft.attendance as AttendanceStatus) || baseRecord.attendance;
 
     return {
-      id: `${memberId}_week_${selectedWeek}`,
-      memberId,
-      weekNumber: selectedWeek,
-      attendance: isExemptBeforeJoin ? 'EXEMPT' : 'PRESENT',
-      punctuality: 0,
-      memoryVerse: 0,
-      classParticipation: 0,
-      lessonTotal: 0,
-      joinedPrayerMeeting: false,
-      postedStatusInsight: false,
-      invitedSomeone: false,
-      updatedAt: new Date().toISOString()
+      ...baseRecord,
+      attendance: att,
+      punctuality: punct,
+      memoryVerse: verse,
+      classParticipation: part,
+      lessonTotal: punct + verse + part
     };
   };
 
@@ -459,6 +497,13 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
       updated.lessonTotal = 0;
     }
 
+    backgroundStateManager.saveScoreDraft(classProfile?.id || 'default_class', selectedWeek, member.id, {
+      attendance: newStatus,
+      punctuality: updated.punctuality,
+      memoryVerse: updated.memoryVerse,
+      classParticipation: updated.classParticipation
+    });
+
     persistWithoutBlockingInput('attendance', () => onUpdateGrade(updated));
   };
 
@@ -476,6 +521,13 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
       attendance: 'PRESENT' as AttendanceStatus,
       [field]: clamped
     };
+    updated.lessonTotal = updated.punctuality + updated.memoryVerse + updated.classParticipation;
+
+    backgroundStateManager.saveScoreDraft(classProfile?.id || 'default_class', selectedWeek, memberId, {
+      [field]: clamped,
+      attendance: 'PRESENT'
+    });
+
     persistWithoutBlockingInput(`${field} score`, () => onUpdateGrade(updated));
   };
 
@@ -811,14 +863,21 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-              <button
-                type="button"
-                onClick={() => setIsConfirmChangesModalOpen(true)}
-                className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-lg text-xs transition flex items-center gap-1.5 shadow-sm cursor-pointer active:scale-95"
-              >
-                <Edit2 className="w-3.5 h-3.5" />
-                <span>MAKE CHANGES</span>
-              </button>
+              {currentOffering.remittanceStatus === 'AUDITED' ? (
+                <div className="px-3 py-1.5 bg-slate-900 border border-emerald-500/40 text-emerald-300 text-xs font-semibold rounded-lg flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-emerald-400" />
+                  <span>This record has already been accepted and audited by the Treasurer and is now locked.</span>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsConfirmChangesModalOpen(true)}
+                  className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-lg text-xs transition flex items-center gap-1.5 shadow-sm cursor-pointer active:scale-95"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                  <span>MAKE CHANGES</span>
+                </button>
+              )}
               <span className="px-3 py-1.5 bg-slate-800/80 border border-slate-700 text-indigo-200 text-xs font-mono font-bold rounded-lg flex items-center gap-1.5">
                 <ShieldCheck className="w-4 h-4 text-indigo-400" />
                 <span>{currentOffering.remittanceStatus === 'AUDITED' ? 'FINANCIALLY AUDITED' : 'LOCKED (REMITTED)'}</span>
@@ -853,32 +912,35 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
         </div>
       )}
 
-      {/* 12-Lesson Week Switcher Carousel */}
+      {/* 12-Lesson Week Switcher Carousel & Date-Aware Intelligence (Phases 7 & 19) */}
       <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs print:hidden">
-        <div className="flex items-center justify-between gap-2 mb-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
           <div className="flex items-center gap-2">
             <Calendar className="w-5 h-5 text-blue-900" />
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
               12-Lesson Quarter Matrix Selector
             </h3>
+            <span className="text-[11px] font-black text-emerald-800 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-md">
+              Active Week: Week {activeCalendarWeek}
+            </span>
           </div>
 
           <div className="flex items-center gap-1.5">
             <button
-              onClick={() => onSelectWeek(Math.max(1, selectedWeek - 1))}
+              onClick={() => handleSelectWeek(Math.max(1, selectedWeek - 1))}
               disabled={selectedWeek <= 1}
-              className="p-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-30 rounded text-slate-700 transition"
+              className="p-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-30 rounded text-slate-700 transition cursor-pointer"
               title="Previous Lesson"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
             <span className="text-xs font-black text-blue-900 px-2">
-              Week {selectedWeek} of {totalWeeks}
+              Week {selectedWeek} of {totalWeeks} {selectedWeek === activeCalendarWeek ? '• ACTIVE' : selectedWeek > activeCalendarWeek ? '• FUTURE' : '• PAST'}
             </span>
             <button
-              onClick={() => onSelectWeek(Math.min(totalWeeks, selectedWeek + 1))}
-              disabled={selectedWeek >= totalWeeks}
-              className="p-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-30 rounded text-slate-700 transition"
+              onClick={() => handleSelectWeek(Math.min(totalWeeks, selectedWeek + 1))}
+              disabled={selectedWeek >= totalWeeks || selectedWeek >= activeCalendarWeek}
+              className="p-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-30 rounded text-slate-700 transition cursor-pointer"
               title="Next Lesson"
             >
               <ChevronRight className="w-4 h-4" />
@@ -886,35 +948,88 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
           </div>
         </div>
 
-        {/* Horizontal Week Pill Tabs */}
-        <div className={`grid grid-cols-6 ${totalWeeks >= 13 ? 'sm:grid-cols-13' : 'sm:grid-cols-12'} gap-1.5`}>
+        {/* Mobile Week Selector Dropdown (Phase 19) */}
+        <div className="sm:hidden flex items-center justify-between gap-2 p-2 bg-slate-50 border border-slate-200 rounded-xl mb-2">
+          <button
+            type="button"
+            onClick={() => handleSelectWeek(Math.max(1, selectedWeek - 1))}
+            disabled={selectedWeek <= 1}
+            className="p-2 bg-white rounded-lg border border-slate-200 text-slate-700 disabled:opacity-30 cursor-pointer"
+            title="Previous Lesson"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <div className="flex-1 relative">
+            <select
+              value={selectedWeek}
+              onChange={(e) => handleSelectWeek(Number(e.target.value))}
+              className="w-full text-center font-black text-xs py-2 px-3 bg-white border border-slate-200 rounded-lg text-slate-900 focus:ring-2 focus:ring-blue-500 outline-hidden"
+            >
+              {Array.from({ length: totalWeeks }, (_, i) => i + 1).map((wk) => {
+                const isAct = wk === activeCalendarWeek;
+                const isFut = wk > activeCalendarWeek;
+                return (
+                  <option key={wk} value={wk}>
+                    Week {wk} {isAct ? '— ACTIVE' : isFut ? '— FUTURE (LOCKED)' : '— PAST'}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleSelectWeek(Math.min(totalWeeks, selectedWeek + 1))}
+            disabled={selectedWeek >= totalWeeks || selectedWeek >= activeCalendarWeek}
+            className="p-2 bg-white rounded-lg border border-slate-200 text-slate-700 disabled:opacity-30 cursor-pointer"
+            title="Next Lesson"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Desktop Horizontal Week Pill Tabs */}
+        <div className={`hidden sm:grid grid-cols-6 ${totalWeeks >= 13 ? 'sm:grid-cols-13' : 'sm:grid-cols-12'} gap-1.5`}>
           {Array.from({ length: totalWeeks }, (_, i) => i + 1).map((wk) => {
             const isSelected = wk === selectedWeek;
             const weekStats = calculateWeekSummary(wk, members, grades, offerings);
             const isNoRec = noRecordWeeks.includes(wk);
+            const isAct = wk === activeCalendarWeek;
+            const isFut = wk > activeCalendarWeek;
+
             return (
               <button
                 key={wk}
                 id={`btn-week-pill-${wk}`}
-                onClick={() => onSelectWeek(wk)}
-                className={`py-2 px-1 rounded-lg text-center transition flex flex-col items-center justify-center border ${
+                onClick={() => handleSelectWeek(wk)}
+                className={`py-2 px-1 rounded-lg text-center transition flex flex-col items-center justify-center border cursor-pointer ${
                   isSelected
-                    ? 'bg-blue-900 border-blue-900 text-white shadow-xs'
+                    ? 'bg-blue-900 border-blue-900 text-white shadow-xs ring-2 ring-blue-500/50'
+                    : isAct
+                    ? 'bg-emerald-50 hover:bg-emerald-100 border-emerald-400 text-emerald-950 font-black'
+                    : isFut
+                    ? 'bg-slate-100/70 border-slate-200 text-slate-400 opacity-60'
                     : isNoRec
                     ? 'bg-amber-50 hover:bg-amber-100 border-amber-300 text-amber-900'
                     : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
                 }`}
               >
-                <span className="text-[10px] uppercase font-bold text-slate-400">Wk</span>
-                <span className="text-sm font-black">{wk}</span>
+                <span className="text-[10px] uppercase font-bold text-slate-400">
+                  {isAct ? '★ ACTIVE' : isFut ? '🔒 FUTURE' : 'Wk'}
+                </span>
+                <span className="text-sm font-black flex items-center gap-0.5">
+                  {wk}
+                  {isFut && <Lock className="w-2.5 h-2.5 text-slate-400 inline" />}
+                </span>
                 <span className={`text-[9px] font-bold mt-0.5 ${
                   isNoRec
                     ? 'text-amber-700 font-black'
+                    : isAct
+                    ? (isSelected ? 'text-emerald-300' : 'text-emerald-700 font-black')
                     : weekStats.totalAttendance > 0
                     ? (isSelected ? 'text-green-300' : 'text-emerald-600')
                     : 'text-slate-400'
                 }`}>
-                  {isNoRec ? 'NO REC' : weekStats.totalAttendance > 0 ? `${weekStats.totalAttendance} att` : '—'}
+                  {isNoRec ? 'NO REC' : isAct ? 'ACTIVE' : weekStats.totalAttendance > 0 ? `${weekStats.totalAttendance} att` : '—'}
                 </span>
               </button>
             );
@@ -1033,15 +1148,22 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
             </div>
           </div>
           {!isReadOnly && (
-            <button
-              type="button"
-              id="btn-enter-changes-mode"
-              onClick={() => setIsConfirmChangesModalOpen(true)}
-              className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
-            >
-              <Edit2 className="w-3.5 h-3.5" />
-              <span>MAKE CHANGES</span>
-            </button>
+            currentOffering.remittanceStatus === 'AUDITED' ? (
+              <div className="px-3.5 py-2 bg-slate-900 text-emerald-300 border border-emerald-500/40 text-xs font-semibold rounded-xl flex items-center gap-2">
+                <Lock className="w-4 h-4 text-emerald-400" />
+                <span>This record has already been accepted and audited by the Treasurer and is now locked.</span>
+              </div>
+            ) : (
+              <button
+                type="button"
+                id="btn-enter-changes-mode"
+                onClick={() => setIsConfirmChangesModalOpen(true)}
+                className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
+              >
+                <Edit2 className="w-3.5 h-3.5" />
+                <span>MAKE CHANGES</span>
+              </button>
+            )
           )}
         </div>
       )}

@@ -36,6 +36,7 @@ import {
   ExitReviewOutcome
 } from '../types';
 import { getConsecutiveAbsences, getAbsenceUrgency } from '../utils/calculations';
+import { normalizePhoneNumber } from '../utils/phoneUtils';
 import { GOFAMINT_HOF_12_LESSONS } from '../data/mockQuarterLessons';
 
 interface WelfareFollowUpViewProps {
@@ -214,7 +215,10 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
   };
 
   const generateWhatsAppMessage = (member: Member) => {
-    const text = `Calvary greetings ${member.fullName}! 🙏\n\nWe missed your warm presence in our GOFAMINT_HOF Sunday School class today (Lesson ${currentWeek}: "${currentLesson.topic}").\n\nMemory Verse: "${currentLesson.memoryVerse || ''}" (${currentLesson.memoryVerseRef || ''}).\n\nWe are upholding you in prayer. Please let us know if there is anything we can pray with you about.\n\n— ${classProfile?.secretaryName || 'Sunday School Secretary'}, GOFAMINT_HOF ${classProfile?.className || ''}`;
+    const studentName = member.fullName;
+    const className = classProfile?.className || 'our Sunday School class';
+    const secretaryName = classProfile?.secretaryName || 'the class secretary';
+    const text = `We miss you dearly at our Sunday School (${className}). We'd love to know why you were not around today, why you came late for Sunday School, or why you could not make it to church. Are there any issues you're facing? We'd like to know and also pray with you. Regards from ${secretaryName} and the teachers of the class.`;
     return encodeURIComponent(text);
   };
 
@@ -451,30 +455,42 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
                         </div>
                       </div>
 
-                      {/* Action Buttons */}
+                      {/* Quick Communication & Action Buttons (Phase 6) */}
                       <div className="flex flex-wrap items-center gap-2 shrink-0 self-end lg:self-center">
                         {member.phone && (
-                          <a
-                            href={`https://wa.me/${member.phone.replace(/[^0-9]/g, '')}?text=${waEncoded}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition"
-                          >
-                            <MessageCircle className="w-3.5 h-3.5" />
-                            <span>WhatsApp</span>
-                          </a>
+                          <>
+                            <a
+                              href={`tel:${normalizePhoneNumber(member.phone)}`}
+                              className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+                              title="Direct Phone Call"
+                            >
+                              <PhoneCall className="w-3.5 h-3.5" />
+                              <span>Call</span>
+                            </a>
+
+                            <a
+                              href={`https://wa.me/${normalizePhoneNumber(member.phone).replace(/[^0-9]/g, '')}?text=${generateWhatsAppMessage(member)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+                              title="Personalized WhatsApp message"
+                            >
+                              <MessageCircle className="w-3.5 h-3.5" />
+                              <span>WhatsApp</span>
+                            </a>
+                          </>
                         )}
 
                         <button
                           onClick={() => handleOpenActionModal(member, weeksAbsent, actionType)}
-                          className={`px-3.5 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition ${
+                          className={`px-3.5 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer ${
                             isRedAlert
                               ? 'bg-red-700 hover:bg-red-800 text-white'
-                              : 'bg-blue-900 hover:bg-blue-800 text-white'
+                              : 'bg-slate-900 hover:bg-slate-800 text-white'
                           }`}
                         >
                           <Check className="w-3.5 h-3.5 text-amber-300" />
-                          <span>{isRedAlert ? 'Perform Exit Review' : 'Mark Done & Log'}</span>
+                          <span>{isRedAlert ? 'Perform Exit Review' : 'Mark Activity Done'}</span>
                         </button>
                       </div>
 

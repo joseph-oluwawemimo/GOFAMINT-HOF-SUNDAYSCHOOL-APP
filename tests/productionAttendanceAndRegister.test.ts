@@ -68,11 +68,11 @@ test('Remittance audit records track original amount and corrected changes', () 
 });
 
 test('Member display order is numeric data and preserves database member ID', () => {
-  const members: Member[] = [
+  const members = [
     { id: 'mem_1', classId: 'cls_1', fullName: 'Peter', memberType: 'STUDENT', status: 'ACTIVE', displayOrder: 3 },
     { id: 'mem_2', classId: 'cls_1', fullName: 'John', memberType: 'STUDENT', status: 'ACTIVE', displayOrder: 1 },
     { id: 'mem_3', classId: 'cls_1', fullName: 'Mary', memberType: 'STUDENT', status: 'ACTIVE', displayOrder: 2 }
-  ];
+  ] as unknown as Member[];
 
   // Sort by displayOrder
   const sorted = [...members].sort((a, b) => (a.displayOrder ?? 999) - (b.displayOrder ?? 999));
@@ -85,7 +85,7 @@ test('Member display order is numeric data and preserves database member ID', ()
 });
 
 test('One-time visitor profile tokens invalidate after use and protect access', () => {
-  const visitor: Member = {
+  const visitor = {
     id: 'vis_101',
     classId: 'cls_1',
     fullName: 'New Visitor',
@@ -96,7 +96,7 @@ test('One-time visitor profile tokens invalidate after use and protect access', 
       expiresAt: new Date(Date.now() + 86400000).toISOString(),
       isUsed: false
     }
-  };
+  } as unknown as Member;
 
   assert.equal(visitor.oneTimeProfileToken?.isUsed, false);
 

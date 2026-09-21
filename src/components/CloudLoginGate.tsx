@@ -139,8 +139,8 @@ export const CloudLoginGate: React.FC<CloudLoginGateProps> = ({ onSignedIn, isSy
                     setIdentifier(e.target.value);
                     if (error) setError(null);
                   }}
-                  className={`w-full h-12 pl-11 pr-4 rounded-xl text-sm font-medium bg-slate-800/80 border text-white placeholder-slate-500 focus:outline-none focus:bg-slate-800 transition-all ${
-                    error ? 'border-red-500/80 ring-2 ring-red-500/20' : 'border-slate-700 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20'
+                  className={`w-full h-12 pl-11 pr-4 rounded-xl text-sm font-semibold bg-slate-900/90 border-2 text-white placeholder-slate-400 focus:outline-none focus:bg-slate-950 transition-all ${
+                    error ? 'border-red-500 ring-2 ring-red-500/30' : 'border-slate-400/70 hover:border-slate-300 focus:border-amber-400 focus:ring-4 focus:ring-amber-400/25'
                   }`}
                   placeholder="e.g. GS, GSEC, or user@church.org"
                   autoCapitalize="none"
@@ -151,7 +151,7 @@ export const CloudLoginGate: React.FC<CloudLoginGateProps> = ({ onSignedIn, isSy
 
               {/* Quick Suggestion Chips */}
               <div className="flex items-center gap-1.5 mt-2 overflow-x-auto no-scrollbar py-0.5">
-                <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider mr-1 flex-shrink-0">Quick:</span>
+                <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider mr-1 flex-shrink-0">Quick:</span>
                 {roleSuggestions.map((item) => (
                   <button
                     key={item.label}
@@ -161,7 +161,7 @@ export const CloudLoginGate: React.FC<CloudLoginGateProps> = ({ onSignedIn, isSy
                       setIdentifier(item.label);
                       if (error) setError(null);
                     }}
-                    className="text-[11px] font-semibold px-2.5 py-0.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-amber-300 border border-slate-700/80 transition-colors cursor-pointer flex-shrink-0"
+                    className="text-[11px] font-semibold px-2.5 py-0.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-amber-300 border border-slate-600 transition-colors cursor-pointer flex-shrink-0"
                   >
                     {item.label}
                   </button>
@@ -172,7 +172,7 @@ export const CloudLoginGate: React.FC<CloudLoginGateProps> = ({ onSignedIn, isSy
             {/* Password Input */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-semibold text-slate-300">
+                <label className="text-xs font-bold text-slate-200">
                   Password
                 </label>
               </div>
@@ -185,8 +185,8 @@ export const CloudLoginGate: React.FC<CloudLoginGateProps> = ({ onSignedIn, isSy
                     setPassword(e.target.value);
                     if (error) setError(null);
                   }}
-                  className={`w-full h-12 pl-11 pr-11 rounded-xl text-sm font-medium bg-slate-800/80 border text-white placeholder-slate-500 focus:outline-none focus:bg-slate-800 transition-all ${
-                    error ? 'border-red-500/80 ring-2 ring-red-500/20' : 'border-slate-700 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20'
+                  className={`w-full h-12 pl-11 pr-11 rounded-xl text-sm font-semibold bg-slate-900/90 border-2 text-white placeholder-slate-400 focus:outline-none focus:bg-slate-950 transition-all ${
+                    error ? 'border-red-500 ring-2 ring-red-500/30' : 'border-slate-400/70 hover:border-slate-300 focus:border-amber-400 focus:ring-4 focus:ring-amber-400/25'
                   }`}
                   placeholder="Enter your account password"
                   autoComplete="current-password"
