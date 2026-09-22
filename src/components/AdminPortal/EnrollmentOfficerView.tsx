@@ -27,7 +27,8 @@ import {
   Clock,
   History,
   Check,
-  UserX
+  UserX,
+  ArrowRightLeft
 } from 'lucide-react';
 import {
   AdminProfile,
@@ -39,7 +40,8 @@ import {
   EnrollmentOfficerWeeklyCollation,
   ConvertedStudentAudit,
   EligibleVisitorCandidate,
-  EnrollmentCertificationRecord
+  EnrollmentCertificationRecord,
+  StudentTransferRecord
 } from '../../types';
 import {
   getRealEnrollmentOfficerCollation,
@@ -47,7 +49,10 @@ import {
   certifyVisitorEnrollment,
   denyVisitorConversion,
   getAllEnrollmentCertifications,
-  getAllMembers
+  getAllMembers,
+  getAllStudentTransfers,
+  approveStudentTransfer,
+  rejectStudentTransfer
 } from '../../db/indexedDB';
 import { GofamintLogo } from '../GofamintLogo';
 import { useDatabaseSync } from '../../hooks/useDatabaseSync';
@@ -85,13 +90,15 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
   // 2. 'CONSISTENCY_CERTIFICATION' -> Review active visitors & certify consistent learners into Student status
   // 3. 'AUDIT_TRAIL' -> Historical logs of all ratified visitor-to-student conversions
   // 4. 'DEPARTMENTAL_CENSUS' -> Breakdown by department & classes
-  const [activeTab, setActiveTab] = useState<'WEEKLY_ENROLLMENT' | 'CONSISTENCY_CERTIFICATION' | 'AUDIT_TRAIL' | 'DEPARTMENTAL_CENSUS' | 'DEPARTED_MEMBERS'>('WEEKLY_ENROLLMENT');
+  // 5. 'STUDENT_TRANSFERS' -> Official review & approval of inter-department/inter-class student transfers
+  const [activeTab, setActiveTab] = useState<'WEEKLY_ENROLLMENT' | 'CONSISTENCY_CERTIFICATION' | 'AUDIT_TRAIL' | 'DEPARTMENTAL_CENSUS' | 'DEPARTED_MEMBERS' | 'STUDENT_TRANSFERS'>('WEEKLY_ENROLLMENT');
 
   // Collation & Data State
   const [collationData, setCollationData] = useState<EnrollmentOfficerWeeklyCollation | null>(null);
   const [eligibleCandidates, setEligibleCandidates] = useState<EligibleVisitorCandidate[]>([]);
   const [allCertifications, setAllCertifications] = useState<EnrollmentCertificationRecord[]>([]);
   const [allMembersList, setAllMembersList] = useState<Member[]>([]);
+  const [allTransfers, setAllTransfers] = useState<StudentTransferRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [actionSuccessMessage, setActionSuccessMessage] = useState<string | null>(null);
 
@@ -108,16 +115,18 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
   const loadAllData = async () => {
     setIsLoading(true);
     try {
-      const [collation, candidates, certs, loadedMembers] = await Promise.all([
+      const [collation, candidates, certs, loadedMembers, loadedTransfers] = await Promise.all([
         getRealEnrollmentOfficerCollation(selectedQuarter, selectedWeek),
         getEligibleVisitorCandidates(selectedQuarter, selectedWeek),
         getAllEnrollmentCertifications(),
-        getAllMembers()
+        getAllMembers(),
+        getAllStudentTransfers()
       ]);
       setCollationData(collation);
       setEligibleCandidates(candidates);
       setAllCertifications(certs);
       setAllMembersList(loadedMembers);
+      setAllTransfers(loadedTransfers);
     } catch (err) {
       console.error('Failed to load enrollment officer data:', err);
     } finally {
@@ -125,11 +134,42 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
     }
   };
 
-  useDatabaseSync(loadAllData, ['members', 'grades', 'enrollmentCertifications', 'classes']);
+  useDatabaseSync(loadAllData, ['members', 'grades', 'enrollmentCertifications', 'classes', 'studentTransfers']);
 
   useEffect(() => {
     loadAllData();
   }, [selectedQuarter, selectedWeek]);
+
+  // Phase 10: Approve transfer request
+  const handleApproveTransfer = async (transfer: StudentTransferRecord) => {
+    if (!confirm(`Are you sure you want to approve transferring ${transfer.memberName || transfer.studentName} from ${transfer.previousClassName || transfer.fromClassName} (${transfer.previousDepartment || transfer.fromDepartment}) to ${transfer.destinationClassName || transfer.toClassName} (${transfer.destinationDepartment || transfer.toDepartment}) effective Week ${transfer.effectiveWeekNumber || transfer.effectiveWeek || 1}?`)) {
+      return;
+    }
+    try {
+      await approveStudentTransfer(transfer.id, currentAdmin.profileName);
+      setActionSuccessMessage(`Approved transfer for ${transfer.memberName || transfer.studentName} to ${transfer.destinationClassName || transfer.toClassName}. Current membership updated while historical records remain intact.`);
+      await loadAllData();
+      setTimeout(() => setActionSuccessMessage(null), 5000);
+    } catch (err: any) {
+      console.error('Failed to approve transfer:', err);
+      alert(`Approval failed: ${err.message}`);
+    }
+  };
+
+  // Phase 10: Reject transfer request
+  const handleRejectTransfer = async (transfer: StudentTransferRecord) => {
+    const reason = prompt(`Provide a reason for rejecting the transfer request for ${transfer.memberName || transfer.studentName}:`, 'Requires further administrative clearance.');
+    if (reason === null) return;
+    try {
+      await rejectStudentTransfer(transfer.id, currentAdmin.profileName, reason);
+      setActionSuccessMessage(`Rejected transfer request for ${transfer.memberName || transfer.studentName}.`);
+      await loadAllData();
+      setTimeout(() => setActionSuccessMessage(null), 5000);
+    } catch (err: any) {
+      console.error('Failed to reject transfer:', err);
+      alert(`Rejection failed: ${err.message}`);
+    }
+  };
 
   // Certify single visitor conversion
   const handleCertifySingle = async (candidate: EligibleVisitorCandidate, notes?: string) => {
@@ -417,6 +457,24 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
           <span className="bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full text-[10px]">
             {allMembersList.filter(member => member.status === 'LEFT_CLASS' || member.exitReviewOutcome === 'PERMANENT_EXIT').length}
           </span>
+        </button>
+
+        {/* Phase 10.3: Student Transfers Tab */}
+        <button
+          onClick={() => setActiveTab('STUDENT_TRANSFERS')}
+          className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 cursor-pointer ${
+            activeTab === 'STUDENT_TRANSFERS'
+              ? 'bg-indigo-900 text-amber-300 shadow-sm'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <ArrowRightLeft className="w-4 h-4 text-indigo-400" />
+          <span>Student Transfers</span>
+          {allTransfers.filter(t => t.status === 'PENDING').length > 0 && (
+            <span className="bg-amber-400 text-amber-950 font-black px-2 py-0.5 rounded-full text-[10px] animate-pulse">
+              {allTransfers.filter(t => t.status === 'PENDING').length} pending
+            </span>
+          )}
         </button>
       </div>
 
@@ -1044,6 +1102,198 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* ========================================================= */}
+      {/* TAB 6: STUDENT TRANSFERS (PHASE 10) */}
+      {/* ========================================================= */}
+      {activeTab === 'STUDENT_TRANSFERS' && (() => {
+        const pendingTransfers = allTransfers.filter(t => t.status === 'PENDING');
+        const approvedTransfers = allTransfers.filter(t => t.status === 'APPROVED');
+        const rejectedTransfers = allTransfers.filter(t => t.status === 'REJECTED');
+
+        return (
+          <div className="space-y-6">
+            {/* Header Description */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                <div className="space-y-1">
+                  <h2 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                    <ArrowRightLeft className="w-5 h-5 text-indigo-600" />
+                    <span>Student Transfer Directorate (Phase 10)</span>
+                  </h2>
+                  <p className="text-xs text-slate-500 max-w-2xl">
+                    Review and ratify inter-departmental and inter-class student transfers. Approvals update current membership while historical records in previous classes remain permanently intact.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="px-3 py-1 bg-amber-50 border border-amber-300 text-amber-900 text-xs font-bold rounded-xl flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-amber-600" />
+                    <span>{pendingTransfers.length} Pending Approval</span>
+                  </span>
+                  <span className="px-3 py-1 bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs font-bold rounded-xl flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>{approvedTransfers.length} Approved</span>
+                  </span>
+                </div>
+              </div>
+
+              {/* Integrity Notice (Phase 10.5 & 10.7) */}
+              <div className="p-3.5 bg-indigo-50/70 border border-indigo-200 rounded-xl text-xs text-indigo-950 flex items-start gap-2.5">
+                <ShieldCheck className="w-4 h-4 text-indigo-700 shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <span className="font-bold block">Historical Truth Preservation:</span>
+                  <p className="text-[11px] text-indigo-800 leading-relaxed">
+                    When a transfer is approved effective from a specific lesson week, historical attendance prior to that week remains locked in the student's previous class. Statistical reports will accurately reflect where the student was at each past lesson.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Section 1: Pending Transfer Requests */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
+              <h3 className="text-sm font-black uppercase tracking-wider text-slate-800 flex items-center gap-2">
+                <Clock className="w-4 h-4 text-amber-600" />
+                <span>Pending Transfer Requests ({pendingTransfers.length})</span>
+              </h3>
+
+              {pendingTransfers.length === 0 ? (
+                <div className="p-8 text-center bg-slate-50 rounded-xl border border-dashed border-slate-300 text-xs text-slate-500">
+                  No pending student transfer requests requiring action.
+                </div>
+              ) : (
+                <div className="grid gap-4 md:grid-cols-2">
+                  {pendingTransfers.map((req) => (
+                    <div
+                      key={req.id}
+                      className="p-5 bg-gradient-to-br from-white to-indigo-50/30 rounded-2xl border-2 border-indigo-200 shadow-xs space-y-4 flex flex-col justify-between"
+                    >
+                      <div className="space-y-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <span className="text-[10px] font-bold text-indigo-700 uppercase tracking-wider block">
+                              Transfer Request
+                            </span>
+                            <h4 className="text-base font-black text-slate-900">
+                              {req.memberName || req.studentName}
+                            </h4>
+                          </div>
+                          <span className="px-2 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 rounded-full text-[10px] font-black uppercase">
+                            Pending Review
+                          </span>
+                        </div>
+
+                        {/* From -> To Department & Class Flow */}
+                        <div className="grid grid-cols-2 gap-2 p-3 bg-white rounded-xl border border-slate-200 text-xs">
+                          <div>
+                            <span className="text-[9px] font-bold text-slate-400 uppercase block">From Current</span>
+                            <strong className="text-slate-800 block">{req.previousClassName || req.fromClassName}</strong>
+                            <span className="text-[10px] text-slate-500">{req.previousDepartment || req.fromDepartment}</span>
+                          </div>
+                          <div className="border-l border-slate-200 pl-2">
+                            <span className="text-[9px] font-bold text-indigo-600 uppercase block">To Destination</span>
+                            <strong className="text-indigo-950 block">{req.destinationClassName || req.toClassName}</strong>
+                            <span className="text-[10px] text-indigo-700">{req.destinationDepartment || req.toDepartment}</span>
+                          </div>
+                        </div>
+
+                        {/* Details */}
+                        <div className="space-y-1 text-xs text-slate-600">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-slate-700">Effective Week:</span>
+                            <span className="px-1.5 py-0.2 bg-indigo-100 text-indigo-900 rounded font-black text-[11px]">
+                              Week {req.effectiveWeekNumber || req.effectiveWeek || 1}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="font-bold text-slate-700">Reason:</span>{' '}
+                            <span className="italic text-slate-800">"{req.reason}"</span>
+                          </div>
+                          <div className="text-[10px] text-slate-400 pt-1">
+                            Requested by <strong>{req.requestingOfficer || req.requestedBy}</strong> on {new Date(req.requestedAt).toLocaleDateString()}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleRejectTransfer(req)}
+                          className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 rounded-lg text-xs font-bold transition cursor-pointer"
+                        >
+                          Reject Transfer
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleApproveTransfer(req)}
+                          className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-black shadow-xs transition cursor-pointer"
+                        >
+                          Approve Transfer
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Section 2: Historical Transfer Audit Trail */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
+              <h3 className="text-sm font-black uppercase tracking-wider text-slate-800 flex items-center gap-2">
+                <History className="w-4 h-4 text-teal-600" />
+                <span>Historical Transfer Audit Trail ({approvedTransfers.length + rejectedTransfers.length})</span>
+              </h3>
+
+              {approvedTransfers.length === 0 && rejectedTransfers.length === 0 ? (
+                <p className="text-xs text-slate-400 italic">No historical student transfer records found.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] tracking-wider border-b border-slate-200">
+                      <tr>
+                        <th className="p-3">Student Name</th>
+                        <th className="p-3">Previous Class</th>
+                        <th className="p-3">New Destination Class</th>
+                        <th className="p-3 text-center">Effective Week</th>
+                        <th className="p-3">Reason</th>
+                        <th className="p-3 text-center">Status</th>
+                        <th className="p-3">Reviewed By</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {[...approvedTransfers, ...rejectedTransfers].map((t) => (
+                        <tr key={t.id} className="hover:bg-slate-50">
+                          <td className="p-3 font-black text-slate-900">{t.memberName || t.studentName}</td>
+                          <td className="p-3 text-slate-600">{t.previousClassName || t.fromClassName} ({t.previousDepartment || t.fromDepartment})</td>
+                          <td className="p-3 font-bold text-indigo-900">{t.destinationClassName || t.toClassName} ({t.destinationDepartment || t.toDepartment})</td>
+                          <td className="p-3 text-center font-bold text-slate-800">Week {t.effectiveWeekNumber || t.effectiveWeek || 1}</td>
+                          <td className="p-3 text-slate-600 italic max-w-xs truncate">{t.reason}</td>
+                          <td className="p-3 text-center">
+                            {t.status === 'APPROVED' ? (
+                              <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 font-black rounded-full text-[10px]">
+                                Approved
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 bg-rose-100 text-rose-800 font-black rounded-full text-[10px]">
+                                Rejected
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-3 text-slate-500 text-[11px]">
+                            {t.approvingOfficer || t.reviewedBy || 'Officer'}
+                            <div className="text-[9px] text-slate-400">{t.approvalDate ? new Date(t.approvalDate).toLocaleDateString() : ''}</div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ========================================================= */}
       {/* DRILL-DOWN MODAL: CONVERTED MEMBERS INSPECTION */}

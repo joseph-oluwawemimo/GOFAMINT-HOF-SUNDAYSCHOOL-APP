@@ -699,80 +699,7 @@ export function createApp() {
     }
   });
 
-  // ---------------------------------------------------------------------------
-  // AUTHORITATIVE DEPARTMENT MANAGEMENT (Phases 2.1, 2.2, 2.5, 36)
-  // ---------------------------------------------------------------------------
-  app.get('/api/admin/departments', async (req, r) => {
-    const db = getSupabaseAdmin();
-    try {
-      const c = await caller(req, r);
-      if (!c) return;
-      const { data: deptRows, error } = await db.from('departments').select('id, name');
-      if (error) throw error;
-      const set = new Set<string>(['Adult', 'Youth', 'Teenagers', 'Children']);
-      for (const row of deptRows || []) {
-        if (row.name) set.add(row.name);
-        else if (row.id) set.add(row.id);
-      }
-      r.json({ success: true, departments: Array.from(set) });
-    } catch (e: any) {
-      console.error('[Server] fetch departments error:', e);
-      r.status(500).json({ error: e.message || 'Failed to fetch departments.' });
-    }
-  });
 
-  app.post('/api/admin/departments', async (req, r) => {
-    const db = getSupabaseAdmin();
-    try {
-      const c = await caller(req, r, EXEC);
-      if (!c) return;
-      const name = limitedText(req.body?.name, 120);
-      if (!name) return r.status(400).json({ error: 'Department name is required.' });
-
-      const { error } = await db.from('departments')
-        .upsert({ id: name, name, data: {} }, { onConflict: 'id' });
-      if (error) throw error;
-
-      await audit(c, 'CREATE_DEPARTMENT', { department: name }, 'departments', name);
-      r.json({ success: true, department: name, message: `Department "${name}" created successfully.` });
-    } catch (e: any) {
-      console.error('[Server] create department error:', e);
-      r.status(500).json({ error: e.message || 'Failed to create department.' });
-    }
-  });
-
-  app.delete('/api/admin/departments/:name', async (req, r) => {
-    const db = getSupabaseAdmin();
-    try {
-      const c = await caller(req, r, EXEC);
-      if (!c) return;
-      const deptName = limitedText(req.params.name, 120);
-      if (!deptName) return r.status(400).json({ error: 'Department name is required.' });
-
-      // Safety check: verify no classes currently depend on this department
-      const { data: dependentClasses, error: checkError } = await db
-        .from('classes')
-        .select('id, department_id, data')
-        .or(`department_id.eq.${deptName},data->>department.eq.${deptName}`);
-      if (checkError) throw checkError;
-
-      if (dependentClasses && dependentClasses.length > 0) {
-        const classNames = dependentClasses.map(cls => cls.data?.className || cls.id).join(', ');
-        return r.status(400).json({
-          error: `Cannot delete department "${deptName}" because it is currently assigned to ${dependentClasses.length} class(es): ${classNames}. Please reassign those classes to an approved department before deleting.`
-        });
-      }
-
-      const { error: deleteError } = await db.from('departments').delete().eq('id', deptName);
-      if (deleteError) throw deleteError;
-
-      await audit(c, 'DELETE_DEPARTMENT', { department: deptName }, 'departments', deptName);
-      r.json({ success: true, message: `Department "${deptName}" deleted successfully.` });
-    } catch (e: any) {
-      console.error('[Server] delete department error:', e);
-      r.status(500).json({ error: e.message || 'Failed to delete department.' });
-    }
-  });
 
   // ---------------------------------------------------------------------------
   // CLASS EDITING, DELETION & INSPECTION (Phases 2.4, 3, 4)
@@ -1293,6 +1220,74 @@ export function createApp() {
     }
   });
 
+  app.get('/api/admin/departments/check-dependencies/:name', async (req, r) => {
+    const db = getSupabaseAdmin();
+    try {
+      const c = await caller(req, r, DEPT_ADMINS);
+      if (!c) return;
+      const deptName = decodeURIComponent(req.params.name || '').trim();
+      const reasons: string[] = [];
+
+      const { data: dependentClasses } = await db.from('classes')
+        .select('id, data')
+        .or(`department_id.eq.${deptName},data->>department.eq.${deptName}`);
+      if (dependentClasses && dependentClasses.length > 0) {
+        reasons.push(`${dependentClasses.length} class(es): ${dependentClasses.map((cl: any) => cl.data?.className || cl.id).join(', ')}`);
+      }
+
+      const { data: dependentMembers } = await db.from('members')
+        .select('id, data')
+        .or(`department_id.eq.${deptName},data->>department.eq.${deptName}`);
+      if (dependentMembers && dependentMembers.length > 0) {
+        reasons.push(`${dependentMembers.length} student(s) / visitor(s) registered`);
+      }
+
+      const { data: dependentWorkers } = await db.from('workers')
+        .select('id, data')
+        .or(`department_id.eq.${deptName},data->>department.eq.${deptName}`);
+      if (dependentWorkers && dependentWorkers.length > 0) {
+        reasons.push(`${dependentWorkers.length} worker(s) assigned`);
+      }
+
+      r.json({ success: true, hasDependencies: reasons.length > 0, reasons });
+    } catch (e: any) {
+      console.error('[Server] check department dependencies error:', e);
+      r.status(500).json({ error: e.message || 'Failed to check department dependencies.' });
+    }
+  });
+
+  app.post('/api/admin/departments/archive', async (req, r) => {
+    const db = getSupabaseAdmin();
+    try {
+      const c = await caller(req, r, DEPT_ADMINS);
+      if (!c) return;
+      const deptName = limitedText(req.body?.name, 120).trim();
+      if (!deptName) return r.status(400).json({ error: 'Department name is required.' });
+
+      // Update sunday_school_years: add to archivedDepartments, remove from departments
+      const { data: years } = await db.from('sunday_school_years').select('*');
+      if (years && years.length > 0) {
+        for (const y of years) {
+          const yData = y.data || {};
+          const currentDepts: string[] = Array.isArray(yData.departments) ? yData.departments : [];
+          const currentArchived: string[] = Array.isArray(yData.archivedDepartments) ? yData.archivedDepartments : [];
+          const updatedDepts = currentDepts.filter(d => d !== deptName);
+          const updatedArchived = currentArchived.includes(deptName) ? currentArchived : [...currentArchived, deptName];
+          await db.from('sunday_school_years').update({
+            data: { ...yData, departments: updatedDepts, archivedDepartments: updatedArchived, updatedAt: new Date().toISOString() },
+            updated_at: new Date().toISOString()
+          }).eq('id', y.id);
+        }
+      }
+
+      await audit(c, 'ARCHIVE_DEPARTMENT', { department: deptName }, 'departments', deptName);
+      r.json({ success: true, message: `Department "${deptName}" archived safely without deleting historical records.`, department: deptName });
+    } catch (e: any) {
+      console.error('[Server] archive department error:', e);
+      r.status(500).json({ error: e.message || 'Failed to archive department.' });
+    }
+  });
+
   app.delete('/api/admin/departments/:name', async (req, r) => {
     const db = getSupabaseAdmin();
     try {
@@ -1310,7 +1305,7 @@ export function createApp() {
       if (dependentClasses && dependentClasses.length > 0) {
         const classNames = dependentClasses.map((cl: any) => cl.data?.className || cl.id).join(', ');
         return r.status(400).json({
-          error: `Cannot delete department "${deptName}" because ${dependentClasses.length} class(es) (${classNames}) currently belong to it. Please reassign those classes to an approved department before deleting.`
+          error: `Cannot delete department "${deptName}" because ${dependentClasses.length} class(es) (${classNames}) currently belong to it. Please archive the department or reassign those classes before deleting.`
         });
       }
 
@@ -1338,6 +1333,61 @@ export function createApp() {
     } catch (e: any) {
       console.error('[Server] delete department error:', e);
       r.status(500).json({ error: e.message || 'Failed to delete department.' });
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // PUBLIC READ-ONLY VISITOR REPORT CARD (Phase 7)
+  // ---------------------------------------------------------------------------
+  app.get('/api/report-card/:token', async (req, r) => {
+    const db = getSupabaseAdmin();
+    try {
+      const token = req.params.token;
+      if (!token || typeof token !== 'string') {
+        return r.status(400).json({ error: 'Report card token is required.' });
+      }
+
+      // Fetch member by token in data->reportCardToken->>token
+      const { data: members, error: mError } = await db.from('members')
+        .select('*')
+        .eq('data->reportCardToken->>token', token)
+        .limit(1);
+
+      if (mError || !members || members.length === 0) {
+        return r.status(404).json({ error: 'Report card not found or link has expired.' });
+      }
+
+      const memberRow = members[0];
+      const memberData = memberRow.data || {};
+
+      // Fetch student's grades (READ ONLY, for this memberId ONLY)
+      const { data: gradesData } = await db.from('grades')
+        .select('*')
+        .eq('member_id', memberRow.id);
+
+      const grades = (gradesData || []).map((g: any) => g.data || g);
+
+      // Return ONLY student's personal report card info (NO class registers, NO other students, NO admin fields)
+      r.json({
+        success: true,
+        reportCard: {
+          fullName: memberData.fullName || memberRow.name,
+          phone: memberData.phone,
+          gender: memberData.gender,
+          department: memberData.department,
+          className: memberData.className,
+          classId: memberData.classId || memberRow.class_id,
+          memberType: memberData.memberType,
+          status: memberData.status,
+          photoBase64: memberData.photoBase64,
+          enrolledDate: memberData.enrolledDate,
+          firstLessonWeek: memberData.firstLessonWeek,
+          grades: grades
+        }
+      });
+    } catch (e: any) {
+      console.error('[Server] report card error:', e);
+      r.status(500).json({ error: e.message || 'Failed to retrieve report card.' });
     }
   });
   app.delete('/api/admin/workers/:id', async (req, r) => {

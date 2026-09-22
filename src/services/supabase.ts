@@ -4,8 +4,21 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
  * Browser-safe Supabase client.  Only the project URL and anon key belong in
  * VITE_* variables; privileged operations must use the server client instead.
  */
-const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+const url = (
+  typeof import.meta !== 'undefined' && import.meta.env
+    ? import.meta.env.VITE_SUPABASE_URL
+    : typeof process !== 'undefined'
+    ? process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL
+    : undefined
+) as string | undefined;
+
+const anonKey = (
+  typeof import.meta !== 'undefined' && import.meta.env
+    ? import.meta.env.VITE_SUPABASE_ANON_KEY
+    : typeof process !== 'undefined'
+    ? process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY
+    : undefined
+) as string | undefined;
 
 export const isSupabaseConfigured = Boolean(url && anonKey);
 

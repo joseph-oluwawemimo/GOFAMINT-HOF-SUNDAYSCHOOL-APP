@@ -4,7 +4,6 @@ import {
   Users,
   HeartHandshake,
   BarChart3,
-  QrCode,
   MessageSquare,
   Database,
   GraduationCap
@@ -63,11 +62,6 @@ export const Navigation: React.FC<NavigationProps> = ({
       icon: MessageSquare,
       badge: unreadCommentsCount > 0 ? unreadCommentsCount : undefined,
       badgeColor: 'bg-blue-600 text-white'
-    },
-    {
-      id: 'QR_PORTAL',
-      label: 'QR Result Portal',
-      icon: QrCode
     },
     {
       id: 'REPORT_CARD',

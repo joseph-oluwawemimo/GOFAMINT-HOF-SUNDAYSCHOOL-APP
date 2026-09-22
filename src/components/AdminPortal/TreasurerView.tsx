@@ -35,6 +35,7 @@ import {
   bulkAuditOfferings
 } from '../../db/indexedDB';
 import { useDatabaseSync } from '../../hooks/useDatabaseSync';
+import { isSundayRegisterOpenForWeek } from '../../utils/quarterScheduleUtils';
 
 interface TreasurerViewProps {
   currentAdmin: AdminProfile;
@@ -506,25 +507,25 @@ export const TreasurerView: React.FC<TreasurerViewProps> = ({
 
         {/* 4. Cumulative Audited Income */}
         <div className="bg-white p-4 rounded-2xl border border-emerald-300 bg-emerald-50/40 shadow-xs">
-          <span className="text-[10px] font-bold text-emerald-900 uppercase block">4. Audited Income</span>
+          <span className="text-[10px] font-bold text-emerald-900 uppercase block">4. Audited Income (General)</span>
           <h3 className="text-xl font-black text-emerald-950 mt-1">₦{treasurySummary.cumulativeAuditedIncome.toLocaleString()}</h3>
-          <p className="text-[10px] text-emerald-700 mt-0.5 font-bold">Verified cash in hand</p>
+          <p className="text-[10px] text-emerald-700 mt-0.5 font-bold">General Sunday School cash in hand</p>
         </div>
 
         {/* 5. Total Expenditures */}
         <div className="bg-white p-4 rounded-2xl border border-red-200 shadow-xs">
-          <span className="text-[10px] font-bold text-red-700 uppercase block">5. Total Expenses</span>
+          <span className="text-[10px] font-bold text-red-700 uppercase block">5. General Expenses</span>
           <h3 className="text-xl font-black text-red-700 mt-1">₦{treasurySummary.totalExpenditure.toLocaleString()}</h3>
           <p className="text-[10px] text-slate-500 mt-0.5">{treasurySummary.expenditures.length} disbursements</p>
         </div>
 
         {/* 6. Net Treasury Income */}
         <div className="bg-white p-4 rounded-2xl border-2 border-emerald-500 shadow-xs">
-          <span className="text-[10px] font-bold text-emerald-900 uppercase block">6. Net Income</span>
+          <span className="text-[10px] font-bold text-emerald-900 uppercase block">6. General Net Income</span>
           <h3 className={`text-xl font-black mt-1 ${treasurySummary.netIncome >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
             ₦{treasurySummary.netIncome.toLocaleString()}
           </h3>
-          <p className="text-[10px] text-emerald-700 font-bold mt-0.5">Audited - Expenses</p>
+          <p className="text-[10px] text-emerald-700 font-bold mt-0.5">Excludes Children Account</p>
         </div>
 
       </div>
@@ -735,6 +736,7 @@ export const TreasurerView: React.FC<TreasurerViewProps> = ({
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 max-w-full">
               {Array.from({ length: totalWeeks }, (_, i) => i + 1).map((w) => {
                 const isSelected = selectedWeek === w;
+                const isWeekOpen = isSundayRegisterOpenForWeek(activeQuarterData, w);
                 return (
                   <button
                     key={w}
@@ -746,11 +748,29 @@ export const TreasurerView: React.FC<TreasurerViewProps> = ({
                     }`}
                   >
                     <span>Week {w}</span>
+                    {!isWeekOpen && (
+                      <span className="text-[9px] text-slate-400">🔒 (Opens Sun)</span>
+                    )}
                   </button>
                 );
               })}
             </div>
           </div>
+
+          {/* Phase 2: Future Week Locked Banner */}
+          {!isSundayRegisterOpenForWeek(activeQuarterData, selectedWeek) && (
+            <div className="p-4 bg-amber-50 border-2 border-amber-300 rounded-2xl flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="space-y-1 text-xs">
+                <h4 className="font-black text-amber-950 uppercase tracking-wide">
+                  Week {selectedWeek} Financial Entry: LOCKED — Opens on Sunday
+                </h4>
+                <p className="text-amber-800 leading-relaxed">
+                  Financial entry and remittance auditing are locked for future Sundays. Financial data cannot be entered before the actual Sunday arrives. The financial workflow remains governed strictly by physical collection, secretary remittance, and actual acceptance state.
+                </p>
+              </div>
+            </div>
+          )}
 
           <div className="bg-white rounded-3xl border border-slate-200 shadow-xs overflow-hidden">
             <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -1114,9 +1134,9 @@ export const TreasurerView: React.FC<TreasurerViewProps> = ({
                     setExpenseAccountType('CHILDREN');
                     setShowAddExpenseModal(true);
                   }}
-                  className="px-4 py-2.5 bg-purple-500 hover:bg-purple-400 text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-xs transition shrink-0"
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 shadow-xs transition cursor-pointer"
                 >
-                  <DollarSign className="w-4 h-4" />
+                  <PlusCircle className="w-3.5 h-3.5 text-purple-200" />
                   <span>+ Record Children Expense</span>
                 </button>
               </div>

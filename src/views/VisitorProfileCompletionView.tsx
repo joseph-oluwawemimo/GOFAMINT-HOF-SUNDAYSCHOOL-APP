@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Camera, CheckCircle2, AlertCircle, Heart, Shield, Lock, User, Phone, MapPin, Briefcase } from 'lucide-react';
+import { Camera, CheckCircle2, AlertCircle, Heart, Shield, Lock, User, Phone, MapPin, Briefcase, Copy, Check, GraduationCap } from 'lucide-react';
+import QRCode from 'qrcode';
 import { Member } from '../types';
 import { CameraModal } from '../components/CameraModal';
 import { compressImage } from '../utils/imageCompression';
@@ -23,6 +24,9 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [reportCardUrl, setReportCardUrl] = useState<string>('');
+  const [reportCardQr, setReportCardQr] = useState<string>('');
+  const [copiedLink, setCopiedLink] = useState(false);
 
   // Form fields
   const [fullName, setFullName] = useState('');
@@ -137,6 +141,9 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
     setError(null);
 
     try {
+      const rcToken = member?.reportCardToken?.token || `rc_${Math.random().toString(36).substring(2, 10)}_${Date.now().toString(36)}`;
+      const reportCardToken = { token: rcToken, createdAt: new Date().toISOString() };
+
       const payload: Partial<Member> = {
         fullName: fullName.trim(),
         phone: phone.trim(),
@@ -145,7 +152,8 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
         gender: gender || undefined,
         ageGroup: ageGroup.trim() || undefined,
         prayerRequests: prayerRequests.trim(),
-        photoBase64
+        photoBase64,
+        reportCardToken
       };
 
       let saveSucceeded = false;
@@ -202,6 +210,12 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
         throw new Error('Failed to save profile. The link may have expired or been used.');
       }
 
+      const generatedUrl = `${window.location.origin}/#report-card/${rcToken}`;
+      setReportCardUrl(generatedUrl);
+      QRCode.toDataURL(generatedUrl, { width: 180, margin: 1, color: { dark: '#0f172a', light: '#ffffff' } }, (err, dataUrl) => {
+        if (!err && dataUrl) setReportCardQr(dataUrl);
+      });
+
       setIsSuccess(true);
       if (onProfileCompleted) onProfileCompleted();
     } catch (err: any) {
@@ -221,19 +235,40 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
   }
 
   if (isAlreadyUsed) {
+    const existingRcToken = member?.reportCardToken?.token;
+    const existingUrl = existingRcToken ? `${window.location.origin}/#report-card/${existingRcToken}` : '';
+
     return (
       <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center font-sans">
-        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-2xl">
-          <div className="w-16 h-16 bg-blue-500/20 text-blue-400 rounded-full flex items-center justify-center mx-auto mb-4 border border-blue-500/30">
+        <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-2xl space-y-4">
+          <div className="w-16 h-16 bg-blue-500/20 text-blue-400 rounded-full flex items-center justify-center mx-auto border border-blue-500/30">
             <Lock className="w-8 h-8" />
           </div>
-          <h2 className="text-xl font-black font-['Cinzel',serif] text-amber-400 mb-2">
+          <h2 className="text-xl font-black font-['Cinzel',serif] text-amber-400">
             One-Time Link Completed
           </h2>
-          <p className="text-xs text-slate-300 leading-relaxed mb-6">
-            This secure one-time link has already been used to complete the visitor profile, or its authorization has expired.
+          <p className="text-xs text-slate-300 leading-relaxed">
+            This secure one-time link has already been used to complete the visitor profile.
           </p>
-          <div className="bg-slate-800/80 rounded-2xl p-4 text-xs text-slate-400 border border-slate-700 leading-relaxed">
+          {existingRcToken && (
+            <div className="bg-slate-800/90 border border-slate-700 rounded-2xl p-4 text-left space-y-2">
+              <span className="text-xs font-bold text-amber-400 uppercase tracking-wider block">
+                Your Report Card Access
+              </span>
+              <p className="text-[11px] text-slate-300">
+                You can view your private Sunday School report card anytime:
+              </p>
+              <button
+                type="button"
+                onClick={() => { window.location.hash = `#report-card/${existingRcToken}`; }}
+                className="w-full py-2 bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-bold text-xs rounded-xl shadow transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <GraduationCap className="w-4 h-4" />
+                View My Report Card
+              </button>
+            </div>
+          )}
+          <div className="bg-slate-800/80 rounded-2xl p-3 text-xs text-slate-400 border border-slate-700 leading-relaxed">
             If you need to update any information, kindly speak with your Sunday School class secretary or teacher on Sunday. God bless you!
           </div>
         </div>
@@ -258,19 +293,72 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
   if (isSuccess) {
     return (
       <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center font-sans">
-        <div className="max-w-md w-full bg-slate-900 border border-emerald-800/50 rounded-3xl p-8 shadow-2xl animate-fade-in">
-          <div className="w-16 h-16 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-4 border border-emerald-500/30">
+        <div className="max-w-md w-full bg-slate-900 border border-emerald-800/50 rounded-3xl p-8 shadow-2xl animate-fade-in space-y-4">
+          <div className="w-16 h-16 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center mx-auto border border-emerald-500/30">
             <CheckCircle2 className="w-8 h-8" />
           </div>
-          <h2 className="text-2xl font-black font-['Cinzel',serif] text-amber-400 mb-2">
+          <h2 className="text-2xl font-black font-['Cinzel',serif] text-amber-400">
             Welcome to GOFAMINT HOF!
           </h2>
-          <p className="text-sm font-semibold text-emerald-300 mb-4">
+          <p className="text-sm font-semibold text-emerald-300">
             Your profile has been saved successfully.
           </p>
-          <p className="text-xs text-slate-300 leading-relaxed mb-6">
+          <p className="text-xs text-slate-300 leading-relaxed">
             We are joyful and blessed to have you worship with us in the Lord's House. Your details have been delivered to your Sunday School class leadership.
           </p>
+
+          {/* Secure Report Card Access (Phase 7) */}
+          {reportCardUrl && (
+            <div className="bg-slate-800/90 border border-slate-700 rounded-2xl p-4 text-left space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold uppercase tracking-wider text-amber-400">
+                  Your Sunday School Report Card
+                </span>
+                <span className="text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-800/60 px-2 py-0.5 rounded-full font-semibold">
+                  Private & Read-Only
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-300 leading-normal">
+                Use your private access link below to track your lessons, attendance, and scores anytime:
+              </p>
+              {reportCardQr && (
+                <div className="flex justify-center my-2">
+                  <img src={reportCardQr} alt="Report Card QR Code" className="w-36 h-36 rounded-xl border border-white/20 shadow-md bg-white p-1" />
+                </div>
+              )}
+              <div className="flex items-center gap-2 bg-slate-900/90 rounded-xl p-2 border border-slate-700">
+                <input
+                  type="text"
+                  readOnly
+                  value={reportCardUrl}
+                  className="bg-transparent text-xs text-slate-200 flex-1 outline-none truncate select-all"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(reportCardUrl);
+                    setCopiedLink(true);
+                    setTimeout(() => setCopiedLink(false), 2000);
+                  }}
+                  className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition-all shrink-0 flex items-center gap-1 cursor-pointer"
+                >
+                  {copiedLink ? <Check className="w-3 h-3 text-emerald-300" /> : <Copy className="w-3 h-3" />}
+                  {copiedLink ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  window.location.hash = reportCardUrl.split('#')[1] || '';
+                }}
+                className="w-full py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <GraduationCap className="w-4 h-4" />
+                Open My Report Card
+              </button>
+            </div>
+          )}
+
           <div className="bg-slate-800/80 rounded-2xl p-4 text-[11px] text-slate-400 border border-slate-700 flex items-center justify-center gap-2">
             <Heart className="w-4 h-4 text-amber-400 shrink-0" />
             <span>"The Lord bless you and keep you..." (Numbers 6:24)</span>

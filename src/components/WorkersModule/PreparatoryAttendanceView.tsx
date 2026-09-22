@@ -16,7 +16,8 @@ import {
 } from 'lucide-react';
 import { 
   getQuarterWeeklySchedule, 
-  computeQuarterWeeklyMetrics 
+  computeQuarterWeeklyMetrics,
+  getAttendanceSecurityState
 } from '../../utils/quarterScheduleUtils';
 import { ThursdayClockInTerminalModal } from './ThursdayClockInTerminalModal';
 import { ClockInScheduleSettingsModal } from './ClockInScheduleSettingsModal';
@@ -82,6 +83,15 @@ export const PreparatoryAttendanceView: React.FC<PreparatoryAttendanceViewProps>
   const isTargetDateToday = targetPrepDate === todayStr;
   const isTargetDateFuture = targetPrepDate > todayStr;
 
+  const securityState = useMemo(() => {
+    return getAttendanceSecurityState(
+      targetPrepDate,
+      config.thursdayOpenTime || '16:00',
+      config.thursdayCloseTime || '19:00',
+      new Date()
+    );
+  }, [targetPrepDate, config]);
+
   // Filters
   const [selectedDept, setSelectedDept] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -138,6 +148,10 @@ export const PreparatoryAttendanceView: React.FC<PreparatoryAttendanceViewProps>
 
   // Thursday status update
   const handleSetPrepStatus = async (worker: WorkerProfile, status: PrepAttendanceStatus) => {
+    if (!securityState.manualAttendanceAllowed) {
+      alert(`Manual attendance is locked: ${securityState.reason}`);
+      return;
+    }
     const existing = prepAttendanceMap.get(worker.id);
     const newRecord: WorkerPrepAttendanceRecord = {
       id: `${worker.id}_prep_${targetPrepDate}`,
@@ -159,6 +173,10 @@ export const PreparatoryAttendanceView: React.FC<PreparatoryAttendanceViewProps>
 
   // Mark all visible workers as PRESENT for Thursday
   const handleMarkAllVisiblePrepPresent = async () => {
+    if (!securityState.manualAttendanceAllowed) {
+      alert(`Manual attendance is locked: ${securityState.reason}`);
+      return;
+    }
     const recordsToSave: WorkerPrepAttendanceRecord[] = filteredWorkers.map(w => {
       const existing = prepAttendanceMap.get(w.id);
       return {
@@ -241,7 +259,12 @@ export const PreparatoryAttendanceView: React.FC<PreparatoryAttendanceViewProps>
             <span>Launch Thursday Terminal</span>
           </button>
 
-          {isTargetDatePast ? (
+          {securityState.isFuture ? (
+            <div className="px-3 py-2 bg-amber-50 border border-amber-200 rounded-xl text-xs font-bold text-amber-900 flex items-center gap-1.5">
+              <Lock className="w-3.5 h-3.5 text-amber-700" />
+              <span>Future Date Locked</span>
+            </div>
+          ) : isTargetDatePast ? (
             <button
               onClick={handleMarkAllVisiblePrepPresent}
               className="px-4 py-2.5 bg-blue-900 hover:bg-blue-800 text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-sm transition cursor-pointer"
@@ -529,8 +552,9 @@ export const PreparatoryAttendanceView: React.FC<PreparatoryAttendanceViewProps>
                         <div className="inline-flex items-center gap-1">
                           <button
                             type="button"
+                            disabled={!securityState.manualAttendanceAllowed}
                             onClick={() => handleSetPrepStatus(worker, 'PRESENT')}
-                            className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition cursor-pointer ${
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
                               currentStatus === 'PRESENT'
                                 ? 'bg-emerald-700 text-white shadow-2xs'
                                 : 'bg-slate-100 text-slate-700 hover:bg-emerald-100 hover:text-emerald-900'
@@ -541,8 +565,9 @@ export const PreparatoryAttendanceView: React.FC<PreparatoryAttendanceViewProps>
 
                           <button
                             type="button"
+                            disabled={!securityState.manualAttendanceAllowed}
                             onClick={() => handleSetPrepStatus(worker, 'LATE')}
-                            className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition cursor-pointer ${
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
                               currentStatus === 'LATE'
                                 ? 'bg-amber-600 text-white shadow-2xs'
                                 : 'bg-slate-100 text-slate-700 hover:bg-amber-100 hover:text-amber-900'
@@ -553,8 +578,9 @@ export const PreparatoryAttendanceView: React.FC<PreparatoryAttendanceViewProps>
 
                           <button
                             type="button"
+                            disabled={!securityState.manualAttendanceAllowed}
                             onClick={() => handleSetPrepStatus(worker, 'ABSENT')}
-                            className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition cursor-pointer ${
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
                               currentStatus === 'ABSENT'
                                 ? 'bg-rose-700 text-white shadow-2xs'
                                 : 'bg-slate-100 text-slate-700 hover:bg-rose-100 hover:text-rose-900'
@@ -565,8 +591,9 @@ export const PreparatoryAttendanceView: React.FC<PreparatoryAttendanceViewProps>
 
                           <button
                             type="button"
+                            disabled={!securityState.manualAttendanceAllowed}
                             onClick={() => handleSetPrepStatus(worker, 'EXCUSED')}
-                            className={`px-2 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                            className={`px-2 py-1 rounded-lg text-[10px] font-bold transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
                               currentStatus === 'EXCUSED'
                                 ? 'bg-blue-700 text-white shadow-2xs'
                                 : 'bg-slate-100 text-slate-700 hover:bg-blue-100 hover:text-blue-900'

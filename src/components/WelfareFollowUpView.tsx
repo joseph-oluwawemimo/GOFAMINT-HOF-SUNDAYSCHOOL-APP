@@ -228,9 +228,12 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
       {/* Top Banner */}
       <div className="bg-white border border-slate-200 border-l-4 border-l-amber-500 rounded-lg p-5 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[10px] font-black uppercase tracking-widest text-amber-900 bg-amber-100 px-2 py-0.5 rounded">
               WELFARE & SYSTEMATIC FOLLOW-UP CENTER
+            </span>
+            <span className="text-[10px] font-black text-blue-900 bg-blue-100 border border-blue-200 px-2 py-0.5 rounded">
+              Follow-Up Basis: Week {currentWeek} (Latest Completed Sunday)
             </span>
           </div>
           <h2 className="text-lg sm:text-xl font-black text-slate-900 mt-1">

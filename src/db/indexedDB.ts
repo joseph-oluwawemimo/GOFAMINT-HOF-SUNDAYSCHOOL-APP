@@ -223,7 +223,8 @@ import {
   EligibleVisitorCandidate,
   EnrollmentOfficerClassRow,
   EnrollmentOfficerWeeklyCollation,
-  EnrollmentCertificationRecord
+  EnrollmentCertificationRecord,
+  StudentTransferRecord
 } from '../types';
 import {
   DEFAULT_DEPARTMENTS,
@@ -243,9 +244,9 @@ import {
 const DB_NAME = 'GOFAMINT_HOF_SundaySchool_DB';
 // v8: durable enrollment certification audit records (IndexedDB + cloud sync).
 // v7: added `cloudSyncFailures` store — persists cloud writes that failed
-// (e.g. while offline) so they can be retried instead of being silently dropped,
-// and added the cross-device cloud hydration pipeline (see cloudSyncManager.ts).
-const DB_VERSION = 8;
+// v8: added `enrollmentCertifications`
+// v9: added `studentTransfers` store for controlled student transfers preserving historical class data
+const DB_VERSION = 9;
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -353,6 +354,13 @@ export function getDB(): Promise<IDBDatabase> {
         if (!db.objectStoreNames.contains('enrollmentCertifications')) {
           db.createObjectStore('enrollmentCertifications', { keyPath: 'id' });
         }
+        if (!db.objectStoreNames.contains('studentTransfers')) {
+          const tStore = db.createObjectStore('studentTransfers', { keyPath: 'id' });
+          tStore.createIndex('studentId', 'studentId', { unique: false });
+          tStore.createIndex('status', 'status', { unique: false });
+          tStore.createIndex('fromDepartment', 'fromDepartment', { unique: false });
+          tStore.createIndex('toDepartment', 'toDepartment', { unique: false });
+        }
       };
 
       request.onsuccess = (event) => {
@@ -409,7 +417,8 @@ export const CLOUD_STORE_MAP: Record<string, string> = {
   specialEventAttendance: 'specialEventAttendance',
   adminComments: 'adminComments',
   treasuryExpenditures: 'treasuryExpenditures',
-  enrollmentCertifications: 'enrollmentCertifications'
+  enrollmentCertifications: 'enrollmentCertifications',
+  studentTransfers: 'studentTransfers'
 };
 
 export async function putInStore<T>(storeName: string, value: T, skipCloudMirror = false): Promise<T> {
@@ -825,7 +834,7 @@ export async function clearAllDatabaseData(wipeClassProfile: boolean = true): Pr
   localStorage.setItem('gofamint_scratch_mode', 'true');
   sessionStorage.removeItem('gofamint_unlocked');
 
-  const storesToClear = ['members', 'grades', 'offerings', 'absenceLogs', 'referrals', 'enrollmentCertifications', 'syncQueue'];
+  const storesToClear = ['members', 'grades', 'offerings', 'absenceLogs', 'referrals', 'enrollmentCertifications', 'studentTransfers', 'syncQueue'];
   if (wipeClassProfile) {
     storesToClear.push('classProfile');
   }
@@ -1376,6 +1385,7 @@ export interface DatabaseBackupPackage {
     clockInConfig: ClockInConfig | null;
     workerCategories: WorkerCategoryDef[];
     enrollmentCertifications: EnrollmentCertificationRecord[];
+    studentTransfers?: StudentTransferRecord[];
     syncQueue: any[];
   };
 }
@@ -1525,6 +1535,7 @@ export async function exportCompleteDatabaseSnapshot(): Promise<DatabaseBackupPa
       clockInConfig,
       workerCategories,
       enrollmentCertifications,
+      studentTransfers: await getAllFromStore<StudentTransferRecord>('studentTransfers'),
       syncQueue
     }
   };
@@ -1773,6 +1784,13 @@ export async function restoreCompleteDatabaseSnapshot(
   if (Array.isArray(data.enrollmentCertifications)) {
     for (const certification of data.enrollmentCertifications) {
       await putInStore('enrollmentCertifications', certification);
+    }
+  }
+
+  // 17b. Student Transfers
+  if (Array.isArray(data.studentTransfers)) {
+    for (const transfer of data.studentTransfers) {
+      await putInStore('studentTransfers', transfer);
     }
   }
 
@@ -3381,6 +3399,7 @@ export async function getRealRecordOfficerCollation(
   const allMembers = await getAllMembers();
   const allGrades = await getAllGrades();
   const allOfferings = await getAllOfferings();
+  const allTransfers = await getAllStudentTransfers();
   const current = await getClassProfile();
 
   const approvedClasses = allClasses.filter(c => c.approvalStatus === 'APPROVED');
@@ -3391,8 +3410,28 @@ export async function getRealRecordOfficerCollation(
   const rows: RecordOfficerClassRow[] = [];
 
   for (const cls of approvedClasses) {
-    // Retrieve members for this class in this quarter
-    const classMembers = allMembers.filter(m => m.classId === cls.id);
+    // Phase 10.5 & 10.7: Retrieve members who belonged to this class historically at this weekNumber
+    const classMembers = allMembers.filter(m => {
+      const hist = getStudentClassForWeek(m, weekNumber);
+      return hist.classId === cls.id || (!hist.classId && m.classId === cls.id);
+    });
+
+    // Phase 10.8 & 10.9: Check approved transfers affecting this class at this specific weekNumber
+    const approvedTransfers = allTransfers.filter(t => t.status === 'APPROVED');
+    const transfersInList = approvedTransfers.filter(
+      t => (t.destinationClassId === cls.id || t.toClassId === cls.id) &&
+           (t.effectiveWeekNumber || t.effectiveWeek || 1) === weekNumber
+    );
+    const transfersOutList = approvedTransfers.filter(
+      t => (t.previousClassId === cls.id || t.fromClassId === cls.id) &&
+           (t.effectiveWeekNumber || t.effectiveWeek || 1) === weekNumber
+    );
+    const transfersIn = transfersInList.length;
+    const transfersOut = transfersOutList.length;
+    const transferNotes: string[] = [
+      ...transfersInList.map(t => `Student ${t.memberName || t.studentName} transferred from ${t.previousClassName || t.fromClassName}`),
+      ...transfersOutList.map(t => `Student ${t.memberName || t.studentName} transferred to ${t.destinationClassName || t.toClassName}`)
+    ];
     
     // Filter active members belonging to this quarter
     const qMembers = classMembers.filter(m => {
@@ -3530,6 +3569,9 @@ export async function getRealRecordOfficerCollation(
       onboarded: onboardedCount,
       endingActiveClassMembers,
       offering,
+      transfersIn,
+      transfersOut,
+      transferNotes,
       notes: `Class Register return for ${cls.className}`
     });
   }
@@ -3575,6 +3617,7 @@ export async function getRealEnrollmentOfficerCollation(
   const allClasses = await getAllClassesDirectory();
   const allMembers = await getAllMembers();
   const allGrades = await getAllGrades();
+  const allTransfers = await getAllStudentTransfers();
   const current = await getClassProfile();
 
   const approvedClasses = allClasses.filter(c => c.approvalStatus === 'APPROVED');
@@ -3589,7 +3632,28 @@ export async function getRealEnrollmentOfficerCollation(
   let currentVisitorsAll = 0;
 
   for (const cls of approvedClasses) {
-    const classMembers = allMembers.filter(m => m.classId === cls.id);
+    // Phase 10.5 & 10.7: Resolve members historically at selectedWeek
+    const classMembers = allMembers.filter(m => {
+      const hist = getStudentClassForWeek(m, selectedWeek);
+      return hist.classId === cls.id || (!hist.classId && m.classId === cls.id);
+    });
+
+    const approvedTransfers = allTransfers.filter(t => t.status === 'APPROVED');
+    const transfersInList = approvedTransfers.filter(
+      t => (t.destinationClassId === cls.id || t.toClassId === cls.id) &&
+           (t.effectiveWeekNumber || t.effectiveWeek || 1) === selectedWeek
+    );
+    const transfersOutList = approvedTransfers.filter(
+      t => (t.previousClassId === cls.id || t.fromClassId === cls.id) &&
+           (t.effectiveWeekNumber || t.effectiveWeek || 1) === selectedWeek
+    );
+    const transfersIn = transfersInList.length;
+    const transfersOut = transfersOutList.length;
+    const transferNotes: string[] = [
+      ...transfersInList.map(t => `Student ${t.memberName || t.studentName} transferred from ${t.previousClassName || t.fromClassName}`),
+      ...transfersOutList.map(t => `Student ${t.memberName || t.studentName} transferred to ${t.destinationClassName || t.toClassName}`)
+    ];
+
     const qMembers = classMembers.filter(m => {
       if (quarterNumber === 1) return true;
       return !!m.quarterEnrollments?.[quarterNumber as QuarterNumber];
@@ -3711,7 +3775,10 @@ export async function getRealEnrollmentOfficerCollation(
       convertedMembers: convertedList,
       currentStudentCount,
       currentVisitorCount,
-      totalActiveClassMembers: currentStudentCount + currentVisitorCount
+      totalActiveClassMembers: currentStudentCount + currentVisitorCount,
+      transfersIn,
+      transfersOut,
+      transferNotes
     });
 
     currentStudentsAll += currentStudentCount;
@@ -4012,3 +4079,273 @@ export async function performLocalFactoryReset(): Promise<void> {
     console.warn('Could not enumerate/delete IndexedDB databases:', e);
   }
 }
+
+/**
+ * Student Transfers (Phase 10)
+ */
+export async function getAllStudentTransfers(): Promise<StudentTransferRecord[]> {
+  const stored = await getAllFromStore<StudentTransferRecord>('studentTransfers');
+  return stored.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function getStudentTransfersForStudent(studentId: string): Promise<StudentTransferRecord[]> {
+  const all = await getAllStudentTransfers();
+  return all.filter(t => (t.memberId === studentId || t.studentId === studentId));
+}
+
+export async function getStudentTransfersByDepartment(deptName: string): Promise<StudentTransferRecord[]> {
+  const all = await getAllStudentTransfers();
+  return all.filter(t => (
+    t.previousDepartment === deptName ||
+    t.fromDepartment === deptName ||
+    t.destinationDepartment === deptName ||
+    t.toDepartment === deptName
+  ));
+}
+
+export async function requestStudentTransfer(req: {
+  studentId: string;
+  studentName: string;
+  fromDepartment: string;
+  fromClassId: string;
+  fromClassName: string;
+  toDepartment: string;
+  toClassId: string;
+  toClassName: string;
+  reason: string;
+  requestedBy: string;
+  effectiveWeek: number;
+  notes?: string;
+}): Promise<StudentTransferRecord> {
+  const now = new Date().toISOString();
+  const transferRecord: StudentTransferRecord = {
+    id: `transfer_${req.studentId}_${Date.now()}`,
+    memberId: req.studentId,
+    studentId: req.studentId,
+    memberName: req.studentName,
+    studentName: req.studentName,
+    previousDepartment: req.fromDepartment,
+    fromDepartment: req.fromDepartment,
+    previousClassId: req.fromClassId,
+    fromClassId: req.fromClassId,
+    previousClassName: req.fromClassName,
+    fromClassName: req.fromClassName,
+    destinationDepartment: req.toDepartment,
+    toDepartment: req.toDepartment,
+    destinationClassId: req.toClassId,
+    toClassId: req.toClassId,
+    destinationClassName: req.toClassName,
+    toClassName: req.toClassName,
+    reason: req.reason,
+    requestingOfficer: req.requestedBy,
+    requestedBy: req.requestedBy,
+    requestedAt: now,
+    effectiveWeekNumber: req.effectiveWeek,
+    effectiveWeek: req.effectiveWeek,
+    status: 'PENDING',
+    notes: req.notes,
+    createdAt: now,
+    updatedAt: now
+  };
+
+  await putInStore('studentTransfers', transferRecord);
+  return transferRecord;
+}
+
+export async function approveStudentTransfer(
+  transferId: string,
+  officerName: string,
+  notes?: string
+): Promise<{ success: boolean; transfer: StudentTransferRecord; member: Member }> {
+  const transfers = await getAllStudentTransfers();
+  const transfer = transfers.find(t => t.id === transferId);
+  if (!transfer) {
+    throw new Error(`Transfer request ${transferId} not found`);
+  }
+
+  const now = new Date().toISOString();
+  const updatedTransfer: StudentTransferRecord = {
+    ...transfer,
+    status: 'APPROVED',
+    approvingOfficer: officerName,
+    reviewedBy: officerName,
+    approvalDate: now,
+    reviewedAt: now,
+    notes: notes || transfer.notes,
+    updatedAt: now
+  };
+
+  await putInStore('studentTransfers', updatedTransfer);
+
+  // Update student's current membership & append transfer to their transferHistory
+  const targetMemberId = transfer.memberId || transfer.studentId;
+  const allMembers = await getAllMembers();
+  const student = allMembers.find(m => m.id === targetMemberId);
+  if (!student) {
+    throw new Error(`Student ${targetMemberId} not found in database`);
+  }
+
+  const transferHistory = [...(student.transferHistory || []), updatedTransfer];
+  const destClassId = updatedTransfer.destinationClassId || updatedTransfer.toClassId;
+  const destClassName = updatedTransfer.destinationClassName || updatedTransfer.toClassName;
+  const destDept = updatedTransfer.destinationDepartment || updatedTransfer.toDepartment;
+  const effWk = updatedTransfer.effectiveWeekNumber || updatedTransfer.effectiveWeek || 1;
+
+  const updatedMember: Member = {
+    ...student,
+    department: destDept,
+    classId: destClassId,
+    className: destClassName,
+    transferHistory,
+    notes: `${student.notes || ''}\n[Transferred to ${destClassName} effective Wk ${effWk} by ${officerName}]`.trim(),
+    updatedAt: now
+  };
+
+  await putInStore('members', updatedMember);
+
+  return { success: true, transfer: updatedTransfer, member: updatedMember };
+}
+
+export async function rejectStudentTransfer(
+  transferId: string,
+  officerName: string,
+  notes?: string
+): Promise<{ success: boolean; transfer: StudentTransferRecord }> {
+  const transfers = await getAllStudentTransfers();
+  const transfer = transfers.find(t => t.id === transferId);
+  if (!transfer) {
+    throw new Error(`Transfer request ${transferId} not found`);
+  }
+
+  const now = new Date().toISOString();
+  const updatedTransfer: StudentTransferRecord = {
+    ...transfer,
+    status: 'REJECTED',
+    approvingOfficer: officerName,
+    reviewedBy: officerName,
+    approvalDate: now,
+    reviewedAt: now,
+    notes: notes || transfer.notes,
+    updatedAt: now
+  };
+
+  await putInStore('studentTransfers', updatedTransfer);
+
+  return { success: true, transfer: updatedTransfer };
+}
+
+/**
+ * Historical Membership Resolver (Phase 10.5 & 10.7)
+ * Determines which department/class a student belonged to during a specific weekNumber,
+ * preserving historical records without modifying past week data.
+ */
+export function getStudentClassForWeek(
+  student: Member,
+  weekNumber: number
+): { department: string; classId: string; className: string } {
+  if (!student.transferHistory || student.transferHistory.length === 0) {
+    return {
+      department: student.department || '',
+      classId: student.classId || '',
+      className: student.className || student.classId || ''
+    };
+  }
+
+  const approvedTransfers = student.transferHistory
+    .filter(t => t.status === 'APPROVED')
+    .sort((a, b) => (a.effectiveWeekNumber || a.effectiveWeek || 1) - (b.effectiveWeekNumber || b.effectiveWeek || 1));
+
+  if (approvedTransfers.length === 0) {
+    return {
+      department: student.department || '',
+      classId: student.classId || '',
+      className: student.className || student.classId || ''
+    };
+  }
+
+  // If a transfer took effect in a future week relative to weekNumber,
+  // the student was in that transfer's previousClass during weekNumber.
+  const futureTransfer = approvedTransfers.find(t => (t.effectiveWeekNumber || t.effectiveWeek || 1) > weekNumber);
+  if (futureTransfer) {
+    return {
+      department: futureTransfer.previousDepartment || futureTransfer.fromDepartment || '',
+      classId: futureTransfer.previousClassId || futureTransfer.fromClassId || '',
+      className: futureTransfer.previousClassName || futureTransfer.fromClassName || ''
+    };
+  }
+
+  // Otherwise, the latest transfer that took effect at or before weekNumber applies.
+  const activeTransfer = [...approvedTransfers].reverse().find(t => (t.effectiveWeekNumber || t.effectiveWeek || 1) <= weekNumber);
+  if (activeTransfer) {
+    return {
+      department: activeTransfer.destinationDepartment || activeTransfer.toDepartment || '',
+      classId: activeTransfer.destinationClassId || activeTransfer.toClassId || '',
+      className: activeTransfer.destinationClassName || activeTransfer.toClassName || ''
+    };
+  }
+
+  return {
+    department: student.department || '',
+    classId: student.classId || '',
+    className: student.className || student.classId || ''
+  };
+}
+
+/**
+ * Check Department Dependencies (Phase 13.1)
+ */
+export async function checkDepartmentDependencies(
+  departmentName: string
+): Promise<{ hasDependencies: boolean; reasons: string[] }> {
+  const reasons: string[] = [];
+
+  const classes = await getAllClassesDirectory();
+  const dependentClasses = classes.filter(c => c.department === departmentName);
+  if (dependentClasses.length > 0) {
+    reasons.push(`${dependentClasses.length} class(es): ${dependentClasses.map(c => c.className || c.id).join(', ')}`);
+  }
+
+  const members = await getAllMembers();
+  const deptMembers = members.filter(m => m.department === departmentName);
+  if (deptMembers.length > 0) {
+    reasons.push(`${deptMembers.length} member(s)/student(s) enrolled`);
+  }
+
+  const workers = await getAllWorkers();
+  const deptWorkers = workers.filter(w => w.department === departmentName);
+  if (deptWorkers.length > 0) {
+    reasons.push(`${deptWorkers.length} worker(s) assigned`);
+  }
+
+  return {
+    hasDependencies: reasons.length > 0,
+    reasons
+  };
+}
+
+/**
+ * Archive Department in Year (Phase 13.1)
+ * Safely removes a department from the active list and marks it archived,
+ * keeping historical records, classes, and members fully intact.
+ */
+export async function archiveDepartmentInYear(departmentName: string): Promise<SundaySchoolYear> {
+  const year = await getSundaySchoolYear();
+  const currentDepts = year.departments || [];
+  const currentArchived = year.archivedDepartments || [];
+
+  const updatedDepts = currentDepts.filter(d => d !== departmentName);
+  const updatedArchived = currentArchived.includes(departmentName)
+    ? currentArchived
+    : [...currentArchived, departmentName];
+
+  const updatedYear: SundaySchoolYear = {
+    ...year,
+    departments: updatedDepts,
+    archivedDepartments: updatedArchived,
+    updatedAt: new Date().toISOString()
+  };
+
+  await saveSundaySchoolYear(updatedYear);
+  return updatedYear;
+}
+

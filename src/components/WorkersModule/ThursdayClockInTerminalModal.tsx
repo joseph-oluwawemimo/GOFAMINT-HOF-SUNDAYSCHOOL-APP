@@ -13,6 +13,7 @@ import confetti from 'canvas-confetti';
 import jsQR from 'jsqr';
 import { calculateWorkerProfileCompleteness } from '../../utils/workerProfileUtils';
 import { ClockInScheduleSettingsModal } from './ClockInScheduleSettingsModal';
+import { getThursdayClockInSecurity } from '../../utils/quarterScheduleUtils';
 
 interface ThursdayClockInTerminalModalProps {
   isOpen: boolean;
@@ -131,50 +132,10 @@ export const ThursdayClockInTerminalModal: React.FC<ThursdayClockInTerminalModal
     }
   }, []);
 
-  // Evaluate Thursday Clock-In Window (Complaint 9)
+  // Evaluate Thursday Clock-In Window & Date-aware security (Phase 3 & 3.1)
   const clockInStatus = useMemo(() => {
-    if (adminTestOverride) {
-      return { allowed: true, reason: 'Admin Rehearsal / Test Mode Active' };
-    }
-
-    const now = new Date();
-    const dayOfWeek = now.getDay(); // 4 is Thursday
-    const isActualThursday = dayOfWeek === 4;
-
-    const openTime = config.thursdayOpenTime || '16:00';
-    const closeTime = config.thursdayCloseTime || '19:00';
-    const [oH, oM] = openTime.split(':').map(Number);
-    const [cH, cM] = closeTime.split(':').map(Number);
-
-    const openDate = new Date(now);
-    openDate.setHours(oH, oM, 0, 0);
-
-    const closeDate = new Date(now);
-    closeDate.setHours(cH, cM, 0, 0);
-
-    if (!isActualThursday) {
-      return {
-        allowed: false,
-        reason: `Thursday Clock-In is strictly scheduled for Thursdays between ${openTime} and ${closeTime}. Today is not Thursday.`
-      };
-    }
-
-    if (now < openDate) {
-      return {
-        allowed: false,
-        reason: `Thursday Clock-In window is not yet open. Opens at ${openTime} ahead of preparatory meeting at ${config.thursdayMeetingStartTime || '17:00'}.`
-      };
-    }
-
-    if (now > closeDate) {
-      return {
-        allowed: false,
-        reason: `Thursday Clock-In window closed at ${closeTime}.`
-      };
-    }
-
-    return { allowed: true, reason: 'Session Active' };
-  }, [adminTestOverride, config]);
+    return getThursdayClockInSecurity(targetDate, config, new Date(), adminTestOverride);
+  }, [adminTestOverride, config, targetDate]);
 
   // Process Clock-In
   const handleClockIn = useCallback(async (

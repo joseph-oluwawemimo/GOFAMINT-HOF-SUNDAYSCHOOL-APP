@@ -83,8 +83,9 @@ import { initAppUpdateChecker } from './services/appUpdateChecker';
 import type { User } from '@supabase/supabase-js';
 import { isApprovedClassStatus, isExactClassAssignment } from './utils/accessControl';
 import { usePersistedState } from './hooks/usePersistedState';
-import { getCurrentCalendarWeek } from './utils/quarterScheduleUtils';
+import { getCurrentCalendarWeek, getLatestCompletedSundayWeek } from './utils/quarterScheduleUtils';
 import { VisitorProfileCompletionView } from './views/VisitorProfileCompletionView';
+import { StandaloneReportCardView } from './views/StandaloneReportCardView';
 import { backgroundStateManager } from './utils/backgroundStateManager';
 
 const getVisitorTokenFromUrl = (): string | null => {
@@ -95,6 +96,18 @@ const getVisitorTokenFromUrl = (): string | null => {
   const search = window.location.search || '';
   const params = new URLSearchParams(search);
   const paramToken = params.get('visitor_token');
+  if (paramToken) return paramToken;
+  return null;
+};
+
+const getReportCardTokenFromUrl = (): string | null => {
+  if (typeof window === 'undefined') return null;
+  const hash = window.location.hash || '';
+  const hashMatch = hash.match(/#\/?report-card\/([a-zA-Z0-9_-]+)/);
+  if (hashMatch && hashMatch[1]) return hashMatch[1];
+  const search = window.location.search || '';
+  const params = new URLSearchParams(search);
+  const paramToken = params.get('report_card_token');
   if (paramToken) return paramToken;
   return null;
 };
@@ -117,11 +130,13 @@ type ProfileResolutionState = 'idle' | 'loading' | 'ready' | 'missing' | 'unappr
 
 export default function App() {
   const [visitorToken, setVisitorToken] = useState<string | null>(() => getVisitorTokenFromUrl());
+  const [reportCardToken, setReportCardToken] = useState<string | null>(() => getReportCardTokenFromUrl());
 
   useEffect(() => {
     backgroundStateManager.init();
     const handleHashChange = () => {
       setVisitorToken(getVisitorTokenFromUrl());
+      setReportCardToken(getReportCardTokenFromUrl());
     };
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
@@ -340,7 +355,11 @@ export default function App() {
       window.history.pushState({ hash: currentHash }, '', currentHash);
     }
 
-    const handlePopState = () => {
+    const handlePopState = (e: PopStateEvent) => {
+      // If returning from a modal pop, do NOT change activeTab!
+      if (e.state?.gofamintModal) {
+        return;
+      }
       if (isAuthModalOpen) {
         setIsAuthModalOpen(false);
         return;
@@ -360,9 +379,13 @@ export default function App() {
         setShowOpeningPage(true);
         return;
       }
-      if (activeTab !== 'GRADING_MATRIX') {
-        setActiveTab('GRADING_MATRIX');
-        return;
+
+      const hash = window.location.hash || '';
+      if (hash.startsWith('#class-')) {
+        const tabFromHash = hash.replace('#class-', '').toUpperCase() as ActiveTab;
+        if (tabFromHash && tabFromHash !== activeTab) {
+          setActiveTab(tabFromHash);
+        }
       }
     };
 
@@ -1437,6 +1460,18 @@ export default function App() {
     );
   }
 
+  if (reportCardToken) {
+    return (
+      <StandaloneReportCardView
+        token={reportCardToken}
+        onBack={() => {
+          window.location.hash = '';
+          setReportCardToken(null);
+        }}
+      />
+    );
+  }
+
   if (isCheckingAuth || isSystemInitialized === null) {
     return (
       <div className="min-h-screen bg-blue-950 flex flex-col items-center justify-center text-slate-300 p-4 text-center">
@@ -1803,7 +1838,10 @@ export default function App() {
             members={members}
             grades={grades}
             absenceLogs={absenceLogs}
-            currentWeek={selectedWeek}
+            currentWeek={getLatestCompletedSundayWeek(
+              sundaySchoolYear?.quarters?.find(q => q.quarterNumber === selectedQuarter),
+              new Date()
+            )}
             classProfile={classProfile}
             activeLessons={currentQuarterLessons}
             selectedQuarterNumber={selectedQuarter}

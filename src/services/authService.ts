@@ -1,7 +1,7 @@
 import {
   User,
 } from '@supabase/supabase-js';
-import { getSupabaseClient } from './supabase';
+import { getSupabaseClient, isSupabaseConfigured } from './supabase';
 import { normalizeLoginIdentifier } from '../utils/loginIdentifier';
 
 export { normalizeLoginIdentifier } from '../utils/loginIdentifier';
@@ -14,6 +14,10 @@ export { normalizeLoginIdentifier } from '../utils/loginIdentifier';
  *   class_youtha@gofamint-hof.internal so teachers/secretaries do not need personal Gmails.
  */
 export function watchAuthState(callback: (user: User | null) => void) {
+  if (!isSupabaseConfigured) {
+    callback(null);
+    return () => {};
+  }
   const { data } = getSupabaseClient().auth.onAuthStateChange((_event, session) => {
     callback(session?.user ?? null);
   });

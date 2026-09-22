@@ -87,6 +87,7 @@ export interface SundaySchoolYear {
   isInitialized?: boolean;
   quarters: QuarterData[];
   departments: string[]; // Custom and standard departments list
+  archivedDepartments?: string[]; // Safely archived departments list
   updatedAt: string;
 }
 
@@ -184,6 +185,8 @@ export interface MemberStatusHistoryItem {
 export interface Member {
   id: string;
   classId?: string;
+  className?: string;
+  department?: string;
   fullName: string;
   phone: string;
   address: string;
@@ -232,6 +235,50 @@ export interface Member {
     isUsed: boolean;
     usedAt?: string;
   };
+  reportCardToken?: {
+    token: string;
+    createdAt: string;
+  };
+  transferHistory?: StudentTransferRecord[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type TransferRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+export interface StudentTransferRecord {
+  id: string; // `transfer_${memberId}_${Date.now()}`
+  memberId: string;
+  studentId?: string; // alias
+  memberName: string;
+  studentName?: string; // alias
+  previousDepartment: string;
+  fromDepartment?: string; // alias
+  previousClassId: string;
+  fromClassId?: string; // alias
+  previousClassName: string;
+  fromClassName?: string; // alias
+  destinationDepartment: string;
+  toDepartment?: string; // alias
+  destinationClassId: string;
+  toClassId?: string; // alias
+  destinationClassName: string;
+  toClassName?: string; // alias
+  status: TransferRequestStatus;
+  reason: string;
+  effectiveDate?: string;
+  effectiveQuarter?: QuarterNumber;
+  effectiveWeekNumber: number; // Lesson week from which student joins destination class
+  effectiveWeek?: number; // alias
+  requestingOfficer: string;
+  requestedBy?: string; // alias
+  requestedAt: string;
+  approvingOfficer?: string;
+  reviewedBy?: string; // alias
+  approvalDate?: string;
+  reviewedAt?: string; // alias
+  rejectionReason?: string;
+  notes?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -254,6 +301,9 @@ export interface RecordOfficerClassRow {
   onboarded: number; // New Visitors formally onboarded into class this week
   endingActiveClassMembers: number; // Registered Class Members + Onboarded - Exited
   offering: number;
+  transfersIn?: number;
+  transfersOut?: number;
+  transferNotes?: string[];
   notes?: string;
 }
 
@@ -323,6 +373,9 @@ export interface EnrollmentOfficerClassRow {
   currentStudentCount: number;
   currentVisitorCount: number;
   totalActiveClassMembers: number;
+  transfersIn?: number;
+  transfersOut?: number;
+  transferNotes?: string[];
 }
 
 export interface EnrollmentOfficerWeeklyCollation {

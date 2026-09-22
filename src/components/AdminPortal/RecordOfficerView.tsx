@@ -39,7 +39,7 @@ import {
   QuarterNumber,
   Member
 } from '../../types';
-import { getRealRecordOfficerCollation, getAllMembers, getAllGrades } from '../../db/indexedDB';
+import { getRealRecordOfficerCollation, getAllMembers, getAllGrades, getStudentClassForWeek } from '../../db/indexedDB';
 import { GofamintLogo } from '../GofamintLogo';
 import { useDatabaseSync } from '../../hooks/useDatabaseSync';
 import { DepartedMembersPanel } from './DepartedMembersPanel';
@@ -127,7 +127,11 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
     try {
       const allMems = await getAllMembers();
       const allGrades = await getAllGrades();
-      const classMems = allMems.filter(m => m.classId === row.classId);
+      // Phase 10.5 & 10.7: Resolve membership historically at selectedWeek
+      const classMems = allMems.filter(m => {
+        const hist = getStudentClassForWeek(m, selectedWeek);
+        return hist.classId === row.classId || (!hist.classId && m.classId === row.classId);
+      });
 
       const enriched = classMems.map(mem => {
         const qEnr = mem.quarterEnrollments?.[selectedQuarter as QuarterNumber];
@@ -761,6 +765,22 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
                     <td className="p-3.5 pl-4">
                       <div className="font-black text-slate-900 text-xs">{row.className}</div>
                       <div className="text-[10px] text-slate-400 font-semibold">{row.department} • {row.teachersInCharge}</div>
+                      {/* Phase 10.8 & 10.9: Transfer stats and audit notes */}
+                      {Boolean(row.transfersIn) && (
+                        <span className="inline-block mt-1 px-1.5 py-0.2 bg-emerald-100 text-emerald-800 text-[10px] font-black rounded mr-1">
+                          +{row.transfersIn} transfer in
+                        </span>
+                      )}
+                      {Boolean(row.transfersOut) && (
+                        <span className="inline-block mt-1 px-1.5 py-0.2 bg-rose-100 text-rose-800 text-[10px] font-black rounded mr-1">
+                          -{row.transfersOut} transfer out
+                        </span>
+                      )}
+                      {row.transferNotes && row.transferNotes.length > 0 && (
+                        <div className="text-[9px] text-indigo-700 italic mt-0.5">
+                          {row.transferNotes.join(' • ')}
+                        </div>
+                      )}
                     </td>
                     <td className="p-3.5 text-center font-black text-indigo-950 bg-indigo-50/80 text-sm">
                       {row.totalPresent}
@@ -1420,6 +1440,11 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
                               {m.isNewVisitor && (
                                 <span className="ml-2 text-[9px] bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded-full font-black uppercase">
                                   New Visitor
+                                </span>
+                              )}
+                              {m.transferHistory && m.transferHistory.length > 0 && (
+                                <span className="ml-2 text-[9px] bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded-full font-bold">
+                                  Transferred
                                 </span>
                               )}
                             </td>

@@ -51,7 +51,7 @@ import {
   AdminComment,
   SundaySchoolYear
 } from '../types';
-import { getCurrentCalendarWeek } from '../utils/quarterScheduleUtils';
+import { getCurrentCalendarWeek, isSundayRegisterOpenForWeek, getActiveSundayRegisterWeek } from '../utils/quarterScheduleUtils';
 import { GOFAMINT_HOF_12_LESSONS } from '../data/mockQuarterLessons';
 import { OfficialReturnPrintModal } from './OfficialReturnPrintModal';
 import { saveAdminComment } from '../db/indexedDB';
@@ -205,15 +205,25 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
   const isUpcoming = quarterStatus === 'UPCOMING';
   useScrollRestoration('grading_matrix');
 
-  // Date-aware Active Week & Schedule Intelligence (Phases 7 & 19)
+  // Date-aware Active Week & Schedule Intelligence (Phases 1, 7 & 19)
   const activeQuarterObj = sundaySchoolYear?.quarters.find(q => q.quarterNumber === selectedQuarter);
   const activeCalendarWeek = useMemo(() => {
     return getCurrentCalendarWeek(activeQuarterObj, new Date());
   }, [activeQuarterObj]);
 
+  const sundayRegisterIntel = useMemo(() => {
+    return getActiveSundayRegisterWeek(activeQuarterObj, new Date());
+  }, [activeQuarterObj]);
+
+  const isCurrentWeekRegisterOpen = useMemo(() => {
+    return isSundayRegisterOpenForWeek(selectedWeek, activeQuarterObj, new Date());
+  }, [selectedWeek, activeQuarterObj]);
+
+  const isFutureRegisterLocked = !isCurrentWeekRegisterOpen;
+
   const handleSelectWeek = (wk: number) => {
     if (wk > activeCalendarWeek) {
-      alert(`Week ${wk} is a future Sunday and is not yet available.`);
+      alert(`Week ${wk} is a future Sunday School week and is not yet available.`);
       return;
     }
     onSelectWeek(wk);
@@ -306,7 +316,8 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
   };
 
   const isRemittedOrAudited = currentOffering.remittanceStatus === 'REMITTED' || currentOffering.remittanceStatus === 'AUDITED';
-  const isWeekLocked = isReadOnly || (isRemittedOrAudited && !isChangesModeActive);
+  const isOfferingLocked = isReadOnly || (currentOffering.remittanceStatus === 'AUDITED') || (currentOffering.remittanceStatus === 'REMITTED' && !isChangesModeActive) || isFutureRegisterLocked;
+  const isWeekLocked = isReadOnly || isFutureRegisterLocked || (isRemittedOrAudited && !isChangesModeActive);
 
   const isCurrentWeekNoRecord = noRecordWeeks.includes(selectedWeek) || currentOffering.isNoRecordWeek || false;
   const cumulativeOfferingTotal = calculateCumulativeOffering(offerings);
@@ -445,7 +456,7 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
         id: `${memberId}_week_${selectedWeek}`,
         memberId,
         weekNumber: selectedWeek,
-        attendance: isExemptBeforeJoin ? 'EXEMPT' : 'PRESENT',
+        attendance: isExemptBeforeJoin ? 'EXEMPT' : 'ABSENT',
         punctuality: 0,
         memoryVerse: 0,
         classParticipation: 0,
@@ -483,13 +494,7 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
     };
 
     if (newStatus === 'PRESENT') {
-      // Default initial score if currently zero
-      if (updated.punctuality === 0 && updated.memoryVerse === 0 && updated.classParticipation === 0) {
-        updated.punctuality = 15;
-        updated.memoryVerse = 15;
-        updated.classParticipation = 20;
-        updated.lessonTotal = 50;
-      }
+      // Leave scores as-is so teacher inputs actual scores (validated on remit)
     } else if (newStatus === 'ABSENT' || newStatus === 'EXEMPT') {
       updated.punctuality = 0;
       updated.memoryVerse = 0;
@@ -616,6 +621,26 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
       setPersistenceError(`Week ${selectedWeek} offering cannot be remitted while this quarter is ${quarterStatus.toLowerCase()} or the week is already locked.`);
       return;
     }
+
+    // Phase 5.1 Validation: Ensure students marked Present have completed required scores
+    const presentMembers = members.filter(m => {
+      const g = getMemberGrade(m.id);
+      return g.attendance === 'PRESENT';
+    });
+
+    const studentsWithMissingScores = presentMembers.filter(m => {
+      const g = getMemberGrade(m.id);
+      return (Number(g.lessonTotal) || 0) <= 0;
+    });
+
+    if (studentsWithMissingScores.length > 0) {
+      const names = studentsWithMissingScores.map(s => `• ${s.fullName}`).join('\n');
+      alert(
+        `Some students marked Present do not yet have their required scores. Complete them before submitting the register.\n\nAffected Students:\n${names}`
+      );
+      return;
+    }
+
     const rawAmt = Number(currentOffering.amount) || 0;
     if (rawAmt <= 0) {
       alert('Please enter a valid weekly offering amount before remitting to the Sunday School Treasurer.');
@@ -805,6 +830,28 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
         </div>
       )}
 
+      {/* Future Register Locked Banner (Phase 1.3) */}
+      {isFutureRegisterLocked && quarterStatus === 'ACTIVE' && (
+        <div className="bg-amber-500/10 border-2 border-amber-500/40 rounded-xl p-4 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-fade-in print:hidden">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-lg bg-amber-500/20 text-amber-600 border border-amber-500/30">
+              <Lock className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="text-xs font-black uppercase tracking-wider text-amber-900">
+                WEEK {selectedWeek} REGISTER: LOCKED — OPENS SUNDAY
+              </h4>
+              <p className="text-xs text-amber-800 mt-0.5">
+                Week {selectedWeek} register will open on Sunday (12:00 AM Africa/Lagos time). Attendance and grading cannot be entered ahead of time.
+              </p>
+            </div>
+          </div>
+          <span className="px-3 py-1 bg-amber-100 text-amber-900 border border-amber-300 text-xs font-mono font-bold rounded-md shrink-0">
+            OPENS SUNDAY
+          </span>
+        </div>
+      )}
+
       {/* Remitted & Locked Banner / Changes Mode Banner */}
       {isRemittedOrAudited && quarterStatus === 'ACTIVE' && (
         isChangesModeActive ? (
@@ -920,9 +967,21 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
               12-Lesson Quarter Matrix Selector
             </h3>
-            <span className="text-[11px] font-black text-emerald-800 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-md">
-              Active Week: Week {activeCalendarWeek}
-            </span>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[11px] font-black text-slate-800 bg-slate-100 border border-slate-300 px-2 py-0.5 rounded-md">
+                Current Week: Week {activeCalendarWeek}
+              </span>
+              {!sundayRegisterIntel.isRegisterOpenForCalendarWeek && selectedWeek === activeCalendarWeek ? (
+                <span className="text-[11px] font-black text-amber-800 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-md flex items-center gap-1">
+                  <Lock className="w-3 h-3 text-amber-600" />
+                  <span>Register: Locked (Opens Sunday)</span>
+                </span>
+              ) : (
+                <span className="text-[11px] font-black text-emerald-800 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-md">
+                  Active Register: Week {sundayRegisterIntel.activeRegisterWeek}
+                </span>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center gap-1.5">
@@ -993,8 +1052,10 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
             const isSelected = wk === selectedWeek;
             const weekStats = calculateWeekSummary(wk, members, grades, offerings);
             const isNoRec = noRecordWeeks.includes(wk);
-            const isAct = wk === activeCalendarWeek;
-            const isFut = wk > activeCalendarWeek;
+            const isWkOpen = isSundayRegisterOpenForWeek(wk, activeQuarterObj, new Date());
+            const isAct = wk === sundayRegisterIntel.activeRegisterWeek && isWkOpen;
+            const isCalCurrent = wk === activeCalendarWeek;
+            const isFut = !isWkOpen;
 
             return (
               <button
@@ -1014,7 +1075,7 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                 }`}
               >
                 <span className="text-[10px] uppercase font-bold text-slate-400">
-                  {isAct ? '★ ACTIVE' : isFut ? '🔒 FUTURE' : 'Wk'}
+                  {isAct ? '★ ACTIVE' : isCalCurrent && !isWkOpen ? '🔒 OPENS SUN' : isFut ? '🔒 FUTURE' : 'Wk'}
                 </span>
                 <span className="text-sm font-black flex items-center gap-0.5">
                   {wk}
@@ -1029,7 +1090,7 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                     ? (isSelected ? 'text-green-300' : 'text-emerald-600')
                     : 'text-slate-400'
                 }`}>
-                  {isNoRec ? 'NO REC' : isAct ? 'ACTIVE' : weekStats.totalAttendance > 0 ? `${weekStats.totalAttendance} att` : '—'}
+                  {isNoRec ? 'NO REC' : isAct ? 'OPEN' : isCalCurrent && !isWkOpen ? 'LOCKED' : weekStats.totalAttendance > 0 ? `${weekStats.totalAttendance} att` : '—'}
                 </span>
               </button>
             );
@@ -1383,19 +1444,19 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                 type="number"
                 min="0"
                 step="100"
-                disabled={isRemittedOrAudited || isReadOnly}
+                disabled={isOfferingLocked}
                 value={currentOffering.amount || ''}
                 onChange={(e) => handleOfferingAmountChange(parseFloat(e.target.value))}
                 onWheel={(e) => e.currentTarget.blur()}
                 placeholder="0.00"
                 className={`w-full bg-slate-50 border border-slate-300 rounded-lg p-1.5 px-2.5 text-base font-black text-slate-900 focus:bg-white focus:outline-none focus:border-amber-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
-                  isRemittedOrAudited ? 'bg-slate-100 text-slate-500 cursor-not-allowed border-slate-300 pr-16' : ''
+                  isOfferingLocked ? 'bg-slate-100 text-slate-500 cursor-not-allowed border-slate-300 pr-16' : ''
                 }`}
               />
-              {(isRemittedOrAudited || isReadOnly) && (
+              {isOfferingLocked && (
                 <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 flex items-center gap-1 text-[10px] font-bold bg-slate-200/90 px-1.5 py-0.5 rounded shadow-2xs">
                   <Lock className="w-3 h-3 text-slate-600" />
-                  <span>Locked</span>
+                  <span>{currentOffering.remittanceStatus === 'AUDITED' ? 'Audited' : 'Locked'}</span>
                 </span>
               )}
             </div>
@@ -1404,14 +1465,19 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
           {/* Remittance Status Indicator & Action */}
           <div className="pt-1 border-t border-slate-100">
             {currentOffering.remittanceStatus === 'AUDITED' ? (
-              <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-lg p-1.5 px-2 text-[10px]">
-                <span className="font-bold text-emerald-800 flex items-center gap-1">
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                  <span>Audited: {currencySymbol}{(currentOffering.auditedAmount ?? currentOffering.amount).toLocaleString()}</span>
-                </span>
-                <span className="text-emerald-700 font-semibold truncate max-w-[110px]">
-                  {currentOffering.auditedBy ? `By ${currentOffering.auditedBy}` : 'Verified'}
-                </span>
+              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2 text-[10px] text-emerald-900 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold flex items-center gap-1">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span>Audited Amount: {currencySymbol}{(currentOffering.auditedAmount ?? currentOffering.amount).toLocaleString()}</span>
+                  </span>
+                  <span className="text-emerald-700 font-semibold truncate max-w-[110px]">
+                    {currentOffering.auditedBy ? `By ${currentOffering.auditedBy}` : 'Audited'}
+                  </span>
+                </div>
+                <p className="text-[10px] text-emerald-800 font-medium">
+                  This financial record has already been audited and accepted by the Treasurer.
+                </p>
               </div>
             ) : currentOffering.remittanceStatus === 'REMITTED' ? (
               <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-lg p-1.5 px-2 text-[10px]">

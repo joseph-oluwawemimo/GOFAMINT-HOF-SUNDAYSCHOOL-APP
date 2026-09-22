@@ -706,3 +706,377 @@ export function getCurrentCalendarWeek(quarter?: QuarterData | null, now: Date =
   // 5. If after the last scheduled week, return the last week
   return schedule[schedule.length - 1].weekNumber;
 }
+
+/**
+ * Nigeria Local Timezone (Africa/Lagos, UTC+1).
+ * Nigeria is strictly UTC+1 year-round without daylight saving adjustments.
+ */
+export function getNigeriaDate(date: Date = new Date()): Date {
+  const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
+  return new Date(utc + (3600000 * 1)); // UTC+1
+}
+
+export function getNigeriaDateISO(date: Date = new Date()): string {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Africa/Lagos',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+    return formatter.format(date);
+  } catch {
+    return formatDateISO(getNigeriaDate(date));
+  }
+}
+
+export function getNigeriaTimeParts(date: Date = new Date()): {
+  isoDate: string;
+  dayOfWeek: number; // 0 = Sun, 1 = Mon, ..., 4 = Thu, 6 = Sat
+  hours: number;
+  minutes: number;
+  timeString: string;
+} {
+  const ngDate = getNigeriaDate(date);
+  return {
+    isoDate: getNigeriaDateISO(date),
+    dayOfWeek: ngDate.getDay(),
+    hours: ngDate.getHours(),
+    minutes: ngDate.getMinutes(),
+    timeString: ngDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+  };
+}
+
+/**
+ * PHASE 1.1 - SUNDAY START
+ * Checks whether the Sunday register for a given week is open.
+ * The Sunday register strictly opens at Sunday 12:00 AM (00:00:00 Africa/Lagos).
+ * Before Sunday (Monday - Saturday), it returns false.
+ */
+export function isSundayRegisterOpenForWeek(
+  arg1: number | QuarterData | null | undefined,
+  arg2?: number | QuarterData | null,
+  now: Date = new Date()
+): boolean {
+  let weekNumber: number;
+  let quarter: QuarterData | null | undefined;
+  if (typeof arg1 === 'number') {
+    weekNumber = arg1;
+    quarter = arg2 as QuarterData | null | undefined;
+  } else {
+    quarter = arg1 as QuarterData | null | undefined;
+    weekNumber = typeof arg2 === 'number' ? arg2 : 1;
+  }
+
+  if (!quarter) return true;
+  const schedule = getQuarterWeeklySchedule(quarter, now.getFullYear());
+  const item = schedule.find(s => s.weekNumber === weekNumber);
+  if (!item) return false;
+
+  const todayIso = getNigeriaDateISO(now);
+  // If today in Nigeria is on or after the scheduled Sunday date, register is open!
+  return todayIso >= item.sundayDate;
+}
+
+/**
+ * PHASE 1.3 & 1.5 - ACTIVE REGISTER WEEK
+ * Returns the currently active OPEN Sunday register week.
+ * If the current calendar week's Sunday has arrived (Sunday 12:00 AM onwards),
+ * returns current calendar week.
+ * If the current calendar week is e.g. Week 4, but Week 4 Sunday has NOT arrived
+ * (today is Tuesday - Saturday), the active open register is Week 3!
+ */
+export function getActiveSundayRegisterWeek(
+  quarter?: QuarterData | null,
+  now: Date = new Date()
+): {
+  currentCalendarWeek: number;
+  activeRegisterWeek: number;
+  isRegisterOpenForCalendarWeek: boolean;
+  scheduledSundayDate?: string;
+  explanation?: string;
+} {
+  const calWeek = getCurrentCalendarWeek(quarter, now);
+  if (!quarter) {
+    return {
+      currentCalendarWeek: calWeek,
+      activeRegisterWeek: calWeek,
+      isRegisterOpenForCalendarWeek: true
+    };
+  }
+
+  const schedule = getQuarterWeeklySchedule(quarter, now.getFullYear());
+  const item = schedule.find(s => s.weekNumber === calWeek);
+  const isOpen = isSundayRegisterOpenForWeek(calWeek, quarter, now);
+
+  if (isOpen) {
+    return {
+      currentCalendarWeek: calWeek,
+      activeRegisterWeek: calWeek,
+      isRegisterOpenForCalendarWeek: true,
+      scheduledSundayDate: item?.sundayDate
+    };
+  }
+
+  // Before Sunday of the current calendar week:
+  // Week 4 is the calendar week, but register is LOCKED.
+  // Active completed/working register is Week 3 (or 1 if Week 1).
+  const activeWeek = Math.max(1, calWeek - 1);
+  return {
+    currentCalendarWeek: calWeek,
+    activeRegisterWeek: activeWeek,
+    isRegisterOpenForCalendarWeek: false,
+    scheduledSundayDate: item?.sundayDate,
+    explanation: `Week ${calWeek} register will open on Sunday.`
+  };
+}
+
+/**
+ * PHASE 1.4 - FOLLOW-UP DEFAULT WEEK
+ * Follow-up must NOT automatically use the calendar's future active week.
+ * Before Week 4 Sunday arrives, FOLLOW-UP = Week 3.
+ * Returns the latest completed Sunday with a valid register.
+ */
+export function getLatestCompletedSundayWeek(
+  quarter?: QuarterData | null,
+  now: Date = new Date()
+): number {
+  const info = getActiveSundayRegisterWeek(quarter, now);
+  return info.activeRegisterWeek;
+}
+
+/**
+ * PHASE 3 & 3.1 - THURSDAY DATE + TIME SECURITY
+ * Checks BOTH DATE and TIME.
+ * Verifies that Today = the actual Thursday belonging to that week.
+ * If Week 5 Thursday has not arrived: Week 5 Thursday clocking = LOCKED,
+ * even if current time falls inside normal clocking window.
+ */
+export function getThursdayClockInSecurity(
+  targetPrepDate: string,
+  configOrDate?: { thursdayOpenTime?: string; thursdayCloseTime?: string } | Date,
+  nowInput?: Date,
+  adminTestOverride: boolean = false
+): {
+  allowed: boolean;
+  isOpen: boolean;
+  isDateMatch: boolean;
+  isToday: boolean;
+  isPast: boolean;
+  isFuture: boolean;
+  status: 'OPEN' | 'DATE_MISMATCH' | 'BEFORE_WINDOW' | 'AFTER_WINDOW' | 'TEST_MODE';
+  reason: string;
+} {
+  const config = (configOrDate instanceof Date ? {} : configOrDate) || {};
+  const now = (configOrDate instanceof Date ? configOrDate : nowInput) || new Date();
+
+  if (adminTestOverride) {
+    return {
+      allowed: true,
+      isOpen: true,
+      isDateMatch: true,
+      isToday: true,
+      isPast: false,
+      isFuture: false,
+      status: 'TEST_MODE',
+      reason: 'Admin Rehearsal / Test Mode Active'
+    };
+  }
+
+  const todayIso = getNigeriaDateISO(now);
+  const isToday = todayIso === targetPrepDate;
+  const isPast = todayIso > targetPrepDate;
+  const isFuture = todayIso < targetPrepDate;
+
+  if (isFuture) {
+    return {
+      allowed: false,
+      isOpen: false,
+      isDateMatch: false,
+      isToday: false,
+      isPast: false,
+      isFuture: true,
+      status: 'DATE_MISMATCH',
+      reason: `Thursday Preparatory Class for this week has not arrived yet. Scheduled date: ${targetPrepDate}. Clock-in remains locked.`
+    };
+  }
+
+  if (isPast) {
+    return {
+      allowed: false,
+      isOpen: false,
+      isDateMatch: false,
+      isToday: false,
+      isPast: true,
+      isFuture: false,
+      status: 'DATE_MISMATCH',
+      reason: `Thursday Preparatory Class date (${targetPrepDate}) has passed. Live clock-in is closed; past attendance can be reviewed or recorded manually.`
+    };
+  }
+
+  // Today is the actual scheduled Thursday
+  const ngParts = getNigeriaTimeParts(now);
+  const openTime = config.thursdayOpenTime || '16:00';
+  const closeTime = config.thursdayCloseTime || '19:00';
+  const [oH, oM] = openTime.split(':').map(Number);
+  const [cH, cM] = closeTime.split(':').map(Number);
+  const openMinutes = oH * 60 + oM;
+  const closeMinutes = cH * 60 + cM;
+  const nowMinutes = ngParts.hours * 60 + ngParts.minutes;
+
+  if (nowMinutes < openMinutes) {
+    return {
+      allowed: false,
+      isOpen: false,
+      isDateMatch: true,
+      isToday: true,
+      isPast: false,
+      isFuture: false,
+      status: 'BEFORE_WINDOW',
+      reason: `Thursday Clock-In window is not yet open. Opens at ${openTime} ahead of preparatory meeting.`
+    };
+  }
+
+  if (nowMinutes > closeMinutes) {
+    return {
+      allowed: false,
+      isOpen: false,
+      isDateMatch: true,
+      isToday: true,
+      isPast: false,
+      isFuture: false,
+      status: 'AFTER_WINDOW',
+      reason: `Thursday Clock-In window closed at ${closeTime}. Manual attendance remains available for authorized coordinators.`
+    };
+  }
+
+  return {
+    allowed: true,
+    isOpen: true,
+    isDateMatch: true,
+    isToday: true,
+    isPast: false,
+    isFuture: false,
+    status: 'OPEN',
+    reason: 'Thursday Preparatory Session Active'
+  };
+}
+
+/**
+ * PHASE 4 - ATTENDANCE SECURITY (Sunday & Thursday)
+ * Controls manual attendance (Present / Late / Absent / Excused) and live clock-in.
+ */
+export function getAttendanceSecurityState(
+  serviceDate: string,
+  openTime: string = '07:00',
+  closeTime: string = '11:30',
+  now: Date = new Date(),
+  adminTestOverride: boolean = false
+): {
+  isFuture: boolean;
+  isToday: boolean;
+  isPast: boolean;
+  clockingAllowed: boolean;
+  canClockIn: boolean;
+  manualAttendanceAllowed: boolean;
+  canTakeManualAttendance: boolean;
+  status: 'LOCKED_FUTURE' | 'BEFORE_WINDOW' | 'OPEN' | 'AFTER_WINDOW_MANUAL_OPEN' | 'PAST_MANUAL_OPEN' | 'TEST_MODE';
+  lockReason?: string;
+} {
+  if (adminTestOverride) {
+    return {
+      isFuture: false,
+      isToday: true,
+      isPast: false,
+      clockingAllowed: true,
+      canClockIn: true,
+      manualAttendanceAllowed: true,
+      canTakeManualAttendance: true,
+      status: 'TEST_MODE'
+    };
+  }
+
+  const todayIso = getNigeriaDateISO(now);
+  const isFuture = todayIso < serviceDate;
+  const isPast = todayIso > serviceDate;
+  const isToday = todayIso === serviceDate;
+
+  // PHASE 4.1: Future attendance is NEVER enterable
+  if (isFuture) {
+    return {
+      isFuture: true,
+      isToday: false,
+      isPast: false,
+      clockingAllowed: false,
+      canClockIn: false,
+      manualAttendanceAllowed: false,
+      canTakeManualAttendance: false,
+      status: 'LOCKED_FUTURE',
+      lockReason: `Attendance is LOCKED for future date (${serviceDate}). Attendance cannot be recorded before the date arrives.`
+    };
+  }
+
+  // PHASE 4.3: Past dates can be reviewed/edited according to permissions
+  if (isPast) {
+    return {
+      isFuture: false,
+      isToday: false,
+      isPast: true,
+      clockingAllowed: false,
+      canClockIn: false,
+      manualAttendanceAllowed: true,
+      canTakeManualAttendance: true,
+      status: 'PAST_MANUAL_OPEN',
+      lockReason: undefined
+    };
+  }
+
+  // PHASE 4.2: Current date
+  const ngParts = getNigeriaTimeParts(now);
+  const [oH, oM] = openTime.split(':').map(Number);
+  const [cH, cM] = closeTime.split(':').map(Number);
+  const openMinutes = oH * 60 + oM;
+  const closeMinutes = cH * 60 + cM;
+  const nowMinutes = ngParts.hours * 60 + ngParts.minutes;
+
+  if (nowMinutes < openMinutes) {
+    return {
+      isFuture: false,
+      isToday: true,
+      isPast: false,
+      clockingAllowed: false,
+      canClockIn: false,
+      manualAttendanceAllowed: false,
+      canTakeManualAttendance: false,
+      status: 'BEFORE_WINDOW',
+      lockReason: `Attendance is LOCKED before the clocking window opens at ${openTime}.`
+    };
+  }
+
+  if (nowMinutes > closeMinutes) {
+    return {
+      isFuture: false,
+      isToday: true,
+      isPast: false,
+      clockingAllowed: false,
+      canClockIn: false,
+      manualAttendanceAllowed: true,
+      canTakeManualAttendance: true,
+      status: 'AFTER_WINDOW_MANUAL_OPEN',
+      lockReason: undefined
+    };
+  }
+
+  return {
+    isFuture: false,
+    isToday: true,
+    isPast: false,
+    clockingAllowed: true,
+    canClockIn: true,
+    manualAttendanceAllowed: true,
+    canTakeManualAttendance: true,
+    status: 'OPEN',
+    lockReason: undefined
+  };
+}
+
