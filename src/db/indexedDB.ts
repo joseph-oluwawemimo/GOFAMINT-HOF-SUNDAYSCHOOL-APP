@@ -2429,7 +2429,7 @@ export async function getSundaySchoolYear(): Promise<SundaySchoolYear> {
         needsUpdate = true;
       }
 
-      // Filter out legacy 36 departments while preserving the 4 recognized departments + any dynamic user created ones
+      // Filter out legacy 36 church departments while preserving all authorized user-configured departments
       const legacyDeptsToRemove = new Set([
         'Sunday School', 'Ministers Council', 'Choir', 'Youth Ministry', 'Good Women', 'Men Fellowship',
         'Evangelism Board', 'Ushering Unit', 'Prayer Band', 'Sanctuary Keepers', 'Welfare Board',
@@ -2437,17 +2437,17 @@ export async function getSundaySchoolYear(): Promise<SundaySchoolYear> {
         'Follow-Up Unit', 'Protocol Unit', 'Music Ministry', 'Christian Education'
       ]);
 
-      const cleanedDepts = Array.from(new Set([
-        'Adult',
-        'Youth',
-        'Teenagers',
-        'Children',
-        ...(year.departments || []).filter(d => !legacyDeptsToRemove.has(d))
-      ]));
-
-      if (cleanedDepts.length !== (year.departments || []).length || !cleanedDepts.includes('Teenagers')) {
-        year.departments = cleanedDepts;
+      if (!Array.isArray(year.departments)) {
+        year.departments = [...DEFAULT_DEPARTMENTS];
         needsUpdate = true;
+      } else {
+        const cleanedDepts = Array.from(new Set(
+          year.departments.filter(d => typeof d === 'string' && d.trim() && !legacyDeptsToRemove.has(d))
+        ));
+        if (cleanedDepts.length !== year.departments.length) {
+          year.departments = cleanedDepts;
+          needsUpdate = true;
+        }
       }
 
       // Legacy repair only: normalize a missing lessons array. Never inject or
@@ -2980,6 +2980,12 @@ export async function updateDepartmentNameInYear(oldName: string, newName: strin
 }
 
 export async function deleteDepartmentFromYear(departmentName: string): Promise<string[]> {
+  const trimmedName = (departmentName || '').trim();
+  if (!trimmedName) {
+    const year = await getSundaySchoolYear();
+    return year.departments || [];
+  }
+
   // 1. Validate whether classes currently depend on this department
   const classes = await getAllClassesDirectory();
   const currentClass = await getClassProfile();
@@ -2988,35 +2994,50 @@ export async function deleteDepartmentFromYear(departmentName: string): Promise<
     activeClasses.push(currentClass);
   }
 
-  const dependentClasses = activeClasses.filter(c => c.department === departmentName);
+  const dependentClasses = activeClasses.filter(
+    c => String(c.department || '').trim().toLowerCase() === trimmedName.toLowerCase()
+  );
   if (dependentClasses.length > 0) {
     const classNames = dependentClasses.map(c => c.className || c.id).join(', ');
     throw new Error(
-      `Cannot delete department "${departmentName}" because ${dependentClasses.length} class(es) (${classNames}) currently belong to it. Please reassign or delete these classes first.`
+      `Cannot delete department "${trimmedName}" because ${dependentClasses.length} class(es) (${classNames}) currently belong to it. Please reassign or delete these classes first.`
     );
   }
 
   // 2. Safe to delete: Delete from Supabase via authoritative server endpoint
   try {
     const { deleteDepartmentApi } = await import('../services/adminUserApi');
-    const res = await deleteDepartmentApi(departmentName);
+    const res = await deleteDepartmentApi(trimmedName);
     if (!res.success) {
-      throw new Error(res.error || `Could not delete department "${departmentName}".`);
+      if (res.error && res.error.toLowerCase().includes('belong to it')) {
+        throw new Error(res.error);
+      }
+      console.warn('Server department deletion warning:', res.error);
     }
   } catch (apiErr: any) {
-    console.error('Server department deletion error:', apiErr);
-    throw apiErr;
+    if (apiErr?.message?.toLowerCase().includes('belong to it')) {
+      throw apiErr;
+    }
+    console.warn('Server department deletion error (proceeding with local update):', apiErr);
   }
 
   // 3. Update local IndexedDB SundaySchoolYear
   const year = await getSundaySchoolYear();
-  const updatedList = year.departments.filter(d => d !== departmentName);
+  const updatedList = (year.departments || []).filter(
+    d => String(d || '').trim().toLowerCase() !== trimmedName.toLowerCase()
+  );
   const updatedYear: SundaySchoolYear = {
     ...year,
     departments: updatedList,
     updatedAt: new Date().toISOString()
   };
   await saveSundaySchoolYear(updatedYear);
+
+  try {
+    await deleteFromStore('departments', trimmedName);
+  } catch (e) {
+    // ignore
+  }
 
   return updatedList;
 }

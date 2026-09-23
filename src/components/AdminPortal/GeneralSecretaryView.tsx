@@ -151,13 +151,22 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
 
   const handleConfirmDeleteDept = async () => {
     if (!deletingDeptName) return;
-    if (onDeleteDepartment) {
-      await onDeleteDepartment(deletingDeptName);
-      setFeedback(`Removed department "${deletingDeptName}".`);
+    const targetDept = deletingDeptName;
+    try {
+      if (onDeleteDepartment) {
+        await onDeleteDepartment(targetDept);
+        setFeedback(`Removed department "${targetDept}".`);
+      }
+      setShowDeleteDeptModal(false);
+      setDeletingDeptName(null);
+      setTimeout(() => setFeedback(null), 4000);
+    } catch (err: any) {
+      console.error('Failed to delete department:', err);
+      setActionError(err?.message || `Failed to delete department "${targetDept}".`);
+      setShowDeleteDeptModal(false);
+      setDeletingDeptName(null);
+      setTimeout(() => setActionError(null), 6000);
     }
-    setShowDeleteDeptModal(false);
-    setDeletingDeptName(null);
-    setTimeout(() => setFeedback(null), 4000);
   };
 
   // Single Lesson Editor state
@@ -548,7 +557,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
           }`}
         >
           <Building className="w-4 h-4" />
-          <span>Department Management ({sundaySchoolYear.departments?.length || 4})</span>
+          <span>Department Management ({Array.isArray(sundaySchoolYear.departments) ? sundaySchoolYear.departments.length : 0})</span>
         </button>
 
         <button
@@ -676,7 +685,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                 </div>
                 <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200">
                   <span className="text-[10px] uppercase font-bold text-slate-400 block">Departments</span>
-                  <span className="text-xl font-black text-slate-900">{sundaySchoolYear.departments?.length || 4} Departments</span>
+                  <span className="text-xl font-black text-slate-900">{Array.isArray(sundaySchoolYear.departments) ? sundaySchoolYear.departments.length : 0} Departments</span>
                   <span className="text-[11px] text-slate-500 font-semibold block mt-0.5">Configured by GSEC</span>
                 </div>
               </div>
@@ -1355,6 +1364,13 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
             <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center gap-3 text-emerald-800 text-sm animate-in fade-in">
               <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0" />
               <p className="font-semibold">{feedback}</p>
+            </div>
+          )}
+
+          {actionError && (
+            <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-center gap-3 text-rose-800 text-sm animate-in fade-in">
+              <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
+              <p className="font-semibold">{actionError}</p>
             </div>
           )}
 

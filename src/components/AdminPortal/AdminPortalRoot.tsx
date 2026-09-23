@@ -611,8 +611,12 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
                     setAllClasses(await getAllClassesDirectory());
                   }}
                   onDeleteDepartment={async (dept) => {
-                    await deleteDepartmentFromYear(dept);
-                    setSundaySchoolYear(await getSundaySchoolYear());
+                    const remainingDepts = await deleteDepartmentFromYear(dept);
+                    const freshYear = await getSundaySchoolYear();
+                    setSundaySchoolYear({
+                      ...freshYear,
+                      departments: remainingDepts
+                    });
                     setAllClasses(await getAllClassesDirectory());
                   }}
                   onApproveClass={handleApproveClass}

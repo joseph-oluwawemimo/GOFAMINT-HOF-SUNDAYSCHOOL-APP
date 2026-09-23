@@ -178,14 +178,11 @@ export const DepartmentClassExplorer: React.FC<DepartmentClassExplorerProps> = (
     };
   }, [selectedClassId, selectedQuarter]);
 
-  // Departments list (4 recognized standard + custom created)
-  const departmentsList = ['ALL', ...Array.from(new Set([
-    'Adult',
-    'Youth',
-    'Teenagers',
-    'Children',
-    ...(sundaySchoolYear.departments || [])
-  ]))];
+  // Departments list (authorized departments from Sunday School Year)
+  const activeDepts = (sundaySchoolYear.departments && sundaySchoolYear.departments.length > 0)
+    ? sundaySchoolYear.departments
+    : ['Adult', 'Youth', 'Teenagers', 'Children'];
+  const departmentsList = ['ALL', ...Array.from(new Set(activeDepts))];
 
   // Filtered classes by department and search
   const filteredClasses = allClasses.filter(c => {
