@@ -262,6 +262,32 @@ export function createApp() {
       res.status(status).json({ error: message });
     }
   });
+  // --- School Intelligence Board (SIB) AI Agent Endpoints ---
+  app.post('/api/sib/query', async (req, res) => {
+    try {
+      const c = await caller(req, res);
+      if (!c) return;
+      const { handleSIBQuery } = await import('./sibAgentServer.js');
+      const response = await handleSIBQuery(req.body || {}, c.role);
+      res.json(response);
+    } catch (e: any) {
+      console.error('[Server] SIB query error:', e);
+      res.status(500).json({ error: e?.message || 'Failed to process SIB query.' });
+    }
+  });
+  app.post('/api/sib/weekly-report', async (req, res) => {
+    try {
+      const c = await caller(req, res);
+      if (!c) return;
+      const { handleSIBWeeklyReport } = await import('./sibAgentServer.js');
+      const response = await handleSIBWeeklyReport(req.body?.quarterNumber);
+      res.json(response);
+    } catch (e: any) {
+      console.error('[Server] SIB weekly report error:', e);
+      res.status(500).json({ error: e?.message || 'Failed to generate weekly intelligence report.' });
+    }
+  });
+
   app.get('/api/system/status', async (_q, r) => {
     try { r.json(await readSystemInitializationState(getSupabaseAdmin())); }
     catch (e:any) {

@@ -14,7 +14,8 @@ import {
   Check,
   Plus,
   Trash2,
-  X
+  X,
+  Activity
 } from 'lucide-react';
 import { GofamintLogo } from './GofamintLogo';
 import { ClassProfile, TeacherInfo, Member, WorkerProfile } from '../types';
@@ -35,6 +36,7 @@ interface OpeningFlowViewProps {
   onEnterClass: (selectedProfile?: ClassProfile) => void;
   onEnterAdminPortal?: () => void;
   onEnterWorkersModule?: () => void;
+  onEnterSibPortal?: () => void;
   onRegisterNewClassSubmit: (profile: ClassProfile) => void;
   onClearDataAndStartScratch?: () => void;
   onDatabaseRestored?: () => void;
@@ -79,6 +81,7 @@ export const OpeningFlowView: React.FC<OpeningFlowViewProps> = ({
   onEnterClass,
   onEnterAdminPortal,
   onEnterWorkersModule,
+  onEnterSibPortal,
   onRegisterNewClassSubmit,
   currentUserProfile,
   cloudUser
@@ -163,6 +166,15 @@ export const OpeningFlowView: React.FC<OpeningFlowViewProps> = ({
   const handleWorkersModuleClick = () => {
     if (isWorker && onEnterWorkersModule) {
       onEnterWorkersModule();
+    } else {
+      setAuthErrorModalMessage('You are not authorized to enter this portal.');
+    }
+  };
+
+  // Handle SIB Portal click
+  const handleSibPortalClick = () => {
+    if (onEnterSibPortal) {
+      onEnterSibPortal();
     } else {
       setAuthErrorModalMessage('You are not authorized to enter this portal.');
     }
@@ -393,8 +405,8 @@ export const OpeningFlowView: React.FC<OpeningFlowViewProps> = ({
             </p>
           </div>
 
-          {/* 3 Clean Portal Cards (No local database bar as per Item 20) */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-2">
+          {/* 4 Clean Portal Cards (Admin, Workers, Teacher/Secretary, and SIB) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-2">
             
             {/* 1. Admin Portal */}
             <div className="bg-white border-2 border-slate-900 rounded-2xl p-6 flex flex-col justify-between shadow-lg hover:shadow-xl transition relative border-t-8 border-t-amber-500">
@@ -499,6 +511,41 @@ export const OpeningFlowView: React.FC<OpeningFlowViewProps> = ({
                 >
                   <span>Enter Teachers Portal</span>
                   <ArrowRight className="w-3.5 h-3.5 text-amber-300" />
+                </button>
+              </div>
+            </div>
+
+            {/* 4. School Intelligence Board (SIB) */}
+            <div className="bg-white border-2 border-slate-900 rounded-2xl p-6 flex flex-col justify-between shadow-lg hover:shadow-xl transition relative border-t-8 border-t-indigo-600">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-100 border border-indigo-300 flex items-center justify-center text-indigo-950">
+                    <Activity className="w-6 h-6 text-indigo-700" />
+                  </div>
+                  <span className="px-2.5 py-1 bg-indigo-100 text-indigo-900 text-[10px] font-black uppercase tracking-wider rounded-md border border-indigo-300">
+                    Intelligence Layer
+                  </span>
+                </div>
+
+                <div>
+                  <h3 className="text-lg font-black text-slate-900 font-['Cinzel',serif]">
+                    4. School Intelligence Board
+                  </h3>
+                  <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+                    Deterministic class health scores, repeated absence alerts, pastoral follow-up tracking, evidence drawers, and Ask SIB AI agent.
+                  </p>
+                </div>
+              </div>
+
+              <div className="pt-5 mt-4 border-t border-slate-200">
+                <button
+                  id="btn-portal-select-sib"
+                  onClick={handleSibPortalClick}
+                  className="w-full py-3 bg-indigo-900 hover:bg-indigo-800 active:scale-[0.98] text-white rounded-xl text-xs font-black flex items-center justify-center gap-2 shadow-md transition cursor-pointer"
+                >
+                  <Activity className="w-3.5 h-3.5 text-indigo-300" />
+                  <span>Enter SIB Portal</span>
+                  <ArrowRight className="w-3.5 h-3.5 text-white" />
                 </button>
               </div>
             </div>

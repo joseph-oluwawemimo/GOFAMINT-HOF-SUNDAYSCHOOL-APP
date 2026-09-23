@@ -224,7 +224,9 @@ import {
   EnrollmentOfficerClassRow,
   EnrollmentOfficerWeeklyCollation,
   EnrollmentCertificationRecord,
-  StudentTransferRecord
+  StudentTransferRecord,
+  AttendanceChangeRequestRecord,
+  WeekLockRecord
 } from '../types';
 import {
   DEFAULT_DEPARTMENTS,
@@ -2184,6 +2186,156 @@ export async function saveClockInConfig(config: ClockInConfig): Promise<ClockInC
   return res;
 }
 
+export async function lockAttendanceWeek(
+  sessionType: 'THURSDAY' | 'SUNDAY',
+  quarterNumber: QuarterNumber,
+  weekNumber: number,
+  officerName: string
+): Promise<ClockInConfig> {
+  const config = await getClockInConfig();
+  const weekKey = `${sessionType}_${quarterNumber}_${weekNumber}`;
+  const now = new Date().toISOString();
+  
+  const existingRecord = config.lockedWeeks?.[weekKey];
+  const updatedWeeks = {
+    ...(config.lockedWeeks || {}),
+    [weekKey]: {
+      isLocked: true,
+      lockedAt: now,
+      lockedBy: officerName,
+      changeHistory: existingRecord?.changeHistory || []
+    }
+  };
+
+  const updatedConfig: ClockInConfig = {
+    ...config,
+    lockedWeeks: updatedWeeks
+  };
+
+  return await saveClockInConfig(updatedConfig);
+}
+
+export async function requestAttendanceWeekChanges(
+  sessionType: 'THURSDAY' | 'SUNDAY',
+  quarterNumber: QuarterNumber,
+  weekNumber: number,
+  requestedBy: string,
+  reason: string
+): Promise<ClockInConfig> {
+  const config = await getClockInConfig();
+  const weekKey = `${sessionType}_${quarterNumber}_${weekNumber}`;
+  const now = new Date().toISOString();
+  const changeRequestId = `cr_${sessionType}_${quarterNumber}_${weekNumber}_${Date.now()}`;
+
+  const changeRequest: AttendanceChangeRequestRecord = {
+    id: changeRequestId,
+    sessionType,
+    quarterNumber,
+    weekNumber,
+    requestedBy,
+    requestedAt: now,
+    reason: reason.trim(),
+    status: 'PENDING'
+  };
+
+  const existingRecord = config.lockedWeeks?.[weekKey] || { isLocked: true };
+  const updatedWeeks = {
+    ...(config.lockedWeeks || {}),
+    [weekKey]: {
+      ...existingRecord,
+      activeChangeRequest: changeRequest
+    }
+  };
+
+  const updatedConfig: ClockInConfig = {
+    ...config,
+    lockedWeeks: updatedWeeks
+  };
+
+  return await saveClockInConfig(updatedConfig);
+}
+
+export async function approveAttendanceWeekChanges(
+  sessionType: 'THURSDAY' | 'SUNDAY',
+  quarterNumber: QuarterNumber,
+  weekNumber: number,
+  reviewedBy: string
+): Promise<ClockInConfig> {
+  const config = await getClockInConfig();
+  const weekKey = `${sessionType}_${quarterNumber}_${weekNumber}`;
+  const now = new Date().toISOString();
+
+  const existingRecord = config.lockedWeeks?.[weekKey];
+  if (!existingRecord?.activeChangeRequest) {
+    throw new Error(`No active change request found for ${sessionType} Week ${weekNumber}`);
+  }
+
+  const approvedRequest: AttendanceChangeRequestRecord = {
+    ...existingRecord.activeChangeRequest,
+    status: 'APPROVED',
+    reviewedBy,
+    reviewedAt: now
+  };
+
+  const updatedWeeks = {
+    ...(config.lockedWeeks || {}),
+    [weekKey]: {
+      ...existingRecord,
+      activeChangeRequest: approvedRequest
+    }
+  };
+
+  const updatedConfig: ClockInConfig = {
+    ...config,
+    lockedWeeks: updatedWeeks
+  };
+
+  return await saveClockInConfig(updatedConfig);
+}
+
+export async function completeAttendanceWeekChanges(
+  sessionType: 'THURSDAY' | 'SUNDAY',
+  quarterNumber: QuarterNumber,
+  weekNumber: number
+): Promise<ClockInConfig> {
+  const config = await getClockInConfig();
+  const weekKey = `${sessionType}_${quarterNumber}_${weekNumber}`;
+  const now = new Date().toISOString();
+
+  const existingRecord = config.lockedWeeks?.[weekKey];
+  const activeReq = existingRecord?.activeChangeRequest;
+
+  const completedRequest: AttendanceChangeRequestRecord | undefined = activeReq ? {
+    ...activeReq,
+    status: 'COMPLETED',
+    completedAt: now
+  } : undefined;
+
+  const changeHistory = [...(existingRecord?.changeHistory || [])];
+  if (completedRequest) {
+    changeHistory.push(completedRequest);
+  }
+
+  // Automatically lock the week again
+  const updatedWeeks = {
+    ...(config.lockedWeeks || {}),
+    [weekKey]: {
+      isLocked: true,
+      lockedAt: now,
+      lockedBy: completedRequest?.reviewedBy || completedRequest?.requestedBy || 'System',
+      activeChangeRequest: undefined,
+      changeHistory
+    }
+  };
+
+  const updatedConfig: ClockInConfig = {
+    ...config,
+    lockedWeeks: updatedWeeks
+  };
+
+  return await saveClockInConfig(updatedConfig);
+}
+
 // Worker Categories
 export async function getAllWorkerCategories(): Promise<WorkerCategoryDef[]> {
   try {
@@ -4106,6 +4258,7 @@ export async function getStudentTransfersByDepartment(deptName: string): Promise
 export async function requestStudentTransfer(req: {
   studentId: string;
   studentName: string;
+  memberType?: 'STUDENT' | 'VISITOR';
   fromDepartment: string;
   fromClassId: string;
   fromClassName: string;
@@ -4122,6 +4275,7 @@ export async function requestStudentTransfer(req: {
     id: `transfer_${req.studentId}_${Date.now()}`,
     memberId: req.studentId,
     studentId: req.studentId,
+    memberType: req.memberType || 'STUDENT',
     memberName: req.studentName,
     studentName: req.studentName,
     previousDepartment: req.fromDepartment,

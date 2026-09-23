@@ -72,6 +72,7 @@ import { AIAssistantView } from './components/AIAssistantView';
 import { SyncSettingsView } from './components/SyncSettingsView';
 import { AdminPortalRoot } from './components/AdminPortal/AdminPortalRoot';
 import { WorkersModuleView } from './components/WorkersModule/WorkersModuleView';
+import { SibPortalRoot } from './sib/components/SibPortalRoot';
 import { QuarterTransitionModal } from './components/QuarterTransitionModal';
 import { CloudLoginGate } from './components/CloudLoginGate';
 import { LockScreen } from './components/LockScreen';
@@ -214,6 +215,12 @@ export default function App() {
       } else if (savedPortal === 'ADMIN' && ADMIN_PORTAL_ROLES.has(role)) {
         setShowAdminPortal(true);
         setShowWorkersModule(false);
+        setShowSibPortal(false);
+        setShowOpeningPage(false);
+      } else if (savedPortal === 'SIB') {
+        setShowSibPortal(true);
+        setShowAdminPortal(false);
+        setShowWorkersModule(false);
         setShowOpeningPage(false);
       } else if (savedPortal === 'CLASS_REGISTER' && profile.classId) {
         const assignedClass = (await getAllClassesDirectory(true)).find(
@@ -243,6 +250,7 @@ export default function App() {
         setShowOpeningPage(true);
         setShowAdminPortal(false);
         setShowWorkersModule(false);
+        setShowSibPortal(false);
         setIsUnlocked(false);
       }
     } catch (err: any) {
@@ -300,6 +308,7 @@ export default function App() {
   const [showOpeningPage, setShowOpeningPage] = useState(false);
   const [showAdminPortal, setShowAdminPortal] = useState(false);
   const [showWorkersModule, setShowWorkersModule] = useState(false);
+  const [showSibPortal, setShowSibPortal] = useState(false);
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isRegisteringNew, setIsRegisteringNew] = useState(false);
@@ -347,6 +356,8 @@ export default function App() {
       ? '#workers'
       : showAdminPortal
       ? '#admin'
+      : showSibPortal
+      ? '#sib'
       : showOpeningPage
       ? '#welcome'
       : `#class-${(activeTab || '').toLowerCase()}`;
@@ -372,10 +383,11 @@ export default function App() {
         handleExitOversight();
         return;
       }
-      if (showAdminPortal || showWorkersModule) {
+      if (showAdminPortal || showWorkersModule || showSibPortal) {
         sessionStorage.removeItem('gofamint_active_portal');
         setShowAdminPortal(false);
         setShowWorkersModule(false);
+        setShowSibPortal(false);
         setShowOpeningPage(true);
         return;
       }
@@ -1669,6 +1681,52 @@ export default function App() {
     );
   }
 
+  // If user entered SIB (School Intelligence Board - Fourth Portal)
+  if (showSibPortal) {
+    return (
+      <>
+        {isProfileLocked && (
+          <LockScreen
+            userEmail={cloudUser.email || ''}
+            userRole={currentUserProfile?.role}
+            onUnlocked={() => setIsProfileLocked(false)}
+          />
+        )}
+        <SibPortalRoot
+          authProfile={currentUserProfile}
+          onBackToWelcome={() => {
+            sessionStorage.removeItem('gofamint_active_portal');
+            setShowSibPortal(false);
+            setShowOpeningPage(true);
+          }}
+          onBackToPortalSelect={() => {
+            sessionStorage.removeItem('gofamint_active_portal');
+            setShowSibPortal(false);
+            setShowOpeningPage(true);
+          }}
+          onNavigateToPortal={(targetPortal, context) => {
+            setShowSibPortal(false);
+            if (targetPortal === 'ADMIN') {
+              sessionStorage.setItem('gofamint_active_portal', 'ADMIN');
+              setShowAdminPortal(true);
+            } else if (targetPortal === 'WORKERS') {
+              sessionStorage.setItem('gofamint_active_portal', 'WORKERS');
+              setShowWorkersModule(true);
+            } else if (targetPortal === 'CLASS_REGISTER') {
+              sessionStorage.setItem('gofamint_active_portal', 'CLASS_REGISTER');
+              const classId = context?.classId as string | undefined;
+              if (classId && (currentUserProfile?.role === 'GENERAL_SUPERINTENDENT' || currentUserProfile?.role === 'SUPER_ADMIN')) {
+                handleEnterOversight('CLASS_REGISTER', classId);
+              } else {
+                setShowOpeningPage(true);
+              }
+            }
+          }}
+        />
+      </>
+    );
+  }
+
   // If user is at the Opening Page
   if (showOpeningPage) {
     return (
@@ -1703,6 +1761,11 @@ export default function App() {
             sessionStorage.setItem('gofamint_active_portal', 'WORKERS');
             setShowOpeningPage(false);
             setShowWorkersModule(true);
+          }}
+          onEnterSibPortal={() => {
+            sessionStorage.setItem('gofamint_active_portal', 'SIB');
+            setShowOpeningPage(false);
+            setShowSibPortal(true);
           }}
           onRegisterNewClassSubmit={handleRegisterNewClassSubmit}
           onClearDataAndStartScratch={handleClearDataAndStartScratch}

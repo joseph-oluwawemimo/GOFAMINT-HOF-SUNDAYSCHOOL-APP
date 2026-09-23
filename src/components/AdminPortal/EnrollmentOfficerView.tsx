@@ -1174,9 +1174,16 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
                             <span className="text-[10px] font-bold text-indigo-700 uppercase tracking-wider block">
                               Transfer Request
                             </span>
-                            <h4 className="text-base font-black text-slate-900">
-                              {req.memberName || req.studentName}
-                            </h4>
+                            <div className="flex items-center gap-2">
+                              <h4 className="text-base font-black text-slate-900">
+                                {req.memberName || req.studentName}
+                              </h4>
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                                req.memberType === 'VISITOR' ? 'bg-amber-100 text-amber-800 border border-amber-300' : 'bg-blue-100 text-blue-800 border border-blue-300'
+                              }`}>
+                                {req.memberType === 'VISITOR' ? 'Visitor' : 'Student'}
+                              </span>
+                            </div>
                           </div>
                           <span className="px-2 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 rounded-full text-[10px] font-black uppercase">
                             Pending Review
@@ -1252,7 +1259,7 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
                   <table className="w-full text-left text-xs">
                     <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] tracking-wider border-b border-slate-200">
                       <tr>
-                        <th className="p-3">Student Name</th>
+                        <th className="p-3">Person Name</th>
                         <th className="p-3">Previous Class</th>
                         <th className="p-3">New Destination Class</th>
                         <th className="p-3 text-center">Effective Week</th>
@@ -1264,7 +1271,18 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
                     <tbody className="divide-y divide-slate-100">
                       {[...approvedTransfers, ...rejectedTransfers].map((t) => (
                         <tr key={t.id} className="hover:bg-slate-50">
-                          <td className="p-3 font-black text-slate-900">{t.memberName || t.studentName}</td>
+                          <td className="p-3 font-black text-slate-900">
+                            <div className="flex items-center gap-2">
+                              <span>{t.memberName || t.studentName}</span>
+                              {t.memberType && (
+                                <span className={`px-1.5 py-0.2 rounded text-[9px] font-black uppercase ${
+                                  t.memberType === 'VISITOR' ? 'bg-amber-100 text-amber-800 border border-amber-200' : 'bg-blue-100 text-blue-800 border border-blue-200'
+                                }`}>
+                                  {t.memberType === 'VISITOR' ? 'Visitor' : 'Student'}
+                                </span>
+                              )}
+                            </div>
+                          </td>
                           <td className="p-3 text-slate-600">{t.previousClassName || t.fromClassName} ({t.previousDepartment || t.fromDepartment})</td>
                           <td className="p-3 font-bold text-indigo-900">{t.destinationClassName || t.toClassName} ({t.destinationDepartment || t.toDepartment})</td>
                           <td className="p-3 text-center font-bold text-slate-800">Week {t.effectiveWeekNumber || t.effectiveWeek || 1}</td>

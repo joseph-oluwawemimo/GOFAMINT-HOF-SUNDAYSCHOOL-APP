@@ -249,6 +249,7 @@ export type TransferRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 export interface StudentTransferRecord {
   id: string; // `transfer_${memberId}_${Date.now()}`
   memberId: string;
+  memberType?: 'STUDENT' | 'VISITOR';
   studentId?: string; // alias
   memberName: string;
   studentName?: string; // alias
@@ -824,6 +825,32 @@ export interface ClockInConfig {
   thursdayCloseTime?: string; // '19:00'
   thursdayMeetingStartTime?: string; // '18:00'
   thursdayLateCutoffTime?: string; // '18:15'
+
+  // Past Weeks Manual Lock & Controlled Change Requests
+  // Key format: `${sessionType}_${quarterNumber}_${weekNumber}` (e.g. 'THURSDAY_1_3', 'SUNDAY_1_3')
+  lockedWeeks?: Record<string, WeekLockRecord>;
+}
+
+export interface AttendanceChangeRequestRecord {
+  id: string;
+  sessionType: 'THURSDAY' | 'SUNDAY';
+  quarterNumber: QuarterNumber;
+  weekNumber: number;
+  requestedBy: string;
+  requestedAt: string;
+  reason: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'COMPLETED';
+  reviewedBy?: string;
+  reviewedAt?: string;
+  completedAt?: string;
+}
+
+export interface WeekLockRecord {
+  isLocked: boolean;
+  lockedAt?: string;
+  lockedBy?: string;
+  activeChangeRequest?: AttendanceChangeRequestRecord;
+  changeHistory?: AttendanceChangeRequestRecord[];
 }
 
 export type WorkersActiveTab = 

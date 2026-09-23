@@ -13,7 +13,7 @@ import confetti from 'canvas-confetti';
 import jsQR from 'jsqr';
 import { calculateWorkerProfileCompleteness } from '../../utils/workerProfileUtils';
 import { ClockInScheduleSettingsModal } from './ClockInScheduleSettingsModal';
-import { getThursdayClockInSecurity } from '../../utils/quarterScheduleUtils';
+import { evaluateAttendanceAccess } from '../../utils/attendanceAccessSecurity';
 
 interface ThursdayClockInTerminalModalProps {
   isOpen: boolean;
@@ -132,10 +132,30 @@ export const ThursdayClockInTerminalModal: React.FC<ThursdayClockInTerminalModal
     }
   }, []);
 
-  // Evaluate Thursday Clock-In Window & Date-aware security (Phase 3 & 3.1)
-  const clockInStatus = useMemo(() => {
-    return getThursdayClockInSecurity(targetDate, config, new Date(), adminTestOverride);
-  }, [adminTestOverride, config, targetDate]);
+  // Evaluate Thursday Clock-In Window & Date-aware security via unified Attendance Access Controller
+  const attendanceAccess = useMemo(() => {
+    return evaluateAttendanceAccess({
+      sessionType: 'THURSDAY',
+      weekNumber,
+      scheduledDate: targetDate,
+      openTime: config.thursdayOpenTime,
+      closeTime: config.thursdayCloseTime,
+      config,
+      now: new Date(),
+      adminTestOverride
+    });
+  }, [adminTestOverride, config, targetDate, weekNumber]);
+
+  const clockInStatus = useMemo(() => ({
+    allowed: attendanceAccess.canClockIn,
+    isOpen: attendanceAccess.canClockIn,
+    isDateMatch: attendanceAccess.isDateMatch,
+    isToday: attendanceAccess.isToday,
+    isPast: attendanceAccess.isPast,
+    isFuture: attendanceAccess.isFuture,
+    status: attendanceAccess.status,
+    reason: attendanceAccess.lockReason || (attendanceAccess.canClockIn ? 'Thursday Preparatory Session Active' : 'Clock-in is closed.')
+  }), [attendanceAccess]);
 
   // Process Clock-In
   const handleClockIn = useCallback(async (
