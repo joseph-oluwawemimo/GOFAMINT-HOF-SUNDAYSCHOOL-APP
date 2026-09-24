@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   WorkerProfile, 
   WorkerPrepAttendanceRecord, 
@@ -99,6 +100,11 @@ export const ThursdayClockInTerminalModal: React.FC<ThursdayClockInTerminalModal
   const activePrepAttendance = useMemo(() => {
     return prepRecords.filter(r => r.prepDate === targetDate);
   }, [prepRecords, targetDate]);
+
+  const remainingWorkers = useMemo(() => {
+    const recordedIds = new Set(activePrepAttendance.map(record => record.workerId));
+    return activeWorkers.filter(worker => !recordedIds.has(worker.id));
+  }, [activeWorkers, activePrepAttendance]);
 
   // Audio feedback chime
   const playChime = useCallback((isLate: boolean) => {
@@ -351,22 +357,22 @@ export const ThursdayClockInTerminalModal: React.FC<ThursdayClockInTerminalModal
 
   // Filter workers for search
   const displayedWorkers = useMemo(() => {
-    return activeWorkers.filter(w => {
+    return remainingWorkers.filter(w => {
       const q = searchQuery.toLowerCase().trim();
       const matchQuery = !q || w.fullName.toLowerCase().includes(q) || (w.phone || '').includes(q) || w.department.toLowerCase().includes(q);
       const matchDept = selectedDept === 'ALL' || w.department === selectedDept;
       return matchQuery && matchDept;
     });
-  }, [activeWorkers, searchQuery, selectedDept]);
+  }, [remainingWorkers, searchQuery, selectedDept]);
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/85 backdrop-blur-xs animate-fade-in">
-      <div className="bg-white rounded-3xl max-w-4xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
+  return createPortal(
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/85 p-0 backdrop-blur-xs animate-fade-in sm:p-4">
+      <div role="dialog" aria-modal="true" aria-label="Thursday clock-in terminal" className="flex h-[100dvh] w-full max-w-4xl flex-col overflow-hidden bg-white shadow-2xl sm:h-auto sm:max-h-[92vh] sm:rounded-3xl sm:border sm:border-slate-200">
         
         {/* Top Header */}
-        <div className="bg-slate-900 text-white p-5 px-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800">
+        <div className="flex flex-col justify-between gap-3 border-b border-slate-800 bg-slate-900 p-4 text-white sm:flex-row sm:items-center sm:px-6 sm:py-5">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <span className="px-2.5 py-0.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-full text-[10px] font-black uppercase tracking-wider">
@@ -463,11 +469,11 @@ export const ThursdayClockInTerminalModal: React.FC<ThursdayClockInTerminalModal
         )}
 
         {/* Method Switcher Tabs */}
-        <div className="p-3 px-6 bg-slate-100 border-b border-slate-200 flex items-center justify-between gap-3">
-          <div className="flex bg-white p-1 rounded-2xl border border-slate-300 shadow-inner">
+        <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-100 p-2 sm:px-6 sm:py-3">
+          <div className="flex max-w-full overflow-x-auto rounded-2xl border border-slate-300 bg-white p-1 shadow-inner">
             <button
               onClick={() => { setActiveTab('NAME_SEARCH'); setIsCameraActive(false); }}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+              className={`min-h-11 shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
                 activeTab === 'NAME_SEARCH' ? 'bg-blue-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
               }`}
             >
@@ -477,7 +483,7 @@ export const ThursdayClockInTerminalModal: React.FC<ThursdayClockInTerminalModal
 
             <button
               onClick={() => { setActiveTab('QR_SCAN'); setIsCameraActive(true); }}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+              className={`min-h-11 shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
                 activeTab === 'QR_SCAN' ? 'bg-blue-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
               }`}
             >
@@ -487,7 +493,7 @@ export const ThursdayClockInTerminalModal: React.FC<ThursdayClockInTerminalModal
 
             <button
               onClick={() => { setActiveTab('DEPARTMENT'); setIsCameraActive(false); }}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+              className={`min-h-11 shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
                 activeTab === 'DEPARTMENT' ? 'bg-blue-900 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'
               }`}
             >
@@ -508,7 +514,7 @@ export const ThursdayClockInTerminalModal: React.FC<ThursdayClockInTerminalModal
 
         {/* Tab 1: Find & List Names */}
         {activeTab === 'NAME_SEARCH' && (
-          <div className="p-6 overflow-y-auto flex-1 space-y-4">
+          <div className="flex-1 space-y-4 overflow-y-auto p-4 sm:p-6">
             <div className="relative">
               <Search className="w-5 h-5 absolute left-3.5 top-3.5 text-slate-400" />
               <input
@@ -529,10 +535,10 @@ export const ThursdayClockInTerminalModal: React.FC<ThursdayClockInTerminalModal
                   selectedDept === 'ALL' ? 'bg-blue-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
-                All ({activeWorkers.length})
+                All ({remainingWorkers.length})
               </button>
               {derivedDepartments.map(dept => {
-                const count = activeWorkers.filter(w => w.department === dept).length;
+                const count = remainingWorkers.filter(w => w.department === dept).length;
                 return (
                   <button
                     key={dept}
@@ -554,18 +560,18 @@ export const ThursdayClockInTerminalModal: React.FC<ThursdayClockInTerminalModal
                 <span>Full Roster (A-Z)</span>
               </div>
 
+              {displayedWorkers.length === 0 && <div className="rounded-2xl bg-emerald-50 p-6 text-center text-sm font-black text-emerald-800">Everyone in this view has clocked in.</div>}
               {displayedWorkers.map(w => {
-                const existing = activePrepAttendance.find(a => a.workerId === w.id);
                 const completeness = calculateWorkerProfileCompleteness(w);
 
                 return (
                   <div
                     key={w.id}
-                    className="p-3.5 bg-slate-50 hover:bg-blue-50/50 border border-slate-200 rounded-2xl flex items-center justify-between gap-3 transition"
+                    className="flex items-center justify-between gap-3 rounded-3xl border border-slate-200 bg-slate-50 p-4 transition hover:bg-blue-50/50"
                   >
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <h4 className="text-sm font-black text-slate-900 truncate">{w.fullName}</h4>
+                        <h4 className="truncate text-base font-black text-slate-900">{w.fullName}</h4>
                         <span className={`px-1.5 py-0.2 rounded text-[9px] font-black uppercase ${
                           completeness.percentage >= 80 ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
                         }`}>
@@ -585,12 +591,7 @@ export const ThursdayClockInTerminalModal: React.FC<ThursdayClockInTerminalModal
                       </div>
                     </div>
 
-                    {existing ? (
-                      <span className="px-3.5 py-1.5 bg-emerald-100 text-emerald-800 text-xs font-bold rounded-xl flex items-center gap-1.5 shrink-0">
-                        <Check className="w-4 h-4" />
-                        <span>{existing.status} ({existing.clockInTime || 'Recorded'})</span>
-                      </span>
-                    ) : !clockInStatus.allowed ? (
+                    {!clockInStatus.allowed ? (
                       <button
                         onClick={() => alert(`Thursday Clock-In is locked outside the configured window.\n\n${clockInStatus.reason}\n\nYou can click "Enable Rehearsal Mode" or "Adjust Schedule" to continue.`)}
                         className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0 border border-slate-300"
@@ -602,7 +603,7 @@ export const ThursdayClockInTerminalModal: React.FC<ThursdayClockInTerminalModal
                     ) : (
                       <button
                         onClick={() => handleClockIn(w, 'NAME_SEARCH')}
-                        className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-black transition flex items-center gap-1.5 shadow-sm cursor-pointer shrink-0"
+                        className="min-h-12 shrink-0 rounded-2xl bg-emerald-700 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-emerald-600 cursor-pointer"
                       >
                         <CheckCircle2 className="w-4 h-4" />
                         <span>Clock In</span>
@@ -685,7 +686,7 @@ export const ThursdayClockInTerminalModal: React.FC<ThursdayClockInTerminalModal
 
         {/* Tab 3: Department List */}
         {activeTab === 'DEPARTMENT' && (
-          <div className="p-6 overflow-y-auto flex-1 space-y-4">
+          <div className="flex-1 space-y-4 overflow-y-auto p-4 sm:p-6">
             <div className="text-xs text-slate-500 font-bold uppercase tracking-wider">
               Quick Tap by Department Roster
             </div>
@@ -693,7 +694,7 @@ export const ThursdayClockInTerminalModal: React.FC<ThursdayClockInTerminalModal
             <div className="flex flex-wrap gap-2">
               {derivedDepartments.map(dept => {
                 const inDept = activeWorkers.filter(w => w.department === dept);
-                const clockedInDept = inDept.filter(w => activePrepAttendance.some(a => a.workerId === w.id));
+                const waitingInDept = remainingWorkers.filter(w => w.department === dept);
                 return (
                   <button
                     key={dept}
@@ -706,7 +707,7 @@ export const ThursdayClockInTerminalModal: React.FC<ThursdayClockInTerminalModal
                   >
                     <div className="font-black text-xs">{dept}</div>
                     <div className="text-[10px] opacity-80 mt-0.5">
-                      {clockedInDept.length} / {inDept.length} Clocked In
+                      {waitingInDept.length} waiting · {inDept.length - waitingInDept.length} done
                     </div>
                   </button>
                 );
@@ -714,23 +715,19 @@ export const ThursdayClockInTerminalModal: React.FC<ThursdayClockInTerminalModal
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2">
+              {displayedWorkers.length === 0 && <div className="sm:col-span-2 rounded-2xl bg-emerald-50 p-6 text-center text-sm font-black text-emerald-800">Everyone in this department has clocked in.</div>}
               {displayedWorkers.map(w => {
-                const existing = activePrepAttendance.find(a => a.workerId === w.id);
                 return (
                   <div
                     key={w.id}
-                    className="p-3 bg-white border border-slate-200 rounded-2xl flex items-center justify-between gap-3 shadow-xs"
+                    className="flex items-center justify-between gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"
                   >
                     <div className="min-w-0">
-                      <h5 className="font-bold text-xs text-slate-900 truncate">{w.fullName}</h5>
+                      <h5 className="truncate text-base font-black text-slate-900">{w.fullName}</h5>
                       <span className="text-[10px] text-slate-500">{w.duty || 'Worker'}</span>
                     </div>
 
-                    {existing ? (
-                      <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-lg shrink-0">
-                        {existing.status}
-                      </span>
-                    ) : !clockInStatus.allowed ? (
+                    {!clockInStatus.allowed ? (
                       <button
                         onClick={() => alert(`Thursday Clock-In is locked outside the configured window.\n\n${clockInStatus.reason}`)}
                         className="px-2.5 py-1 bg-slate-200 text-slate-500 text-[10px] font-bold rounded-lg shrink-0 border border-slate-300"
@@ -741,7 +738,7 @@ export const ThursdayClockInTerminalModal: React.FC<ThursdayClockInTerminalModal
                     ) : (
                       <button
                         onClick={() => handleClockIn(w, 'DEPT_LIST')}
-                        className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-[11px] font-bold rounded-xl transition cursor-pointer shrink-0"
+                        className="min-h-12 shrink-0 rounded-2xl bg-emerald-700 px-4 py-2 text-sm font-black text-white transition hover:bg-emerald-600 cursor-pointer"
                       >
                         Clock In
                       </button>
@@ -870,6 +867,7 @@ export const ThursdayClockInTerminalModal: React.FC<ThursdayClockInTerminalModal
         )}
 
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

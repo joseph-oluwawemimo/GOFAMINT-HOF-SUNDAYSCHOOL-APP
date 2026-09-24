@@ -10,7 +10,7 @@ import {
 import { 
   QrCode, Search, Camera, CheckCircle, AlertTriangle, 
   Clock, Sparkles, Settings, Volume2, VolumeX, Users, 
-  RefreshCw, Check, ArrowRight, ShieldCheck, UserCheck, Flame,
+  RefreshCw, ArrowRight, ShieldCheck, UserCheck, Flame,
   Edit3, Calendar, Download, Printer, CheckCircle2, Lock, BookOpen
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
@@ -572,12 +572,23 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
       .sort((a, b) => a.fullName.localeCompare(b.fullName));
   }, [workers]);
 
+  // The terminal is a queue, not a completed-attendance report. As soon as a
+  // worker clocks in, remove them from every tappable list so the queue becomes
+  // shorter and safer for the next person.
+  const availableWorkersList = useMemo(() => {
+    const actualToday = new Date().toISOString().split('T')[0];
+    const clockedInIds = new Set(
+      attendancePool.filter(record => record.serviceDate === actualToday).map(record => record.workerId)
+    );
+    return activeWorkersList.filter(worker => !clockedInIds.has(worker.id));
+  }, [activeWorkersList, attendancePool]);
+
   // Filtered workers for search / department methods
   const matchingWorkers = useMemo(() => {
     if (activeMethod === 'NAME_SEARCH') {
-      if (!searchQuery.trim()) return activeWorkersList;
+      if (!searchQuery.trim()) return availableWorkersList;
       const q = (searchQuery || '').toLowerCase();
-      return activeWorkersList.filter(w => 
+      return availableWorkersList.filter(w =>
         (w.fullName || '').toLowerCase().includes(q) ||
         (w.phone || '').includes(q) ||
         (w.department || '').toLowerCase().includes(q) ||
@@ -585,15 +596,15 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
       );
     }
     if (activeMethod === 'DEPT_LIST') {
-      if (selectedDept === 'ALL') return activeWorkersList;
-      return activeWorkersList.filter(w => w.department === selectedDept);
+      if (selectedDept === 'ALL') return availableWorkersList;
+      return availableWorkersList.filter(w => w.department === selectedDept);
     }
-    return activeWorkersList;
-  }, [activeMethod, searchQuery, selectedDept, activeWorkersList]);
+    return availableWorkersList;
+  }, [activeMethod, searchQuery, selectedDept, availableWorkersList]);
 
   const uniqueDepartments = useMemo(() => {
-    return Array.from(new Set(activeWorkersList.map(w => w.department)));
-  }, [activeWorkersList]);
+    return Array.from(new Set(availableWorkersList.map(w => w.department)));
+  }, [availableWorkersList]);
 
   const clockedInCount = todayAttendance.length;
   const lateCount = todayAttendance.filter(a => a.isLate).length;
@@ -724,10 +735,10 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="workers-page workers-page-sunday space-y-5 sm:space-y-6 animate-fade-in">
       
       {/* Kiosk Hero Clock & Header */}
-      <div className="bg-slate-900 text-white rounded-3xl p-6 sm:p-8 shadow-xl border border-slate-800 relative overflow-hidden">
+      <div className="workers-page-hero workers-page-hero-dark bg-slate-900 text-white rounded-3xl p-5 sm:p-8 shadow-xl border border-slate-800 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
 
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
@@ -1195,8 +1206,25 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
           </div>
 
           {/* Sunday Attendance Register Table */}
-          <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-4">
-            <div className="overflow-x-auto">
+          <div className="bg-white border border-slate-200 rounded-3xl p-3 sm:p-6 shadow-xs space-y-4">
+            <div className="space-y-3 md:hidden" aria-label="Sunday quick attendance cards">
+              {filteredRegisterWorkers.map(worker => {
+                const rec = sundayAttendanceMap.get(worker.id);
+                const currentStatus = rec ? rec.status : 'ABSENT';
+                return (
+                  <article key={worker.id} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3">
+                    <div className="flex items-start justify-between gap-3"><div className="min-w-0"><h3 className="truncate text-sm font-black text-slate-900">{worker.fullName}</h3><p className="truncate text-[10px] font-bold text-slate-500">{worker.department} · {rec?.clockInTime || 'No clock-in'}</p></div><span className={`shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black ${currentStatus === 'PRESENT' ? 'bg-emerald-100 text-emerald-800' : currentStatus === 'LATE' ? 'bg-amber-100 text-amber-800' : currentStatus === 'EXCUSED' ? 'bg-blue-100 text-blue-800' : 'bg-red-50 text-red-700'}`}>{currentStatus}</span></div>
+                    <div className="mt-3 grid grid-cols-4 gap-1 rounded-xl bg-white p-1">
+                      {(['PRESENT', 'LATE', 'ABSENT', 'EXCUSED'] as const).map(status => {
+                        const activeClass = status === 'PRESENT' ? 'bg-emerald-700' : status === 'LATE' ? 'bg-amber-600' : status === 'ABSENT' ? 'bg-red-700' : 'bg-blue-700';
+                        return <button key={status} type="button" disabled={!sundayAccess.canManualAttendance} onClick={() => handleSetRegisterStatus(worker, status)} className={`min-h-10 rounded-lg px-1 text-[8px] font-black text-white transition disabled:cursor-not-allowed disabled:opacity-40 ${currentStatus === status ? activeClass : 'bg-slate-300'}`}>{status === 'PRESENT' ? 'Present' : status === 'LATE' ? 'Late' : status === 'ABSENT' ? 'Absent' : 'Excused'}</button>;
+                      })}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+            <div className="hidden overflow-x-auto md:block">
               <table className="w-full text-left text-xs border-collapse">
                 <thead className="bg-slate-100 text-slate-700 font-bold uppercase tracking-wider border-b border-slate-300">
                   <tr>
@@ -1523,25 +1551,29 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
               </div>
 
               {/* Matching Workers Roster */}
-              <div className="bg-white border border-slate-200 rounded-3xl p-4 shadow-sm space-y-2">
+              <div className="bg-white border border-slate-200 rounded-3xl p-3 sm:p-5 shadow-sm space-y-2">
                 <div className="flex items-center justify-between text-xs text-slate-500 font-bold px-2 py-1">
-                  <span>Found {matchingWorkers.length} Workers</span>
-                  <span>Tap to Confirm Clock-in</span>
+                  <span>{matchingWorkers.length} waiting to clock in</span>
+                  <span className="hidden sm:inline">Completed names disappear automatically</span>
                 </div>
 
                 <div className="divide-y divide-slate-100 max-h-[500px] overflow-y-auto">
+                  {matchingWorkers.length === 0 && (
+                    <div className="rounded-2xl bg-emerald-50 p-6 text-center text-sm font-black text-emerald-800">
+                      Everyone in this view has clocked in.
+                    </div>
+                  )}
                   {matchingWorkers.map(w => {
-                    const isClocked = todayAttendance.some(a => a.workerId === w.id);
                     const comp = calculateWorkerProfileCompleteness(w);
 
                     return (
                       <div
                         key={w.id}
-                        className="py-3 px-3 hover:bg-blue-50/60 rounded-2xl transition flex items-center justify-between gap-3"
+                        className="py-3.5 px-2 sm:px-3 hover:bg-blue-50/60 rounded-2xl transition flex items-center justify-between gap-3"
                       >
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="font-black text-slate-900 text-sm truncate">{w.fullName}</span>
+                            <span className="font-black text-slate-900 text-base truncate">{w.fullName}</span>
                             <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-full text-[10px] font-bold">
                               {w.department}
                             </span>
@@ -1557,22 +1589,12 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
                           </div>
                         </div>
 
-                        <div className="shrink-0">
-                          {isClocked ? (
-                            <span className="px-3.5 py-1.5 bg-emerald-100 text-emerald-800 rounded-xl text-xs font-bold flex items-center gap-1.5">
-                              <Check className="w-4 h-4" />
-                              <span>Clocked In</span>
-                            </span>
-                          ) : (
-                            <button
-                              onClick={() => processWorkerClockIn(w, 'NAME_SEARCH')}
-                              className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-black transition flex items-center gap-1.5 shadow-sm cursor-pointer"
-                            >
-                              <span>Clock In</span>
-                              <ArrowRight className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
+                        <button
+                          onClick={() => processWorkerClockIn(w, 'NAME_SEARCH')}
+                          className="min-h-12 shrink-0 rounded-2xl bg-emerald-700 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-emerald-600 cursor-pointer"
+                        >
+                          <span className="flex items-center gap-1.5">Clock In <ArrowRight className="w-4 h-4" /></span>
+                        </button>
                       </div>
                     );
                   })}
@@ -1594,7 +1616,7 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
                       : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
                   }`}
                 >
-                  All ({activeWorkersList.length})
+                  All ({availableWorkersList.length})
                 </button>
                 {uniqueDepartments.map(dept => (
                   <button
@@ -1606,38 +1628,32 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
                         : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
                     }`}
                   >
-                    {dept} ({activeWorkersList.filter(w => w.department === dept).length})
+                    {dept} ({availableWorkersList.filter(w => w.department === dept).length})
                   </button>
                 ))}
               </div>
 
               {/* Department Worker Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                {matchingWorkers.length === 0 && <div className="sm:col-span-2 md:col-span-3 rounded-2xl bg-emerald-50 p-6 text-center text-sm font-black text-emerald-800">Everyone in this department has clocked in.</div>}
                 {matchingWorkers.map(w => {
-                  const isClocked = todayAttendance.some(a => a.workerId === w.id);
                   return (
                     <div
                       key={w.id}
-                      className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs flex flex-col justify-between gap-3"
+                      className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm flex flex-col justify-between gap-4"
                     >
                       <div>
-                        <div className="font-black text-slate-900 text-sm truncate">{w.fullName}</div>
+                        <div className="font-black text-slate-900 text-base truncate">{w.fullName}</div>
                         <div className="text-xs text-slate-500 font-semibold">{w.department}</div>
                         <div className="text-[11px] text-slate-400 mt-1">{w.duty || w.categories[0] || 'Worker'}</div>
                       </div>
 
-                      {isClocked ? (
-                        <div className="py-1.5 text-center bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold">
-                          ✓ Clocked In
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => processWorkerClockIn(w, 'DEPT_QUICK_ACCESS')}
-                          className="w-full py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-black transition shadow-xs cursor-pointer"
-                        >
-                          Clock In
-                        </button>
-                      )}
+                      <button
+                        onClick={() => processWorkerClockIn(w, 'DEPT_QUICK_ACCESS')}
+                        className="min-h-12 w-full rounded-2xl bg-emerald-700 py-2 text-sm font-black text-white shadow-sm transition hover:bg-emerald-600 cursor-pointer"
+                      >
+                        Clock In
+                      </button>
                     </div>
                   );
                 })}

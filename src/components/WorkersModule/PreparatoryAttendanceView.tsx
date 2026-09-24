@@ -337,10 +337,10 @@ export const PreparatoryAttendanceView: React.FC<PreparatoryAttendanceViewProps>
   };
 
   return (
-    <div className="space-y-6 animate-fade-in pb-12">
+    <div className="workers-page workers-page-thursday space-y-5 sm:space-y-6 animate-fade-in pb-12">
       
       {/* 1. TOP HEADER BANNER (Complaint 2: Pure Thursday Preparatory Class) */}
-      <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="workers-page-hero bg-white border border-slate-200 rounded-3xl p-5 sm:p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="px-2.5 py-0.5 bg-blue-100 text-blue-900 border border-blue-200 rounded-full text-xs font-black uppercase tracking-wider">
@@ -766,9 +766,29 @@ export const PreparatoryAttendanceView: React.FC<PreparatoryAttendanceViewProps>
       </div>
 
       {/* 5. THURSDAY ATTENDANCE REGISTER TABLE */}
-      <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs space-y-4">
+      <div className="bg-white border border-slate-200 rounded-3xl p-3 sm:p-6 shadow-xs space-y-4">
+        <div className="space-y-3 md:hidden" aria-label="Thursday quick attendance cards">
+          {filteredWorkers.map(worker => {
+            const rec = prepAttendanceMap.get(worker.id);
+            const currentStatus = rec ? rec.status : 'ABSENT';
+            return (
+              <article key={worker.id} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0"><h3 className="truncate text-sm font-black text-slate-900">{worker.fullName}</h3><p className="truncate text-[10px] font-bold text-slate-500">{worker.department} · {worker.duty || 'Worker'}</p></div>
+                  <span className={`shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black ${currentStatus === 'PRESENT' ? 'bg-emerald-100 text-emerald-800' : currentStatus === 'LATE' ? 'bg-amber-100 text-amber-800' : currentStatus === 'EXCUSED' ? 'bg-blue-100 text-blue-800' : 'bg-red-50 text-red-700'}`}>{currentStatus}</span>
+                </div>
+                <div className="mt-3 grid grid-cols-4 gap-1 rounded-xl bg-white p-1">
+                  {(['PRESENT', 'LATE', 'ABSENT', 'EXCUSED'] as const).map(status => {
+                    const activeClass = status === 'PRESENT' ? 'bg-emerald-700' : status === 'LATE' ? 'bg-amber-600' : status === 'ABSENT' ? 'bg-red-700' : 'bg-blue-700';
+                    return <button key={status} type="button" disabled={!securityState.manualAttendanceAllowed} onClick={() => handleSetPrepStatus(worker, status)} className={`min-h-10 rounded-lg px-1 text-[8px] font-black text-white transition disabled:cursor-not-allowed disabled:opacity-40 ${currentStatus === status ? activeClass : 'bg-slate-300'}`}>{status === 'PRESENT' ? 'Present' : status === 'LATE' ? 'Late' : status === 'ABSENT' ? 'Absent' : 'Excused'}</button>;
+                  })}
+                </div>
+              </article>
+            );
+          })}
+        </div>
         
-        <div className="overflow-x-auto">
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full text-left text-xs border-collapse">
             <thead className="bg-slate-100 text-slate-700 font-bold uppercase tracking-wider border-b border-slate-300">
               <tr>

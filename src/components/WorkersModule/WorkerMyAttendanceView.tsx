@@ -107,10 +107,10 @@ export const WorkerMyAttendanceView: React.FC<WorkerMyAttendanceViewProps> = ({
   }
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="workers-page workers-page-pass space-y-5 sm:space-y-6 animate-fade-in">
       
       {/* Header Banner */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="workers-page-hero bg-white border border-slate-200 rounded-3xl p-5 sm:p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
             <span className="px-2.5 py-0.5 bg-blue-100 text-blue-900 border border-blue-200 rounded-full text-xs font-black uppercase tracking-wider">

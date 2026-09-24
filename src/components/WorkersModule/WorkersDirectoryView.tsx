@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { usePersistedState } from '../../hooks/usePersistedState';
 import { useScrollRestoration } from '../../hooks/useScrollRestoration';
 import { WorkerProfile, WorkerCategoryDef } from '../../types';
@@ -45,6 +46,7 @@ export const WorkersDirectoryView: React.FC<WorkersDirectoryViewProps> = ({
   const [selectedStatus, setSelectedStatus] = usePersistedState<string>('gofamint_workers_status', 'ALL');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [showBatchQrModal, setShowBatchQrModal] = useState<boolean>(false);
+  const [selectedMobileWorker, setSelectedMobileWorker] = useState<WorkerProfile | null>(null);
 
   // Archive & Restore Modals
   const [archiveModalWorker, setArchiveModalWorker] = useState<WorkerProfile | null>(null);
@@ -168,10 +170,10 @@ export const WorkersDirectoryView: React.FC<WorkersDirectoryViewProps> = ({
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="workers-page workers-page-directory space-y-5 sm:space-y-6 animate-fade-in">
       
       {/* Top Banner & Quick Metrics */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="workers-page-hero bg-white border border-slate-200 rounded-3xl p-5 sm:p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
             <span className="px-2.5 py-0.5 bg-blue-100 text-blue-900 border border-blue-200 rounded-full text-xs font-black uppercase tracking-wider">
@@ -415,7 +417,40 @@ export const WorkersDirectoryView: React.FC<WorkersDirectoryViewProps> = ({
             </div>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          <div className="grid grid-cols-1 gap-3 md:hidden" aria-label="Workers directory cards">
+            {filteredWorkers.map(worker => {
+              const initials = worker.fullName.split(' ').filter(Boolean).map(name => name[0]).slice(0, 2).join('') || 'W';
+              return (
+                <button
+                  type="button"
+                  key={worker.id}
+                  onClick={() => setSelectedMobileWorker(worker)}
+                  className="group w-full rounded-3xl border border-blue-100 bg-white p-4 text-left shadow-[0_12px_32px_rgba(15,42,85,0.08)] transition active:scale-[0.99]"
+                >
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-blue-950 text-sm font-black text-white ring-2 ring-amber-300/70">
+                      {worker.photoBase64 ? <img src={worker.photoBase64} alt="" className="h-full w-full object-cover" /> : initials}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-start justify-between gap-2">
+                        <span className="min-w-0"><strong className="block truncate text-sm text-blue-950">{worker.fullName}</strong><span className="mt-0.5 block truncate text-[10px] font-bold text-slate-500">{worker.department}</span></span>
+                        <span className={`rounded-full px-2 py-1 text-[8px] font-black uppercase ${worker.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-800' : worker.status === 'ARCHIVED' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>{worker.status}</span>
+                      </span>
+                      <span className="mt-3 grid grid-cols-3 gap-2">
+                        <span className="rounded-xl bg-slate-50 p-2"><span className="block text-[8px] font-black uppercase text-slate-400">Sex</span><span className="mt-0.5 block truncate text-[10px] font-bold text-slate-700">{worker.gender || '—'}</span></span>
+                        <span className="rounded-xl bg-slate-50 p-2"><span className="block text-[8px] font-black uppercase text-slate-400">Class</span><span className="mt-0.5 block truncate text-[10px] font-bold text-slate-700">{worker.assignedClass || '—'}</span></span>
+                        <span className="rounded-xl bg-slate-50 p-2"><span className="block text-[8px] font-black uppercase text-slate-400">Duty</span><span className="mt-0.5 block truncate text-[10px] font-bold text-slate-700">{worker.duty || worker.categories[0] || 'Worker'}</span></span>
+                      </span>
+                      <span className="mt-3 flex items-center justify-end gap-1 text-[10px] font-black text-red-600">View profile <ChevronRight className="h-3.5 w-3.5" /></span>
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full text-left text-xs border-collapse min-w-[980px]">
               <thead className="bg-slate-900 text-amber-300 font-bold uppercase tracking-wider border-b border-slate-800 text-[11px]">
                 <tr>
@@ -656,8 +691,45 @@ export const WorkersDirectoryView: React.FC<WorkersDirectoryViewProps> = ({
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
+
+      {selectedMobileWorker && createPortal((
+        <div className="fixed inset-0 z-[80] flex items-end bg-slate-950/70 p-0 backdrop-blur-sm md:items-center md:justify-center md:p-5" onClick={() => setSelectedMobileWorker(null)}>
+          <section role="dialog" aria-modal="true" aria-label={`${selectedMobileWorker.fullName} worker profile`} className="max-h-[92dvh] w-full overflow-y-auto rounded-t-[2rem] bg-white p-5 shadow-2xl md:max-w-lg md:rounded-3xl md:p-6" onClick={event => event.stopPropagation()}>
+            <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-slate-200 md:hidden" />
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-blue-950 text-base font-black text-white ring-2 ring-amber-300">
+                  {selectedMobileWorker.photoBase64 ? <img src={selectedMobileWorker.photoBase64} alt="" className="h-full w-full object-cover" /> : selectedMobileWorker.fullName.split(' ').filter(Boolean).map(name => name[0]).slice(0, 2).join('')}
+                </span>
+                <div className="min-w-0"><span className="text-[9px] font-black uppercase tracking-wider text-red-600">Worker profile</span><h2 className="truncate text-lg font-black text-blue-950">{selectedMobileWorker.fullName}</h2><p className="truncate text-xs font-bold text-slate-500">{selectedMobileWorker.department}</p></div>
+              </div>
+              <button type="button" onClick={() => setSelectedMobileWorker(null)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600" aria-label="Close worker profile"><XCircle className="h-5 w-5" /></button>
+            </div>
+
+            <div className="mt-5 grid grid-cols-2 gap-3 text-xs">
+              {[
+                ['Sex', selectedMobileWorker.gender || 'Not set'],
+                ['Assigned class', selectedMobileWorker.assignedClass || 'Not set'],
+                ['Primary duty', selectedMobileWorker.duty || selectedMobileWorker.categories[0] || 'Worker'],
+                ['Status', selectedMobileWorker.status]
+              ].map(([label, value]) => <div key={label} className="rounded-2xl bg-slate-50 p-3"><span className="block text-[8px] font-black uppercase tracking-wider text-slate-400">{label}</span><strong className="mt-1 block text-slate-800">{value}</strong></div>)}
+            </div>
+            <div className="mt-4 space-y-2 rounded-2xl border border-slate-200 p-4 text-xs">
+              <div className="flex items-start gap-2"><Phone className="mt-0.5 h-4 w-4 shrink-0 text-blue-900" /><span className="font-semibold text-slate-700">{selectedMobileWorker.phone || 'No phone number'}</span></div>
+              <div className="flex items-start gap-2"><MessageSquare className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" /><span className="font-semibold text-slate-700">{selectedMobileWorker.whatsappNumber || selectedMobileWorker.phone || 'No WhatsApp number'}</span></div>
+              <div className="flex items-start gap-2"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-red-600" /><span className="font-semibold leading-relaxed text-slate-700">{selectedMobileWorker.address || 'No address recorded'}</span></div>
+            </div>
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => { onViewQrPass(selectedMobileWorker); setSelectedMobileWorker(null); }} className="flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-blue-950 px-3 text-xs font-black text-white"><QrCode className="h-4 w-4 text-amber-300" /> Print ID pass</button>
+              <button type="button" onClick={() => { onEditWorker(selectedMobileWorker); setSelectedMobileWorker(null); }} className="flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-amber-400 px-3 text-xs font-black text-blue-950"><Edit className="h-4 w-4" /> Edit profile</button>
+              {selectedMobileWorker.status === 'ACTIVE' && <button type="button" onClick={() => { onQuickClockIn(selectedMobileWorker); setSelectedMobileWorker(null); }} className="col-span-2 flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-red-600 px-3 text-xs font-black text-white"><CheckCircle2 className="h-4 w-4" /> Go to Sunday clock-in</button>}
+            </div>
+          </section>
+        </div>
+      ), document.body)}
 
       {/* Archive Modal */}
       {archiveModalWorker && (

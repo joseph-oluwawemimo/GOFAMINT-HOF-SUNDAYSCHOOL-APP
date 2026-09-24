@@ -49,3 +49,89 @@ textarea::placeholder {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* Workers Directorate — shared premium application shell */
+.workers-directorate-shell {
+  --workers-navy: #071a3f;
+  --workers-blue: #123f8f;
+  --workers-red: #dc2626;
+  --workers-gold: #f6c453;
+  background-color: #eef3fb;
+}
+
+.workers-directorate-main {
+  isolation: isolate;
+}
+
+.workers-page-hero {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  box-shadow: 0 20px 55px rgba(15, 42, 85, 0.1);
+}
+
+.workers-page-hero::before {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 2;
+  height: 4px;
+  content: "";
+  background: linear-gradient(90deg, var(--workers-blue) 0 58%, var(--workers-red) 58% 86%, var(--workers-gold) 86% 100%);
+}
+
+.workers-page-hero:not(.workers-page-hero-dark)::after {
+  position: absolute;
+  top: -7rem;
+  right: -5rem;
+  z-index: -1;
+  width: 18rem;
+  height: 18rem;
+  content: "";
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgba(37, 99, 235, 0.13), transparent 68%);
+  pointer-events: none;
+}
+
+.workers-page :is(.bg-white.rounded-2xl, .bg-white.rounded-3xl) {
+  border-color: rgba(191, 219, 254, 0.72);
+  box-shadow: 0 12px 34px rgba(15, 42, 85, 0.075);
+}
+
+.workers-page :is(input, select, textarea) {
+  transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+}
+
+.workers-page :is(input, select, textarea):focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.13);
+}
+
+.workers-page table {
+  font-variant-numeric: tabular-nums;
+}
+
+.workers-page table thead {
+  background: linear-gradient(90deg, #eff6ff, #f8fafc);
+}
+
+.workers-page table tbody tr {
+  transition: background-color 140ms ease;
+}
+
+.workers-page table tbody tr:hover {
+  background-color: rgba(239, 246, 255, 0.72);
+}
+
+@media (max-width: 639px) {
+  .workers-page-hero {
+    border-radius: 1.25rem;
+  }
+
+  .workers-page :is(.bg-white.rounded-2xl, .bg-white.rounded-3xl) {
+    border-radius: 1.125rem;
+  }
+
+  .workers-page table {
+    min-width: 640px;
+  }
+}

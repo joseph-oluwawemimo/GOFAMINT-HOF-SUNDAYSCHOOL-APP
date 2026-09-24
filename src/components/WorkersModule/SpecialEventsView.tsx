@@ -645,7 +645,7 @@ export const SpecialEventsView: React.FC<SpecialEventsViewProps> = ({
   };
 
   return (
-    <div className="space-y-6 animate-fade-in pb-12">
+    <div className="workers-page workers-page-events space-y-5 sm:space-y-6 animate-fade-in pb-12">
       {loadError && (
         <div role="alert" className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm font-bold text-red-800">
           Special Events synchronization failed: {loadError}
@@ -653,7 +653,7 @@ export const SpecialEventsView: React.FC<SpecialEventsViewProps> = ({
       )}
       
       {/* Top Header Banner */}
-      <div className="bg-linear-to-r from-blue-950 via-slate-900 to-indigo-950 text-white rounded-3xl p-6 sm:p-8 shadow-xl border-2 border-amber-400/40 relative overflow-hidden">
+      <div className="workers-page-hero workers-page-hero-dark bg-linear-to-r from-blue-950 via-slate-900 to-red-950 text-white rounded-3xl p-5 sm:p-8 shadow-xl border-2 border-amber-400/40 relative overflow-hidden">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
           <div className="space-y-2">
             <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-400/20 border border-amber-400/40 rounded-full text-xs font-black text-amber-300 uppercase tracking-wider">

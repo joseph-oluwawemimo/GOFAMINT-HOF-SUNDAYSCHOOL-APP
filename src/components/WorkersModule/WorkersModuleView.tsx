@@ -58,11 +58,12 @@ import {
   Users, QrCode, BookOpen, Layers, UserCheck, 
   BarChart3, Plus, Upload, Sparkles, ArrowLeft,
   KeyRound, ShieldAlert, LogOut, Eye, EyeOff, CheckCircle2,
-  Trophy, Calendar
+  Trophy, Calendar, ChevronRight, ShieldCheck, Home, ClipboardList
 } from 'lucide-react';
 import { GofamintLogo } from '../GofamintLogo';
 
 export type WorkersModuleTab = 
+  | 'INSPECTION'
   | 'DIRECTORY' 
   | 'SUNDAY_CLOCK_IN' 
   | 'PREP_ATTENDANCE' 
@@ -70,6 +71,17 @@ export type WorkersModuleTab =
   | 'ADMONITION_HONORS' 
   | 'MY_ATTENDANCE' 
   | 'DASHBOARD';
+
+const DIRECTORATE_NAV_ITEMS = [
+  { id: 'DASHBOARD', label: 'Executive Dashboard', shortLabel: 'Overview', detail: 'Live workforce intelligence', icon: BarChart3 },
+  { id: 'INSPECTION', label: 'Attendance Inspection', shortLabel: 'Inspect', detail: 'Dates, reports and exports', icon: ClipboardList },
+  { id: 'DIRECTORY', label: 'Workers Directory', shortLabel: 'Directory', detail: 'People, roles and profiles', icon: Users },
+  { id: 'SUNDAY_CLOCK_IN', label: 'Sunday Clock-In', shortLabel: 'Sunday', detail: 'Terminal and attendance register', icon: QrCode },
+  { id: 'PREP_ATTENDANCE', label: 'Thursday Preparatory', shortLabel: 'Thursday', detail: 'Class terminal and register', icon: BookOpen },
+  { id: 'SPECIAL_EVENTS', label: 'Special Events & Training', shortLabel: 'Events', detail: 'Programs, sessions and records', icon: Sparkles },
+  { id: 'ADMONITION_HONORS', label: 'Honours & Admonition', shortLabel: 'Honours', detail: 'Recognition and accountability', icon: Trophy },
+  { id: 'MY_ATTENDANCE', label: 'My Workers Pass', shortLabel: 'My Pass', detail: 'Digital pass and history', icon: UserCheck }
+] as const;
 
 interface WorkersModuleViewProps {
   onBackToMain?: () => void;
@@ -97,7 +109,7 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
   const [activeTab, setActiveTabState] = useState<WorkersModuleTab>(() => {
     if (currentUserRole === 'WORKER' && !isOversight) return 'MY_ATTENDANCE';
     const saved = sessionStorage.getItem('gofamint_workers_active_tab');
-    if (saved && ['DIRECTORY', 'SUNDAY_CLOCK_IN', 'PREP_ATTENDANCE', 'SPECIAL_EVENTS', 'ADMONITION_HONORS', 'MY_ATTENDANCE', 'DASHBOARD'].includes(saved)) {
+    if (saved && ['DIRECTORY', 'SUNDAY_CLOCK_IN', 'PREP_ATTENDANCE', 'SPECIAL_EVENTS', 'ADMONITION_HONORS', 'MY_ATTENDANCE', 'DASHBOARD', 'INSPECTION'].includes(saved)) {
       return saved as WorkersModuleTab;
     }
     return 'DASHBOARD';
@@ -108,6 +120,10 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
     setActiveTabState(tab);
     sessionStorage.setItem('gofamint_workers_active_tab', tab);
   };
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [activeTab]);
   
   const [adminProfiles, setAdminProfiles] = useState<AdminProfile[]>([]);
 
@@ -278,6 +294,12 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
     ].filter(Boolean))
   );
 
+  const visibleNavItems = isPersonalWorker
+    ? DIRECTORATE_NAV_ITEMS.filter(item => item.id === 'MY_ATTENDANCE')
+    : DIRECTORATE_NAV_ITEMS;
+  const activeNavItem = visibleNavItems.find(item => item.id === activeTab) || visibleNavItems[0];
+  const activeWorkersCount = workers.filter(worker => worker.status === 'ACTIVE').length;
+
   // Handlers for Worker Profiles
   const handleOpenAddWorker = () => {
     setEditingWorker(null);
@@ -410,205 +432,147 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-blue-900 selection:text-white">
-      
-      {/* Top Header Navigation */}
-      <header className="bg-slate-900 text-white border-b-2 border-amber-500 sticky top-0 z-40 shadow-md">
-        <div className="max-w-7xl w-full mx-auto px-4 sm:px-6 py-3.5 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          
-          {/* Brand & Exit */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <GofamintLogo size={36} />
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] font-black uppercase tracking-wider text-amber-400">
-                    GOFAMINT_HOF National
-                  </span>
-                  <span className="text-[9px] px-1.5 py-0.2 bg-emerald-500 text-white rounded-full font-bold">
-                    Authenticated
-                  </span>
-                  {asstGsecProfile && (
-                    <span className="text-[9px] px-1.5 py-0.2 bg-blue-800 text-amber-300 rounded-full font-bold">
-                      👤 {asstGsecProfile.profileName} (Asst. Gen. Sec)
+    <div className="workers-directorate-shell min-h-screen bg-[#eef3fb] text-slate-900 font-sans selection:bg-blue-900 selection:text-white pb-[calc(5.25rem+env(safe-area-inset-bottom))] lg:pb-0">
+      <div aria-hidden="true" className="fixed inset-0 pointer-events-none bg-[radial-gradient(circle_at_90%_5%,rgba(37,99,235,0.12),transparent_26%),radial-gradient(circle_at_50%_100%,rgba(220,38,38,0.06),transparent_34%)]" />
+
+      {/* Jobie-inspired desktop command sidebar */}
+      <aside aria-label="Workers Directorate navigation" className="hidden lg:flex fixed inset-y-0 left-0 z-50 w-72 flex-col overflow-hidden bg-linear-to-b from-[#06142f] via-[#0a2b63] to-[#123f8f] text-white shadow-[18px_0_50px_rgba(15,42,85,0.18)]">
+        <div className="absolute inset-x-0 top-0 h-1 bg-linear-to-r from-red-600 via-white to-amber-400" />
+        <div className="px-6 pt-7 pb-6 border-b border-white/10">
+          <div className="flex items-center gap-3.5">
+            <div className="rounded-2xl bg-white p-2 shadow-xl shadow-slate-950/20">
+              <GofamintLogo size={42} />
+            </div>
+            <div className="min-w-0">
+              <span className="text-[10px] font-black uppercase tracking-[0.22em] text-amber-300">GOFAMINT · HOF</span>
+              <h1 className="mt-0.5 text-base font-black leading-tight font-['Cinzel',serif]">Workers Directorate</h1>
+            </div>
+          </div>
+          <div className="mt-5 flex items-center justify-between rounded-2xl border border-white/10 bg-white/8 px-3.5 py-3 backdrop-blur-sm">
+            <div>
+              <span className="block text-[9px] font-black uppercase tracking-[0.18em] text-blue-200">Live workforce</span>
+              <span className="text-lg font-black tabular-nums">{activeWorkersCount}</span>
+              <span className="ml-1 text-[10px] text-blue-100">active</span>
+            </div>
+            <div className="flex items-center gap-1.5 rounded-full bg-emerald-400/15 px-2.5 py-1 text-[10px] font-bold text-emerald-200 ring-1 ring-emerald-300/20">
+              <span className="h-2 w-2 rounded-full bg-emerald-300 animate-pulse" />
+              Synced
+            </div>
+          </div>
+        </div>
+
+        <nav className="flex-1 overflow-y-auto no-scrollbar px-4 py-5">
+          <p className="px-3 pb-2 text-[9px] font-black uppercase tracking-[0.2em] text-blue-200/70">Directorate workspace</p>
+          <div className="space-y-1.5">
+            {visibleNavItems.map(item => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  id={`workers-nav-${item.id.toLowerCase()}`}
+                  key={item.id}
+                  type="button"
+                  aria-current={isActive ? 'page' : undefined}
+                  onClick={() => setActiveTab(item.id)}
+                  className={`group relative w-full overflow-hidden rounded-2xl px-3.5 py-3 text-left transition-all duration-200 cursor-pointer ${isActive
+                    ? 'bg-white text-blue-950 shadow-xl shadow-slate-950/20'
+                    : 'text-blue-100 hover:bg-white/10 hover:text-white'
+                  }`}
+                >
+                  {isActive && <span className="absolute inset-y-2 left-0 w-1 rounded-r-full bg-red-600" />}
+                  <span className="flex items-center gap-3">
+                    <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition ${isActive ? 'bg-blue-50 text-blue-900 ring-1 ring-blue-100' : 'bg-white/8 text-blue-100 group-hover:bg-white/15'}`}>
+                      <Icon className="h-[18px] w-[18px]" />
                     </span>
-                  )}
-                </div>
-                <h1 className="text-xs sm:text-base font-black font-['Cinzel',serif] text-slate-100 tracking-wide line-clamp-1 sm:line-clamp-none">
-                  Sunday School Workers Directorate
-                </h1>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-xs font-black leading-tight">{item.label}</span>
+                      <span className={`mt-0.5 block truncate text-[9px] font-semibold ${isActive ? 'text-slate-500' : 'text-blue-200/70'}`}>{item.detail}</span>
+                    </span>
+                    <ChevronRight className={`h-4 w-4 shrink-0 transition ${isActive ? 'text-red-500' : 'text-blue-300/30 group-hover:text-white'}`} />
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </nav>
+
+        <div className="space-y-2 border-t border-white/10 p-4">
+          {asstGsecProfile && (
+            <div className="mb-3 flex items-center gap-3 rounded-2xl bg-slate-950/20 p-3 ring-1 ring-white/10">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-amber-400 text-xs font-black text-blue-950">{asstGsecProfile.profileName.slice(0, 1).toUpperCase()}</div>
+              <div className="min-w-0">
+                <span className="block truncate text-xs font-black">{asstGsecProfile.profileName}</span>
+                <span className="block text-[9px] font-bold uppercase tracking-wide text-blue-200">Assistant General Secretary</span>
               </div>
             </div>
+          )}
+          <div className="grid grid-cols-2 gap-2">
+            {onBackToWelcome && (
+              <button type="button" onClick={onBackToWelcome} className="flex items-center justify-center gap-1.5 rounded-xl bg-white/8 px-3 py-2.5 text-[10px] font-bold text-blue-100 ring-1 ring-white/10 transition hover:bg-white/15 hover:text-white cursor-pointer">
+                <Home className="h-3.5 w-3.5" /> Welcome
+              </button>
+            )}
+            <button type="button" onClick={() => handleRequestExit('LOCK')} className="flex items-center justify-center gap-1.5 rounded-xl bg-white/8 px-3 py-2.5 text-[10px] font-bold text-blue-100 ring-1 ring-white/10 transition hover:bg-white/15 hover:text-white cursor-pointer">
+              <LogOut className="h-3.5 w-3.5" /> Lock
+            </button>
+          </div>
+          {handleExit && (
+            <button type="button" onClick={() => handleRequestExit('PORTAL')} className="flex w-full items-center justify-center gap-2 rounded-xl bg-red-600 px-3 py-2.5 text-[10px] font-black text-white shadow-lg shadow-red-950/20 transition hover:bg-red-500 cursor-pointer">
+              <ArrowLeft className="h-3.5 w-3.5" /> Return to Admin Portal
+            </button>
+          )}
+        </div>
+      </aside>
 
-            {/* Mobile Exit Buttons */}
-            <div className="flex md:hidden items-center gap-1.5 shrink-0">
+      <div className="relative flex min-h-screen flex-col lg:pl-72">
+        {/* Compact mobile command header */}
+        <header className="sticky top-0 z-40 border-b border-blue-100/80 bg-white/92 px-3 py-2.5 shadow-sm backdrop-blur-xl lg:hidden">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <div className="rounded-xl bg-blue-950 p-1.5 shadow-sm"><GofamintLogo size={28} /></div>
+              <div className="min-w-0">
+                <span className="block text-[9px] font-black uppercase tracking-[0.16em] text-red-600">Workers Directorate</span>
+                <h2 className="truncate text-sm font-black text-blue-950">{activeNavItem.label}</h2>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5">
               {onBackToWelcome && (
-                <button
-                  onClick={onBackToWelcome}
-                  className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-[10px] font-bold transition flex items-center gap-1 cursor-pointer"
-                  title="Welcome Screen"
-                >
-                  <ArrowLeft className="w-3 h-3 text-amber-400" />
-                  <span>Welcome</span>
-                </button>
+                <button type="button" onClick={onBackToWelcome} className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-900 ring-1 ring-blue-100 cursor-pointer" aria-label="Return to welcome page"><Home className="h-4 w-4" /></button>
               )}
               {handleExit && (
-                <button
-                  onClick={() => handleRequestExit('PORTAL')}
-                  className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded-lg text-[10px] font-bold transition flex items-center gap-1 cursor-pointer"
-                  title="Portal Selection"
-                >
-                  <ArrowLeft className="w-3 h-3 text-amber-400" />
-                  <span>Portals</span>
-                </button>
+                <button type="button" onClick={() => handleRequestExit('PORTAL')} className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-700 ring-1 ring-slate-200 cursor-pointer" aria-label="Return to admin portal"><ArrowLeft className="h-4 w-4" /></button>
               )}
-              <button
-                onClick={() => handleRequestExit('LOCK')}
-                className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-xs transition cursor-pointer"
-                title="Lock Session"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-              </button>
+              <button type="button" onClick={() => handleRequestExit('LOCK')} className="flex h-9 w-9 items-center justify-center rounded-xl bg-red-50 text-red-700 ring-1 ring-red-100 cursor-pointer" aria-label="Lock Workers Directorate"><LogOut className="h-4 w-4" /></button>
             </div>
           </div>
+        </header>
 
-          {/* Action Links & Session Lock */}
-          <div className="hidden md:flex items-center gap-3">
-            {asstGsecProfile && (
-              <div className="px-3 py-1.5 bg-slate-800/80 border border-slate-700 rounded-xl text-xs text-slate-300 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                <span className="text-amber-300 font-bold">Officer:</span>
-                <span>{asstGsecProfile.profileName}</span>
+        {/* Desktop page context bar */}
+        <header className="sticky top-0 z-40 hidden items-center justify-between border-b border-slate-200/80 bg-white/88 px-7 py-4 shadow-[0_8px_30px_rgba(15,42,85,0.06)] backdrop-blur-xl lg:flex">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-950 text-white shadow-lg shadow-blue-950/15">
+              {React.createElement(activeNavItem.icon, { className: 'h-5 w-5' })}
+            </div>
+            <div>
+              <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
+                <span>Workers Directorate</span><span className="h-1 w-1 rounded-full bg-red-500" /><span className="text-blue-700">Live operations</span>
               </div>
-            )}
-
-            {onBackToWelcome && (
-              <button
-                onClick={onBackToWelcome}
-                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
-                title="Return to Welcome Screen"
-              >
-                <ArrowLeft className="w-3.5 h-3.5 text-amber-400" />
-                <span>Back to Welcome</span>
-              </button>
-            )}
-
-            <button
-              onClick={() => handleRequestExit('LOCK')}
-              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 border border-slate-700 cursor-pointer"
-            >
-              <LogOut className="w-3.5 h-3.5 text-amber-400" />
-              <span>Lock Directorate</span>
-            </button>
-
-            {handleExit && (
-              <button
-                onClick={() => handleRequestExit('PORTAL')}
-                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-black transition flex items-center gap-1.5 shadow-xs cursor-pointer"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Return to Portal</span>
-              </button>
-            )}
+              <h2 className="text-xl font-black tracking-tight text-blue-950">{activeNavItem.label}</h2>
+            </div>
           </div>
-
-        </div>
-
-        {/* Sub-Navigation Tabs - Executive Pill Design without Scrollbar (Screenshot 5555 / Complaint 5) */}
-        <div className="max-w-7xl w-full mx-auto px-4 sm:px-6 border-t border-slate-800/80 bg-slate-950/80">
-          <div className="flex items-center gap-1.5 py-2 overflow-x-auto no-scrollbar scroll-smooth">
-            {!isPersonalWorker && <>
-            <button
-              onClick={() => setActiveTab('DASHBOARD')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition flex items-center gap-1.5 cursor-pointer border ${
-                activeTab === 'DASHBOARD'
-                  ? 'bg-linear-to-r from-blue-900 to-indigo-900 text-white border-blue-500 shadow-md font-black ring-1 ring-amber-400/40'
-                  : 'border-slate-800/60 text-slate-400 hover:text-white hover:bg-slate-800/70 hover:border-slate-700'
-              }`}
-            >
-              <BarChart3 className="w-3.5 h-3.5 text-amber-400" />
-              <span>Executive Dashboard</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('DIRECTORY')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition flex items-center gap-1.5 cursor-pointer border ${
-                activeTab === 'DIRECTORY'
-                  ? 'bg-linear-to-r from-blue-900 to-indigo-900 text-white border-blue-500 shadow-md font-black ring-1 ring-amber-400/40'
-                  : 'border-slate-800/60 text-slate-400 hover:text-white hover:bg-slate-800/70 hover:border-slate-700'
-              }`}
-            >
-              <Users className="w-3.5 h-3.5 text-amber-400" />
-              <span>Workers Directory</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('SUNDAY_CLOCK_IN')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition flex items-center gap-1.5 cursor-pointer border ${
-                activeTab === 'SUNDAY_CLOCK_IN'
-                  ? 'bg-linear-to-r from-emerald-800 to-teal-900 text-white border-emerald-500 shadow-md font-black ring-1 ring-amber-400/40'
-                  : 'border-slate-800/60 text-slate-400 hover:text-white hover:bg-slate-800/70 hover:border-slate-700'
-              }`}
-            >
-              <QrCode className="w-3.5 h-3.5 text-amber-300" />
-              <span>Sunday Clock-In Terminal & Register</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('PREP_ATTENDANCE')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition flex items-center gap-1.5 cursor-pointer border ${
-                activeTab === 'PREP_ATTENDANCE'
-                  ? 'bg-linear-to-r from-blue-900 to-indigo-900 text-white border-blue-500 shadow-md font-black ring-1 ring-amber-400/40'
-                  : 'border-slate-800/60 text-slate-400 hover:text-white hover:bg-slate-800/70 hover:border-slate-700'
-              }`}
-            >
-              <BookOpen className="w-3.5 h-3.5 text-amber-400" />
-              <span>Thursday Preparatory Class</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('SPECIAL_EVENTS')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition flex items-center gap-1.5 cursor-pointer border ${
-                activeTab === 'SPECIAL_EVENTS'
-                  ? 'bg-linear-to-r from-blue-900 to-indigo-900 text-white border-blue-500 shadow-md font-black ring-1 ring-amber-400/40'
-                  : 'border-slate-800/60 text-slate-400 hover:text-white hover:bg-slate-800/70 hover:border-slate-700'
-              }`}
-            >
-              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              <span>Special Events & Training</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('ADMONITION_HONORS')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition flex items-center gap-1.5 cursor-pointer border ${
-                activeTab === 'ADMONITION_HONORS'
-                  ? 'bg-linear-to-r from-amber-500 to-yellow-500 text-slate-950 font-black shadow-md border-amber-400 ring-1 ring-amber-300'
-                  : 'border-slate-800/60 text-amber-300 hover:text-white hover:bg-slate-800/70 hover:border-slate-700'
-              }`}
-            >
-              <Trophy className="w-3.5 h-3.5" />
-              <span>Punctuality Honors & Admonition</span>
-            </button>
-            </>}
-
-            <button
-              onClick={() => setActiveTab('MY_ATTENDANCE')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition flex items-center gap-1.5 cursor-pointer border ${
-                activeTab === 'MY_ATTENDANCE'
-                  ? 'bg-linear-to-r from-blue-900 to-indigo-900 text-white border-blue-500 shadow-md font-black ring-1 ring-amber-400/40'
-                  : 'border-slate-800/60 text-slate-400 hover:text-white hover:bg-slate-800/70 hover:border-slate-700'
-              }`}
-            >
-              <UserCheck className="w-3.5 h-3.5 text-amber-400" />
-              <span>My Worker Pass</span>
-            </button>
-
+          <div className="flex items-center gap-3">
+            <div className="hidden xl:flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-2 text-[10px] font-black uppercase tracking-wide text-emerald-800 ring-1 ring-emerald-100">
+              <ShieldCheck className="h-3.5 w-3.5" /><span>Directorate data protected</span>
+            </div>
+            <div className="rounded-2xl bg-slate-50 px-4 py-2 text-right ring-1 ring-slate-200">
+              <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">Sunday School Year</span>
+              <span className="block text-xs font-black text-blue-950">{sundaySchoolYear.yearName || 'Active programme year'}</span>
+            </div>
           </div>
-        </div>
-      </header>
+        </header>
 
       {/* Main Content Body */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 md:p-8">
+      <main className="workers-directorate-main flex-1 w-full max-w-[1600px] mx-auto p-3 sm:p-5 lg:p-7 xl:p-8">
         {isLoading ? (
           <div className="py-20 text-center space-y-3">
             <div className="w-10 h-10 border-4 border-blue-900 border-t-amber-400 rounded-full animate-spin mx-auto" />
@@ -632,6 +596,22 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
           <>
             {activeTab === 'DASHBOARD' && (
               <WorkersDashboardView
+                workers={workers}
+                sundayAttendance={sundayAttendance}
+                prepAttendance={prepAttendance}
+                departmentsList={departmentsList}
+                config={config}
+                sundaySchoolYear={sundaySchoolYear}
+                onNavigateToTab={setActiveTab}
+                onViewQrPass={handleOpenQrPass}
+                onSaveSundayAttendance={handleSaveSundayBulkRecords}
+                onSavePrepAttendance={handleSaveBulkPrepRecords}
+              />
+            )}
+
+            {activeTab === 'INSPECTION' && (
+              <WorkersDashboardView
+                viewMode="INSPECTION"
                 workers={workers}
                 sundayAttendance={sundayAttendance}
                 prepAttendance={prepAttendance}
@@ -733,7 +713,7 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
       </main>
 
       {/* Footer */}
-      <footer className="bg-white border-t border-slate-200 py-6 text-center text-xs text-slate-500">
+      <footer className="border-t border-blue-100/80 bg-white/70 px-5 py-6 text-center text-xs text-slate-500 backdrop-blur-sm">
         <p className="font-bold text-slate-700">
           The Gospel Faith Mission International (House of Favour) (GOFAMINT_HOF) — Dedicated Workers Directorate Module
         </p>
@@ -741,6 +721,34 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
           High-throughput Sunday Service QR Clock-In • Thursday Preparatory Class Roster • Pastoral Care
         </p>
       </footer>
+      </div>
+
+      {/* Mobile taskbar: always within thumb reach, horizontally scrollable for all seven workspaces */}
+      <nav aria-label="Mobile Workers Directorate navigation" className="fixed inset-x-0 bottom-0 z-50 overflow-x-auto border-t border-blue-100 bg-white/96 px-2 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-[0_-12px_35px_rgba(15,42,85,0.16)] backdrop-blur-xl no-scrollbar lg:hidden">
+        <div className={`mx-auto flex min-w-max items-stretch gap-1.5 ${isPersonalWorker ? 'justify-center' : 'justify-start'}`}>
+          {visibleNavItems.map(item => {
+            const Icon = item.icon;
+            const isActive = activeTab === item.id;
+            return (
+              <button
+                id={`workers-mobile-nav-${item.id.toLowerCase()}`}
+                key={item.id}
+                type="button"
+                aria-current={isActive ? 'page' : undefined}
+                onClick={() => setActiveTab(item.id)}
+                className={`relative flex min-h-[55px] min-w-[70px] flex-col items-center justify-center gap-1 rounded-2xl px-2 py-1.5 text-[9px] font-black transition-all cursor-pointer ${isActive
+                  ? 'bg-blue-950 text-white shadow-lg shadow-blue-950/20'
+                  : 'text-slate-500 hover:bg-blue-50 hover:text-blue-900'
+                }`}
+              >
+                {isActive && <span className="absolute -top-1 h-1 w-7 rounded-full bg-red-500" />}
+                <Icon className={`h-[18px] w-[18px] ${isActive ? 'text-amber-300' : 'text-blue-800'}`} />
+                <span>{item.shortLabel}</span>
+              </button>
+            );
+          })}
+        </div>
+      </nav>
 
       {/* Worker Profile Modal (Add/Edit) */}
       <WorkerProfileModal
