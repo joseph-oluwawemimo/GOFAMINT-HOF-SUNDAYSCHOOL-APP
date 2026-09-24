@@ -54,6 +54,8 @@ interface GeneralSecretaryViewProps {
   onDeleteDepartment?: (name: string) => Promise<void>;
   onApproveClass: (classId: string) => Promise<void>;
   onRefreshData: () => Promise<void>;
+  activeTab?: 'SUNDAY_SCHOOL_SETUP' | 'CLASS_PORTAL_EXPLORER' | 'DEPARTMENTS' | 'CLASS_APPROVALS';
+  onTabChange?: (tab: 'SUNDAY_SCHOOL_SETUP' | 'CLASS_PORTAL_EXPLORER' | 'DEPARTMENTS' | 'CLASS_APPROVALS') => void;
 }
 
 export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
@@ -67,9 +69,16 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
   onUpdateDepartment,
   onDeleteDepartment,
   onApproveClass,
-  onRefreshData
+  onRefreshData,
+  activeTab: propActiveTab,
+  onTabChange
 }) => {
-  const [activeTab, setActiveTab] = useState<'SUNDAY_SCHOOL_SETUP' | 'CLASS_PORTAL_EXPLORER' | 'DEPARTMENTS' | 'CLASS_APPROVALS'>('SUNDAY_SCHOOL_SETUP');
+  const [internalActiveTab, setInternalActiveTab] = useState<'SUNDAY_SCHOOL_SETUP' | 'CLASS_PORTAL_EXPLORER' | 'DEPARTMENTS' | 'CLASS_APPROVALS'>('SUNDAY_SCHOOL_SETUP');
+  const activeTab = propActiveTab || internalActiveTab;
+  const setActiveTab = (tab: 'SUNDAY_SCHOOL_SETUP' | 'CLASS_PORTAL_EXPLORER' | 'DEPARTMENTS' | 'CLASS_APPROVALS') => {
+    if (onTabChange) onTabChange(tab);
+    setInternalActiveTab(tab);
+  };
   const [setupStep, setSetupStep] = useState<1 | 2 | 3 | 4>(1);
   const [explorerInitialClassId, setExplorerInitialClassId] = useState<string | undefined>(undefined);
   const [selectedQuarterNumber, setSelectedQuarterNumber] = useState<QuarterNumber>(sundaySchoolYear.activeQuarterNumber);
@@ -490,27 +499,31 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
   return (
     <div className="space-y-6">
       
-      {/* Banner */}
-      <div className="bg-gradient-to-r from-blue-900 via-indigo-950 to-blue-950 text-white rounded-3xl p-6 sm:p-8 shadow-xl border-2 border-blue-400/40 relative overflow-hidden">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
-          <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-400/20 border border-amber-400/40 rounded-full text-xs font-black text-amber-300 uppercase tracking-wider">
+      {/* Jobie Brand Violet Hero Banner */}
+      <div className="bg-gradient-to-r from-[#290870] via-[#350e9e] to-[#4318ff] text-white rounded-3xl p-6 sm:p-7 shadow-xl border border-white/10 relative overflow-hidden">
+        {/* Background decorative glows */}
+        <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 rounded-full bg-white/5 blur-2xl pointer-events-none" />
+        <div className="absolute bottom-0 left-1/3 -mb-16 w-64 h-64 rounded-full bg-indigo-500/10 blur-2xl pointer-events-none" />
+
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-5 relative z-10">
+          <div className="space-y-1.5 min-w-0">
+            <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-400/20 border border-amber-400/30 rounded-full text-[11px] font-black text-amber-300 uppercase tracking-wider">
               <FileSpreadsheet className="w-3.5 h-3.5" />
               <span>General Secretary Directorate</span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-black font-['Cinzel',serif] tracking-wide text-white">
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-black font-['Cinzel',serif] tracking-wide text-white">
               Sunday School Year & Curriculum Portal
             </h1>
-            <p className="text-xs sm:text-sm text-blue-100 max-w-2xl leading-relaxed">
-              Officer: <strong>{currentAdmin.profileName}</strong> • Master authority for Sunday School Year configuration, 4-Quarter curriculum management, weekly lesson distribution, and department administration.
+            <p className="text-xs sm:text-sm text-purple-100/90 font-medium">
+              Officer: <strong className="text-white">{currentAdmin.profileName}</strong> • Master authority for Academic Year setup, 4-Quarter curriculum & distribution.
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 shrink-0">
             <button
               disabled={isDistributing || isQuarterReadOnly}
               onClick={handleDistributeToAllClasses}
-              className="px-4 py-3 bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 font-black rounded-xl text-xs flex items-center gap-2 shadow-lg transition"
+              className="px-4 sm:px-5 py-2.5 sm:py-3 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 active:scale-95 text-slate-950 font-black rounded-xl text-xs flex items-center gap-2 shadow-lg transition cursor-pointer disabled:opacity-50"
             >
               <Send className="w-4 h-4" />
               <span>{isDistributing ? 'Distributing...' : 'Distribute Lessons to All Classes'}</span>
@@ -519,61 +532,11 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
         </div>
 
         {feedback && (
-          <div className="mt-4 p-3 bg-emerald-500/20 border border-emerald-400 text-emerald-200 rounded-xl text-xs font-bold flex items-center gap-2">
+          <div className="mt-4 p-3 bg-emerald-500/20 border border-emerald-400/50 text-emerald-200 rounded-xl text-xs font-bold flex items-center gap-2">
             <CheckCircle className="w-4 h-4 text-emerald-300" />
             <span>{feedback}</span>
           </div>
         )}
-      </div>
-
-      {/* Tabs Navigation */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-2">
-        <button
-          onClick={() => setActiveTab('SUNDAY_SCHOOL_SETUP')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
-            activeTab === 'SUNDAY_SCHOOL_SETUP' ? 'bg-blue-900 text-white shadow-sm' : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
-          }`}
-        >
-          <Layers className="w-4 h-4" />
-          <span>Sunday School Setup & Curriculum</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('CLASS_PORTAL_EXPLORER')}
-          className={`px-4 py-2 rounded-xl text-xs font-black transition flex items-center gap-2 ${
-            activeTab === 'CLASS_PORTAL_EXPLORER'
-              ? 'bg-amber-900 text-white shadow-sm ring-2 ring-amber-400/50'
-              : 'bg-amber-50 text-amber-900 hover:bg-amber-100 border border-amber-300'
-          }`}
-        >
-          <School className="w-4 h-4 text-amber-600" />
-          <span>Class Inspection</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('DEPARTMENTS')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
-            activeTab === 'DEPARTMENTS' ? 'bg-blue-900 text-white shadow-sm' : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
-          }`}
-        >
-          <Building className="w-4 h-4" />
-          <span>Department Management ({Array.isArray(sundaySchoolYear.departments) ? sundaySchoolYear.departments.length : 0})</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('CLASS_APPROVALS')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
-            activeTab === 'CLASS_APPROVALS' ? 'bg-blue-900 text-white shadow-sm' : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
-          }`}
-        >
-          <CheckCircle className="w-4 h-4" />
-          <span>Class Approvals</span>
-          {pendingClasses.length > 0 && (
-            <span className="px-2 py-0.5 bg-red-500 text-white text-[10px] font-black rounded-full">
-              {pendingClasses.length}
-            </span>
-          )}
-        </button>
       </div>
 
       {/* Tab: Department & Class Portal Explorer (5 Dashboards) */}
@@ -591,15 +554,15 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
       {activeTab === 'SUNDAY_SCHOOL_SETUP' && (
         <div className="space-y-6">
 
-          {/* 4-Step Stepper Navigation Header */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-3 sm:p-4 shadow-xs">
+          {/* 4-Step Stepper Navigation Header (Jobie Style) */}
+          <div className="jobie-card p-3 sm:p-4 mb-6">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
               {[
                 { step: 1 as const, title: 'Academic Year', desc: 'Year Name & Global Theme' },
                 { step: 2 as const, title: 'Quarter Setup', desc: 'Q1–Q4, Dates & Weeks' },
                 { step: 3 as const, title: 'Lesson Curriculum', desc: 'Topics, Verses & Aims' },
                 { step: 4 as const, title: 'Review & Dispatch', desc: 'Readiness & Live Sync' }
-              ].map((item, idx) => {
+              ].map((item) => {
                 const isCurrent = setupStep === item.step;
                 const isPast = setupStep > item.step;
                 return (
@@ -607,19 +570,19 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                     key={item.step}
                     type="button"
                     onClick={() => setSetupStep(item.step)}
-                    className={`flex items-center gap-3 p-3 rounded-xl transition text-left cursor-pointer ${
+                    className={`flex items-center gap-3 p-3 rounded-xl transition-all text-left cursor-pointer ${
                       isCurrent
-                        ? 'bg-blue-900 text-white shadow-xs ring-2 ring-blue-900/20'
+                        ? 'bg-[#320b86] text-white shadow-md ring-2 ring-[#320b86]/20'
                         : isPast
-                        ? 'bg-blue-50/80 text-blue-950 hover:bg-blue-100 border border-blue-200/60'
-                        : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
+                        ? 'bg-purple-50 text-[#320b86] hover:bg-purple-100/70 border border-purple-200/70'
+                        : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200/80'
                     }`}
                   >
                     <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-black shrink-0 ${
                       isCurrent
-                        ? 'bg-amber-400 text-blue-950'
+                        ? 'bg-amber-400 text-slate-950 font-black'
                         : isPast
-                        ? 'bg-blue-900 text-white'
+                        ? 'bg-[#320b86] text-white'
                         : 'bg-slate-200 text-slate-600'
                     }`}>
                       {isPast ? <Check className="w-4 h-4 stroke-[3]" /> : item.step}
@@ -635,7 +598,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                           </span>
                         )}
                       </div>
-                      <span className={`text-[11px] truncate block ${isCurrent ? 'text-blue-200' : 'text-slate-500'}`}>
+                      <span className={`text-[11px] truncate block ${isCurrent ? 'text-purple-200' : 'text-slate-500'}`}>
                         {item.desc}
                       </span>
                     </div>
@@ -647,12 +610,12 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
 
           {/* STEP 1: Academic Year */}
           {setupStep === 1 && (
-            <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-xs space-y-6">
+            <div className="jobie-card p-6 sm:p-8 space-y-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
                 <div>
                   <div className="flex items-center gap-2">
-                    <Calendar className="w-5 h-5 text-blue-900" />
-                    <h3 className="text-xl font-black text-slate-900 font-['Cinzel',serif]">
+                    <Calendar className="w-5 h-5 text-[#320b86]" />
+                    <h3 className="text-lg sm:text-xl font-black text-slate-900 font-['Cinzel',serif]">
                       Step 1: Sunday School Academic Year
                     </h3>
                   </div>
@@ -668,22 +631,22 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
 
               {/* Quick Academic Overview Stats */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200">
+                <div className="p-4 bg-[#f8faff] rounded-2xl border border-slate-200/80 hover:border-purple-300 hover:shadow-xs transition-all">
                   <span className="text-[10px] uppercase font-bold text-slate-400 block">Total Quarters</span>
                   <span className="text-xl font-black text-slate-900">4 Quarters</span>
-                  <span className="text-[11px] text-blue-900 font-bold block mt-0.5">Active: Quarter {sundaySchoolYear.activeQuarterNumber}</span>
+                  <span className="text-[11px] text-[#320b86] font-bold block mt-0.5">Active: Quarter {sundaySchoolYear.activeQuarterNumber}</span>
                 </div>
-                <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200">
+                <div className="p-4 bg-[#f8faff] rounded-2xl border border-slate-200/80 hover:border-purple-300 hover:shadow-xs transition-all">
                   <span className="text-[10px] uppercase font-bold text-slate-400 block">Teaching Schedule</span>
                   <span className="text-xl font-black text-slate-900">{currentQuarter.totalLessonWeeks} Lessons</span>
                   <span className="text-[11px] text-emerald-700 font-bold block mt-0.5">+ 1 Sharing Week</span>
                 </div>
-                <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200">
+                <div className="p-4 bg-[#f8faff] rounded-2xl border border-slate-200/80 hover:border-purple-300 hover:shadow-xs transition-all">
                   <span className="text-[10px] uppercase font-bold text-slate-400 block">Registered Classes</span>
                   <span className="text-xl font-black text-slate-900">{allClasses.length} Classes</span>
                   <span className="text-[11px] text-slate-500 font-semibold block mt-0.5">{pendingClasses.length} Pending Approval</span>
                 </div>
-                <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200">
+                <div className="p-4 bg-[#f8faff] rounded-2xl border border-slate-200/80 hover:border-purple-300 hover:shadow-xs transition-all">
                   <span className="text-[10px] uppercase font-bold text-slate-400 block">Departments</span>
                   <span className="text-xl font-black text-slate-900">{Array.isArray(sundaySchoolYear.departments) ? sundaySchoolYear.departments.length : 0} Departments</span>
                   <span className="text-[11px] text-slate-500 font-semibold block mt-0.5">Configured by GSEC</span>
@@ -692,23 +655,23 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
 
               <div className="space-y-4 max-w-2xl pt-2">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-[#0f2b59]">Sunday School Academic Year</label>
+                  <label className="text-xs font-bold text-slate-900">Sunday School Academic Year</label>
                   <input
                     type="text"
                     value={yearName}
                     onChange={(e) => setYearName(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-white border-2 border-blue-900/30 rounded-xl text-sm font-bold text-[#0f2b59] placeholder:text-blue-900/40 caret-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden shadow-xs"
+                    className="w-full px-4 py-2.5 bg-white border-2 border-slate-200 rounded-xl text-sm font-bold text-slate-900 placeholder:text-slate-400 focus:border-[#320b86] focus:ring-2 focus:ring-[#320b86]/20 outline-hidden shadow-xs transition"
                     placeholder="e.g. 2026/2027"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-[#0f2b59]">Overall Theme for the Year</label>
+                  <label className="text-xs font-bold text-slate-900">Overall Theme for the Year</label>
                   <textarea
                     rows={3}
                     value={overallTheme}
                     onChange={(e) => setOverallTheme(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-white border-2 border-blue-900/30 rounded-xl text-sm font-bold text-[#0f2b59] placeholder:text-blue-900/40 caret-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden shadow-xs"
+                    className="w-full px-4 py-2.5 bg-white border-2 border-slate-200 rounded-xl text-sm font-bold text-slate-900 placeholder:text-slate-400 focus:border-[#320b86] focus:ring-2 focus:ring-[#320b86]/20 outline-hidden shadow-xs transition"
                     placeholder="e.g. Walking in the Light of His Glory (1 John 1:7)"
                   />
                 </div>
@@ -716,7 +679,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                 <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-slate-100">
                   <button
                     onClick={handleSaveYearDetails}
-                    className="px-5 py-2.5 bg-blue-900 hover:bg-blue-800 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition cursor-pointer"
+                    className="px-5 py-2.5 bg-[#320b86] hover:bg-[#250664] text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition cursor-pointer"
                   >
                     <Save className="w-4 h-4 text-amber-400" />
                     <span>Update Sunday School Year</span>
@@ -725,7 +688,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                   <button
                     type="button"
                     onClick={() => setSetupStep(2)}
-                    className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition ml-auto cursor-pointer"
+                    className="px-5 py-2.5 bg-gradient-to-r from-[#320b86] to-[#4318ff] hover:opacity-95 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-md transition ml-auto cursor-pointer"
                   >
                     <span>Proceed to Step 2: Quarter Setup</span>
                     <ArrowRight className="w-4 h-4 text-amber-400" />
@@ -746,15 +709,15 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                     <button
                       key={q.id}
                       onClick={() => handleSelectQuarter(q.quarterNumber)}
-                      className={`text-left p-5 rounded-2xl border-2 transition relative flex flex-col justify-between cursor-pointer ${
+                      className={`text-left p-5 rounded-2xl border-2 transition-all relative flex flex-col justify-between cursor-pointer ${
                         isSelected
-                          ? 'bg-blue-50 border-blue-900 shadow-md ring-2 ring-blue-900/20'
-                          : 'bg-white border-slate-200 hover:border-slate-300'
+                          ? 'bg-purple-50/50 border-[#320b86] shadow-md ring-2 ring-[#320b86]/20'
+                          : 'bg-white border-slate-200/80 hover:border-purple-200 hover:shadow-xs'
                       }`}
                     >
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-black uppercase tracking-wider text-blue-900">
+                          <span className="text-xs font-black uppercase tracking-wider text-[#320b86]">
                             {q.quarterName}
                           </span>
                           {q.status === 'ARCHIVED' && (
@@ -779,7 +742,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                         </p>
                       </div>
 
-                      <div className="pt-3 mt-2 border-t border-slate-200/60 flex items-center justify-between text-xs font-bold text-blue-900">
+                      <div className="pt-3 mt-2 border-t border-slate-200/60 flex items-center justify-between text-xs font-bold text-[#320b86]">
                         <span>{q.lessons?.length || 0} Lessons Loaded</span>
                         <ArrowRight className="w-3.5 h-3.5" />
                       </div>
@@ -789,11 +752,11 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
               </div>
 
               {/* Current Selected Quarter Details & Controls */}
-              <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-xs space-y-6">
+              <div className="jobie-card p-6 sm:p-8 space-y-6">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
                   <div>
                     <div className="flex items-center gap-2">
-                      <h3 className="text-xl font-black text-slate-900 font-['Cinzel',serif]">
+                      <h3 className="text-lg sm:text-xl font-black text-slate-900 font-['Cinzel',serif]">
                         Step 2: {currentQuarter.quarterName} Setup & Schedule
                       </h3>
                       {currentQuarter.status === 'ARCHIVED' && (
@@ -811,79 +774,79 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                 {/* Quarter Settings Form */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="md:col-span-2 space-y-1.5">
-                    <label className="text-xs font-bold text-[#0f2b59]">Quarter Theme</label>
+                    <label className="text-xs font-bold text-slate-900">Quarter Theme</label>
                     <input
                       type="text"
                       disabled={isQuarterReadOnly}
                       value={quarterTheme}
                       onChange={(e) => setQuarterTheme(e.target.value)}
-                      className="w-full px-4 py-2.5 bg-white border-2 border-blue-900/30 rounded-xl text-sm font-bold text-[#0f2b59] placeholder:text-blue-900/40 caret-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden disabled:bg-slate-100 disabled:text-[#0f2b59]/60 shadow-xs"
+                      className="w-full px-4 py-2.5 bg-white border-2 border-slate-200 rounded-xl text-sm font-bold text-slate-900 placeholder:text-slate-400 focus:border-[#320b86] focus:ring-2 focus:ring-[#320b86]/20 outline-hidden disabled:bg-slate-100 disabled:text-slate-400 shadow-xs transition"
                       placeholder="e.g. Foundations of Christian Faith & Discipleship"
                     />
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-[#0f2b59]">Teaching Lessons (12 or 13 Weeks)</label>
+                    <label className="text-xs font-bold text-slate-900">Teaching Lessons (12 or 13 Weeks)</label>
                     <select
                       disabled={isQuarterReadOnly}
                       value={totalLessonWeeks}
                       onChange={(e) => setTotalLessonWeeks(Number(e.target.value) as 12 | 13)}
-                      className="w-full px-4 py-2.5 border-2 border-blue-900/30 rounded-xl text-sm font-bold bg-white text-[#0f2b59] caret-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden disabled:bg-slate-100 shadow-xs"
+                      className="w-full px-4 py-2.5 border-2 border-slate-200 rounded-xl text-sm font-bold bg-white text-slate-900 focus:border-[#320b86] focus:ring-2 focus:ring-[#320b86]/20 outline-hidden disabled:bg-slate-100 shadow-xs transition"
                     >
-                      <option value={12} className="text-[#0f2b59] font-bold">12 Lessons + 1 Sharing Week (13 Total)</option>
-                      <option value={13} className="text-[#0f2b59] font-bold">13 Lessons + 1 Sharing Week (14 Total)</option>
+                      <option value={12}>12 Lessons + 1 Sharing Week (13 Total)</option>
+                      <option value={13}>13 Lessons + 1 Sharing Week (14 Total)</option>
                     </select>
                   </div>
                 </div>
 
                 {/* Manual Week 1 Date Setup & Auto-Generation */}
-                <div className="p-5 bg-blue-50/70 border border-blue-200 rounded-2xl space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-blue-200/70 pb-3">
+                <div className="p-5 bg-[#f8faff] border border-purple-200/60 rounded-2xl space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-purple-200/60 pb-3">
                     <div className="flex items-center gap-2">
-                      <Calendar className="w-4 h-4 text-blue-900 shrink-0" />
-                      <h4 className="text-xs font-black text-blue-950 uppercase tracking-wider">
+                      <Calendar className="w-4 h-4 text-[#320b86] shrink-0" />
+                      <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">
                         {currentQuarter.quarterName} Schedule: Week 1 Date Setup
                       </h4>
                     </div>
-                    <span className="text-[11px] font-semibold text-blue-800 bg-blue-100/80 px-2.5 py-0.5 rounded-full">
+                    <span className="text-[11px] font-semibold text-[#320b86] bg-purple-100/80 px-2.5 py-0.5 rounded-full">
                       Auto-generates subsequent weeks (Week 2–{totalLessonWeeks + 1})
                     </span>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-[#0f2b59] flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-900 flex items-center justify-between">
                         <span>Week 1 Ministerial Prep Date (Thursday)</span>
-                        <span className="text-[10px] text-blue-800/70 font-normal">Auto-links to Sunday</span>
+                        <span className="text-[10px] text-slate-500 font-normal">Auto-links to Sunday</span>
                       </label>
                       <input
                         type="date"
                         disabled={isQuarterReadOnly}
                         value={week1ThursdayDate}
                         onChange={(e) => handleThursdayChange(e.target.value)}
-                        className="w-full px-4 py-2.5 bg-white border-2 border-blue-900/30 rounded-xl text-xs font-bold text-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden disabled:bg-slate-100 shadow-xs"
+                        className="w-full px-4 py-2.5 bg-white border-2 border-slate-200 rounded-xl text-xs font-bold text-slate-900 focus:border-[#320b86] focus:ring-2 focus:ring-[#320b86]/20 outline-hidden disabled:bg-slate-100 shadow-xs transition"
                       />
                       {week1ThursdayDate && (
-                        <p className="text-[11px] font-semibold text-blue-900">
+                        <p className="text-[11px] font-semibold text-[#320b86]">
                           {formatDateDisplay(week1ThursdayDate, { showDayOfWeek: true })}
                         </p>
                       )}
                     </div>
 
                     <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-[#0f2b59] flex items-center justify-between">
+                      <label className="text-xs font-bold text-slate-900 flex items-center justify-between">
                         <span>Week 1 Sunday School Date (Sunday)</span>
-                        <span className="text-[10px] text-blue-800/70 font-normal">Auto-links to Thursday</span>
+                        <span className="text-[10px] text-slate-500 font-normal">Auto-links to Thursday</span>
                       </label>
                       <input
                         type="date"
                         disabled={isQuarterReadOnly}
                         value={week1SundayDate}
                         onChange={(e) => handleSundayChange(e.target.value)}
-                        className="w-full px-4 py-2.5 bg-white border-2 border-blue-900/30 rounded-xl text-xs font-bold text-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden disabled:bg-slate-100 shadow-xs"
+                        className="w-full px-4 py-2.5 bg-white border-2 border-slate-200 rounded-xl text-xs font-bold text-slate-900 focus:border-[#320b86] focus:ring-2 focus:ring-[#320b86]/20 outline-hidden disabled:bg-slate-100 shadow-xs transition"
                       />
                       {week1SundayDate && (
-                        <p className="text-[11px] font-semibold text-blue-900">
+                        <p className="text-[11px] font-semibold text-[#320b86]">
                           {formatDateDisplay(week1SundayDate, { showDayOfWeek: true })}
                         </p>
                       )}
@@ -895,14 +858,14 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                     <button
                       type="button"
                       onClick={() => setShowSchedulePreview(!showSchedulePreview)}
-                      className="text-xs font-bold text-blue-900 hover:text-blue-950 flex items-center gap-1.5 transition cursor-pointer"
+                      className="text-xs font-bold text-[#320b86] hover:text-[#250664] flex items-center gap-1.5 transition cursor-pointer"
                     >
                       <span>{showSchedulePreview ? 'Hide' : 'View'} Generated {totalLessonWeeks + 1}-Week Calendar Preview</span>
                       <ChevronRight className={`w-3.5 h-3.5 transition-transform ${showSchedulePreview ? 'rotate-90' : ''}`} />
                     </button>
 
                     {showSchedulePreview && (
-                      <div className="mt-3 bg-white rounded-xl border border-blue-200 overflow-hidden shadow-xs">
+                      <div className="mt-3 bg-white rounded-xl border border-purple-200/80 overflow-hidden shadow-xs">
                         <div className="max-h-60 overflow-y-auto divide-y divide-slate-100 text-xs">
                           {getQuarterWeeklySchedule(
                             {
@@ -914,7 +877,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                           ).map((item) => (
                             <div
                               key={item.weekNumber}
-                              className={`px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1 hover:bg-slate-50 transition ${
+                              className={`px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-1 hover:bg-purple-50/40 transition ${
                                 item.isSharingAdmonitionWeek ? 'bg-amber-50/60 font-semibold' : ''
                               }`}
                             >
@@ -922,7 +885,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                                 <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
                                   item.isSharingAdmonitionWeek
                                     ? 'bg-amber-200 text-amber-900'
-                                    : 'bg-blue-100 text-blue-900'
+                                    : 'bg-purple-100 text-[#320b86]'
                                 }`}>
                                   Week {item.weekNumber}
                                 </span>
@@ -934,7 +897,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                                   <strong>Prep (Thu):</strong> {formatDateDisplay(item.prepDate)}
                                 </span>
                                 <span className="text-slate-300">•</span>
-                                <span title="Sunday School Date" className="text-blue-950 font-bold">
+                                <span title="Sunday School Date" className="text-[#320b86] font-bold">
                                   <strong>Sun:</strong> {formatDateDisplay(item.sundayDate)}
                                 </span>
                               </div>
@@ -950,7 +913,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                   <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
                     <button
                       onClick={handleSaveQuarterDetails}
-                      className="px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+                      className="px-4 py-2 bg-[#320b86] hover:bg-[#250664] text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
                     >
                       <Save className="w-3.5 h-3.5 text-amber-400" />
                       <span>Save Quarter Settings</span>
@@ -971,7 +934,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                   <button
                     type="button"
                     onClick={() => setSetupStep(3)}
-                    className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition cursor-pointer"
+                    className="px-5 py-2.5 bg-gradient-to-r from-[#320b86] to-[#4318ff] hover:opacity-95 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-md transition cursor-pointer"
                   >
                     <span>Proceed to Step 3: Lesson Curriculum</span>
                     <ArrowRight className="w-4 h-4 text-amber-400" />
@@ -983,12 +946,12 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
 
           {/* STEP 3: Lesson Curriculum */}
           {setupStep === 3 && (
-            <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-xs space-y-6">
+            <div className="jobie-card p-6 sm:p-8 space-y-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
                 <div>
                   <div className="flex items-center gap-2">
-                    <BookOpen className="w-5 h-5 text-blue-900" />
-                    <h3 className="text-xl font-black text-slate-900 font-['Cinzel',serif]">
+                    <BookOpen className="w-5 h-5 text-[#320b86]" />
+                    <h3 className="text-lg sm:text-xl font-black text-slate-900 font-['Cinzel',serif]">
                       Step 3: {currentQuarter.quarterName} Lesson Curriculum
                     </h3>
                   </div>
@@ -1000,16 +963,16 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                 {!isQuarterReadOnly && (
                   <button
                     onClick={() => setShowBatchModal(true)}
-                    className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer self-start sm:self-auto"
+                    className="px-4 py-2 bg-purple-50 hover:bg-purple-100 text-[#320b86] border border-purple-200 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer self-start sm:self-auto"
                   >
-                    <FileText className="w-3.5 h-3.5 text-amber-300" />
+                    <FileText className="w-3.5 h-3.5 text-[#320b86]" />
                     <span>Batch Paste Lessons Text</span>
                   </button>
                 )}
               </div>
 
               {/* Mandatory Sharing & Admonition Week Notice */}
-              <div className="p-4 bg-amber-50 border border-amber-300 rounded-2xl flex items-start gap-3">
+              <div className="p-4 bg-amber-50/80 border border-amber-300/80 rounded-2xl flex items-start gap-3">
                 <Sparkles className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
                 <div>
                   <h5 className="text-xs font-black text-amber-900 uppercase tracking-wider">
@@ -1024,7 +987,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
               {/* Weekly Lessons Master Table & Editor */}
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pt-2">
                 {/* Left: Lessons List */}
-                <div className="lg:col-span-5 space-y-2 max-h-[500px] overflow-y-auto pr-1">
+                <div className="lg:col-span-5 space-y-2 max-h-[520px] overflow-y-auto pr-1">
                   {currentQuarter.lessons?.map((lesson) => {
                     const isSelected = editingWeekNumber === lesson.weekNumber;
                     return (
@@ -1033,41 +996,41 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                         onClick={() => handleSelectLessonForEdit(lesson)}
                         className={`p-3.5 rounded-xl border transition cursor-pointer flex items-start justify-between gap-3 ${
                           isSelected
-                            ? 'bg-blue-900 text-white border-blue-900 shadow-sm'
+                            ? 'bg-[#320b86] text-white border-[#320b86] shadow-sm'
                             : lesson.isSharingAdmonitionWeek
-                            ? 'bg-amber-50 border-amber-300 text-[#0f2b59] hover:bg-amber-100/70'
-                            : 'bg-slate-50 border-slate-200 text-[#0f2b59] hover:bg-slate-100'
+                            ? 'bg-amber-50/80 border-amber-300 text-slate-900 hover:bg-amber-100/70'
+                            : 'bg-[#f8faff] border-slate-200 text-slate-900 hover:bg-purple-50/40'
                         }`}
                       >
                         <div>
                           <div className="flex items-center gap-1.5">
                             <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded ${
                               isSelected
-                                ? 'bg-blue-800 text-amber-300'
+                                ? 'bg-white/20 text-white'
                                 : lesson.isSharingAdmonitionWeek
                                 ? 'bg-amber-200 text-amber-900'
-                                : 'bg-blue-100 text-[#0f2b59]'
+                                : 'bg-purple-100 text-[#320b86]'
                             }`}>
                               {lesson.isSharingAdmonitionWeek ? 'Final Sharing Week' : `Week ${lesson.weekNumber}`}
                             </span>
                           </div>
-                          <h5 className={`text-xs font-bold mt-1 line-clamp-1 ${isSelected ? 'text-white' : 'text-[#0f2b59]'}`}>
+                          <h5 className={`text-xs font-bold mt-1 line-clamp-1 ${isSelected ? 'text-white' : 'text-slate-900'}`}>
                             {lesson.topic}
                           </h5>
-                          <p className={`text-[11px] font-medium line-clamp-1 ${isSelected ? 'text-blue-200' : 'text-blue-900/80'}`}>
+                          <p className={`text-[11px] font-medium line-clamp-1 ${isSelected ? 'text-purple-200' : 'text-slate-500'}`}>
                             {lesson.scriptureReading}
                           </p>
                         </div>
-                        <Edit3 className={`w-3.5 h-3.5 shrink-0 mt-1 ${isSelected ? 'text-amber-300' : 'text-blue-900/60'}`} />
+                        <Edit3 className={`w-3.5 h-3.5 shrink-0 mt-1 ${isSelected ? 'text-amber-300' : 'text-slate-400'}`} />
                       </div>
                     );
                   })}
                 </div>
 
                 {/* Right: Lesson Editor Form */}
-                <div className="lg:col-span-7 bg-slate-50 rounded-2xl p-5 border border-slate-200 space-y-4">
-                  <div className="flex items-center justify-between border-b border-slate-200 pb-2">
-                    <h5 className="text-xs font-black text-[#0f2b59] uppercase tracking-wider">
+                <div className="lg:col-span-7 bg-[#f8faff] rounded-2xl p-5 border border-slate-200/80 space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-200/80 pb-2">
+                    <h5 className="text-xs font-black text-[#320b86] uppercase tracking-wider">
                       {editingWeekNumber && editingWeekNumber > totalLessonWeeks ? 'Sharing & Admonition Week' : `Edit Lesson for Week ${editingWeekNumber}`}
                     </h5>
                     {isQuarterReadOnly && (
@@ -1077,62 +1040,62 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
 
                   <div className="space-y-3">
                     <div className="space-y-1">
-                      <label className="text-xs font-bold text-[#0f2b59]">Lesson Topic</label>
+                      <label className="text-xs font-bold text-slate-900">Lesson Topic</label>
                       <input
                         type="text"
                         disabled={isQuarterReadOnly}
                         value={lessonTopic}
                         onChange={(e) => setLessonTopic(e.target.value)}
-                        className="w-full px-3.5 py-2.5 bg-white border-2 border-blue-900/30 rounded-xl text-xs font-bold text-[#0f2b59] placeholder:text-blue-900/40 caret-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden disabled:bg-slate-100 disabled:text-[#0f2b59]/60 shadow-xs"
+                        className="w-full px-3.5 py-2.5 bg-white border-2 border-slate-200 rounded-xl text-xs font-bold text-slate-900 placeholder:text-slate-400 focus:border-[#320b86] focus:ring-2 focus:ring-[#320b86]/20 outline-hidden disabled:bg-slate-100 disabled:text-slate-400 shadow-xs transition"
                         placeholder="e.g. The Call to Discipleship and Living Faith"
                       />
                     </div>
 
                     <div className="space-y-1">
-                      <label className="text-xs font-bold text-[#0f2b59]">Scripture Reading / Text</label>
+                      <label className="text-xs font-bold text-slate-900">Scripture Reading / Text</label>
                       <input
                         type="text"
                         disabled={isQuarterReadOnly}
                         value={scriptureReading}
                         onChange={(e) => setScriptureReading(e.target.value)}
-                        className="w-full px-3.5 py-2.5 bg-white border-2 border-blue-900/30 rounded-xl text-xs font-bold text-[#0f2b59] placeholder:text-blue-900/40 caret-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden disabled:bg-slate-100 disabled:text-[#0f2b59]/60 shadow-xs"
+                        className="w-full px-3.5 py-2.5 bg-white border-2 border-slate-200 rounded-xl text-xs font-bold text-slate-900 placeholder:text-slate-400 focus:border-[#320b86] focus:ring-2 focus:ring-[#320b86]/20 outline-hidden disabled:bg-slate-100 disabled:text-slate-400 shadow-xs transition"
                         placeholder="e.g. Matthew 4:18-22; Luke 9:23-26"
                       />
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <label className="text-xs font-bold text-[#0f2b59]">Memory Verse Text</label>
+                        <label className="text-xs font-bold text-slate-900">Memory Verse Text</label>
                         <input
                           type="text"
                           disabled={isQuarterReadOnly}
                           value={memoryVerse}
                           onChange={(e) => setMemoryVerse(e.target.value)}
-                          className="w-full px-3.5 py-2.5 bg-white border-2 border-blue-900/30 rounded-xl text-xs font-semibold text-[#0f2b59] placeholder:text-blue-900/40 caret-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden disabled:bg-slate-100 disabled:text-[#0f2b59]/60 shadow-xs"
+                          className="w-full px-3.5 py-2.5 bg-white border-2 border-slate-200 rounded-xl text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:border-[#320b86] focus:ring-2 focus:ring-[#320b86]/20 outline-hidden disabled:bg-slate-100 disabled:text-slate-400 shadow-xs transition"
                           placeholder="Memory verse text..."
                         />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-xs font-bold text-[#0f2b59]">Memory Verse Reference</label>
+                        <label className="text-xs font-bold text-slate-900">Memory Verse Reference</label>
                         <input
                           type="text"
                           disabled={isQuarterReadOnly}
                           value={memoryVerseRef}
                           onChange={(e) => setMemoryVerseRef(e.target.value)}
-                          className="w-full px-3.5 py-2.5 bg-white border-2 border-blue-900/30 rounded-xl text-xs font-semibold text-[#0f2b59] placeholder:text-blue-900/40 caret-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden disabled:bg-slate-100 disabled:text-[#0f2b59]/60 shadow-xs"
+                          className="w-full px-3.5 py-2.5 bg-white border-2 border-slate-200 rounded-xl text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:border-[#320b86] focus:ring-2 focus:ring-[#320b86]/20 outline-hidden disabled:bg-slate-100 disabled:text-slate-400 shadow-xs transition"
                           placeholder="e.g. Luke 9:23"
                         />
                       </div>
                     </div>
 
                     <div className="space-y-1">
-                      <label className="text-xs font-bold text-[#0f2b59]">Lesson Spiritual Aim / Objective</label>
+                      <label className="text-xs font-bold text-slate-900">Lesson Spiritual Aim / Objective</label>
                       <textarea
                         rows={2}
                         disabled={isQuarterReadOnly}
                         value={aim}
                         onChange={(e) => setAim(e.target.value)}
-                        className="w-full px-3.5 py-2.5 bg-white border-2 border-blue-900/30 rounded-xl text-xs font-medium text-[#0f2b59] placeholder:text-blue-900/40 caret-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden disabled:bg-slate-100 disabled:text-[#0f2b59]/60 shadow-xs"
+                        className="w-full px-3.5 py-2.5 bg-white border-2 border-slate-200 rounded-xl text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:border-[#320b86] focus:ring-2 focus:ring-[#320b86]/20 outline-hidden disabled:bg-slate-100 disabled:text-slate-400 shadow-xs transition"
                         placeholder="Spiritual goal for Sunday School students..."
                       />
                     </div>
@@ -1142,7 +1105,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                     <div className="pt-2 flex justify-end">
                       <button
                         onClick={handleSaveSingleLesson}
-                        className="px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+                        className="px-4 py-2 bg-[#320b86] hover:bg-[#250664] text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
                       >
                         <Save className="w-3.5 h-3.5 text-amber-400" />
                         <span>Save Week {editingWeekNumber} Lesson</span>
@@ -1165,7 +1128,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setSetupStep(4)}
-                  className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition cursor-pointer"
+                  className="px-5 py-2.5 bg-gradient-to-r from-[#320b86] to-[#4318ff] hover:opacity-95 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-md transition cursor-pointer"
                 >
                   <span>Proceed to Step 4: Review & Dispatch</span>
                   <ArrowRight className="w-4 h-4 text-amber-400" />
@@ -1177,12 +1140,12 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
           {/* STEP 4: Review & Dispatch */}
           {setupStep === 4 && (
             <div className="space-y-6">
-              <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-xs space-y-6">
+              <div className="jobie-card p-6 sm:p-8 space-y-6">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
                   <div>
                     <div className="flex items-center gap-2">
-                      <Send className="w-5 h-5 text-blue-900" />
-                      <h3 className="text-xl font-black text-slate-900 font-['Cinzel',serif]">
+                      <Send className="w-5 h-5 text-[#320b86]" />
+                      <h3 className="text-lg sm:text-xl font-black text-slate-900 font-['Cinzel',serif]">
                         Step 4: Curriculum Review & Live Distribution
                       </h3>
                     </div>
@@ -1194,7 +1157,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
 
                 {/* Pre-flight Curriculum Readiness Checklist */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50/70 space-y-3">
+                  <div className="p-4 rounded-2xl border border-slate-200/80 bg-[#f8faff] space-y-3">
                     <span className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-2">
                       <CheckCircle className="w-4 h-4 text-emerald-600" />
                       <span>Academic & Quarter Readiness</span>
@@ -1202,11 +1165,11 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                     <ul className="space-y-2 text-xs text-slate-700">
                       <li className="flex items-center justify-between">
                         <span>Academic Year:</span>
-                        <strong className="text-blue-950 font-bold">{yearName}</strong>
+                        <strong className="text-slate-900 font-bold">{yearName}</strong>
                       </li>
                       <li className="flex items-center justify-between">
                         <span>Overall Theme:</span>
-                        <strong className="text-blue-950 font-bold truncate max-w-[200px]" title={overallTheme}>{overallTheme}</strong>
+                        <strong className="text-slate-900 font-bold truncate max-w-[200px]" title={overallTheme}>{overallTheme}</strong>
                       </li>
                       <li className="flex items-center justify-between">
                         <span>Active Quarter:</span>
@@ -1214,28 +1177,28 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                       </li>
                       <li className="flex items-center justify-between">
                         <span>Selected Quarter:</span>
-                        <strong className="text-blue-950 font-bold">Quarter {selectedQuarterNumber} ({currentQuarter.quarterName})</strong>
+                        <strong className="text-[#320b86] font-bold">Quarter {selectedQuarterNumber} ({currentQuarter.quarterName})</strong>
                       </li>
                     </ul>
                   </div>
 
-                  <div className="p-4 rounded-2xl border border-slate-200 bg-slate-50/70 space-y-3">
+                  <div className="p-4 rounded-2xl border border-slate-200/80 bg-[#f8faff] space-y-3">
                     <span className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-2">
-                      <Calendar className="w-4 h-4 text-blue-900" />
+                      <Calendar className="w-4 h-4 text-[#320b86]" />
                       <span>Schedule & Lessons Loaded</span>
                     </span>
                     <ul className="space-y-2 text-xs text-slate-700">
                       <li className="flex items-center justify-between">
                         <span>Week 1 Prep (Thu):</span>
-                        <strong className="text-blue-950 font-bold">{formatDateDisplay(week1ThursdayDate)}</strong>
+                        <strong className="text-slate-900 font-bold">{formatDateDisplay(week1ThursdayDate)}</strong>
                       </li>
                       <li className="flex items-center justify-between">
                         <span>Week 1 Sunday School:</span>
-                        <strong className="text-blue-950 font-bold">{formatDateDisplay(week1SundayDate)}</strong>
+                        <strong className="text-slate-900 font-bold">{formatDateDisplay(week1SundayDate)}</strong>
                       </li>
                       <li className="flex items-center justify-between">
                         <span>Teaching Weeks:</span>
-                        <strong className="text-blue-950 font-bold">{totalLessonWeeks} Lessons + 1 Sharing Week</strong>
+                        <strong className="text-slate-900 font-bold">{totalLessonWeeks} Lessons + 1 Sharing Week</strong>
                       </li>
                       <li className="flex items-center justify-between">
                         <span>Curriculum Population:</span>
@@ -1248,17 +1211,17 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                 </div>
 
                 {/* Primary Distribution Action Card */}
-                <div className="p-6 bg-gradient-to-br from-blue-900 via-indigo-950 to-blue-950 text-white rounded-2xl border-2 border-blue-400/40 space-y-4 shadow-md">
+                <div className="p-6 bg-gradient-to-r from-[#290870] via-[#350e9e] to-[#4318ff] text-white rounded-2xl border border-white/10 space-y-4 shadow-xl">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="space-y-1">
                       <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-400/20 text-amber-300 text-[10px] font-black uppercase tracking-wider">
                         <Sparkles className="w-3 h-3" />
                         <span>Live Synchronization</span>
                       </div>
-                      <h4 className="text-lg font-black font-['Cinzel',serif] text-white">
+                      <h4 className="text-base sm:text-lg font-black font-['Cinzel',serif] text-white">
                         Distribute Quarter {selectedQuarterNumber} Curriculum to All Classes
                       </h4>
-                      <p className="text-xs text-blue-200/90 max-w-xl">
+                      <p className="text-xs text-purple-100/90 max-w-xl">
                         Instantly synchronizes this approved lesson schedule across all <strong>{allClasses.length} registered classes</strong>, updating teacher dashboards and attendance registers in real-time.
                       </p>
                     </div>
@@ -1266,7 +1229,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                     <button
                       disabled={isDistributing || isQuarterReadOnly}
                       onClick={handleDistributeToAllClasses}
-                      className="px-6 py-3 bg-amber-400 hover:bg-amber-300 active:scale-98 text-slate-950 font-black rounded-xl text-xs flex items-center gap-2 shadow-lg transition cursor-pointer shrink-0 disabled:opacity-50"
+                      className="px-6 py-3 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 active:scale-98 text-slate-950 font-black rounded-xl text-xs flex items-center gap-2 shadow-lg transition cursor-pointer shrink-0 disabled:opacity-50"
                     >
                       <Send className="w-4 h-4" />
                       <span>{isDistributing ? 'Distributing Curriculum...' : 'Distribute Lessons Now'}</span>
@@ -1275,7 +1238,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                 </div>
 
                 {/* Quarter Archival & Transition Controls */}
-                <div className="p-5 bg-slate-50 rounded-2xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="p-5 bg-[#f8faff] rounded-2xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
                     <h5 className="text-xs font-black uppercase tracking-wider text-slate-800">
                       Quarter Transition & Lifecycle Management
@@ -1325,10 +1288,10 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                   <button
                     type="button"
                     onClick={() => setActiveTab('CLASS_PORTAL_EXPLORER')}
-                    className="px-4 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                    className="px-4 py-2.5 bg-purple-50 hover:bg-purple-100 text-[#320b86] border border-purple-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
                   >
-                    <Building2 className="w-4 h-4 text-amber-600" />
-                    <span>Open Class Portals Explorer</span>
+                    <Building2 className="w-4 h-4 text-[#320b86]" />
+                    <span>Open Class Inspection Explorer</span>
                   </button>
                 </div>
               </div>
@@ -1340,10 +1303,10 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
 
       {/* Tab 3: Department Management */}
       {activeTab === 'DEPARTMENTS' && (
-        <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm space-y-6">
+        <div className="jobie-card p-6 sm:p-8 space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h3 className="text-lg font-black text-slate-900 font-['Cinzel',serif]">
+              <h3 className="text-base sm:text-lg font-black text-slate-900 font-['Cinzel',serif]">
                 Sunday School Department Management
               </h3>
               <p className="text-xs text-slate-500 mt-1">
@@ -1353,7 +1316,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
 
             <button
               onClick={() => setShowAddDeptModal(true)}
-              className="px-4 py-2.5 bg-blue-900 hover:bg-blue-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition"
+              className="px-4 py-2.5 bg-[#320b86] hover:bg-[#250664] text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
             >
               <Plus className="w-4 h-4 text-amber-400" />
               <span>Create Department</span>
@@ -1378,10 +1341,10 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
             {sundaySchoolYear.departments?.map((dept, idx) => {
               const linkedClasses = allClasses.filter(c => c.department === dept);
               return (
-                <div key={idx} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex flex-col justify-between gap-3 hover:border-slate-300 transition shadow-xs">
+                <div key={idx} className="p-4 bg-[#f8faff] rounded-2xl border border-slate-200/90 flex flex-col justify-between gap-3 hover:border-purple-300 hover:shadow-md transition-all shadow-xs">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-blue-100 border border-blue-200 flex items-center justify-center text-blue-900 font-bold text-xs shrink-0">
+                      <div className="w-9 h-9 rounded-xl bg-purple-100 border border-purple-200 flex items-center justify-center text-[#320b86] font-bold text-xs shrink-0">
                         {idx + 1}
                       </div>
                       <div>
@@ -1396,19 +1359,19 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                   <div className="pt-2 border-t border-slate-200 flex items-center justify-between gap-2">
                     <button
                       onClick={() => handleOpenEditDept(dept)}
-                      className="px-2.5 py-1.5 bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 rounded-lg text-xs font-bold flex items-center gap-1 transition"
+                      className="px-2.5 py-1.5 bg-white hover:bg-purple-50 border border-slate-200 text-[#320b86] rounded-xl text-xs font-bold flex items-center gap-1 transition cursor-pointer"
                       title="Edit / Rename Department"
                     >
-                      <Edit3 className="w-3 h-3 text-blue-700" />
+                      <Edit3 className="w-3 h-3 text-[#320b86]" />
                       <span>Rename</span>
                     </button>
 
                     <button
                       onClick={() => handleOpenDeleteDept(dept)}
-                      className="px-2.5 py-1.5 bg-white hover:bg-red-50 border border-slate-300 hover:border-red-300 text-red-600 rounded-lg text-xs font-bold flex items-center gap-1 transition"
+                      className="px-2.5 py-1.5 bg-white hover:bg-rose-50 border border-slate-200 hover:border-rose-300 text-rose-600 rounded-xl text-xs font-bold flex items-center gap-1 transition cursor-pointer"
                       title="Delete Department"
                     >
-                      <Trash2 className="w-3 h-3 text-red-600" />
+                      <Trash2 className="w-3 h-3 text-rose-600" />
                       <span>Delete</span>
                     </button>
                   </div>
@@ -1422,13 +1385,20 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
       {/* Tab 4: Class Approvals */}
       {activeTab === 'CLASS_APPROVALS' && (
         <div className="space-y-4">
-          <div>
-            <h3 className="text-base font-black text-slate-900">
-              General Secretary Class Approval Console
-            </h3>
-            <p className="text-xs text-slate-500">
-              Classes created by Teachers require General Secretary or General Superintendent approval to receive active Sunday School curriculum.
-            </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-base sm:text-lg font-black text-slate-900 font-['Cinzel',serif]">
+                General Secretary Class Approval Console
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Classes created by Teachers require General Secretary or General Superintendent approval to receive active Sunday School curriculum.
+              </p>
+            </div>
+            {pendingClasses.length > 0 && (
+              <span className="px-3 py-1 bg-amber-100 text-amber-900 border border-amber-200 rounded-full text-xs font-black">
+                {pendingClasses.length} Pending
+              </span>
+            )}
           </div>
 
           {actionSuccess && (
@@ -1446,18 +1416,20 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
           )}
 
           {pendingClasses.length === 0 ? (
-            <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center space-y-2">
-              <CheckCircle className="w-10 h-10 text-emerald-600 mx-auto" />
+            <div className="jobie-card p-10 text-center space-y-3">
+              <div className="w-12 h-12 rounded-full bg-emerald-100 border border-emerald-200 flex items-center justify-center mx-auto text-emerald-600">
+                <CheckCircle className="w-6 h-6" />
+              </div>
               <h4 className="text-sm font-bold text-slate-800">No Pending Class Approvals</h4>
               <p className="text-xs text-slate-500">All registered Sunday School classes have been approved.</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {pendingClasses.map((cls) => (
-                <div key={cls.id} className="bg-white rounded-2xl border-2 border-red-300 p-5 shadow-sm space-y-3">
+                <div key={cls.id} className="jobie-card p-5 border border-amber-300/80 shadow-xs space-y-3 hover:shadow-md transition-all">
                   <div className="flex items-start justify-between">
                     <div>
-                      <span className="text-[10px] font-black uppercase text-red-800 bg-red-100 px-2.5 py-0.5 rounded-full">
+                      <span className="text-[10px] font-black uppercase text-amber-900 bg-amber-100 px-2.5 py-0.5 rounded-full">
                         {cls.department}
                       </span>
                       <h4 className="text-base font-black text-slate-900 mt-1">{cls.className}</h4>
@@ -1472,17 +1444,17 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
 
                   <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
                     <span className="text-[11px] text-amber-700 font-semibold flex items-center gap-1">
-                      <Clock className="w-3 h-3" /> Pending approval
+                      <Clock className="w-3 h-3" /> Awaiting authorization
                     </span>
                     <button
                       disabled={processingClassId === cls.id}
                       onClick={() => handleApproveClass(cls.id, cls.className)}
-                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition"
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
                     >
                       {processingClassId === cls.id ? (
                         <>
                           <Loader2 className="w-4 h-4 animate-spin" />
-                          <span>Approving...</span>
+                          <span>Authorizing...</span>
                         </>
                       ) : (
                         <>
@@ -1533,13 +1505,13 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
             <div className="flex items-center justify-end gap-3 pt-2">
               <button
                 onClick={() => setShowBatchModal(false)}
-                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-200"
+                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-200 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={handleParseAndLoadBatchText}
-                className="px-5 py-2.5 bg-blue-900 hover:bg-blue-800 text-white rounded-xl text-xs font-bold shadow-md"
+                className="px-5 py-2.5 bg-[#320b86] hover:bg-[#250664] text-white rounded-xl text-xs font-bold shadow-md cursor-pointer"
               >
                 Parse & Populate Lessons
               </button>
@@ -1560,13 +1532,13 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
             </p>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-[#0f2b59]">Department Name</label>
+              <label className="text-xs font-bold text-slate-900">Department Name</label>
               <input
                 type="text"
                 required
                 value={newDeptName}
                 onChange={(e) => setNewDeptName(e.target.value)}
-                className="w-full px-4 py-2.5 bg-white border-2 border-blue-900/30 rounded-xl text-sm font-bold text-[#0f2b59] placeholder:text-blue-900/40 caret-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden shadow-xs"
+                className="w-full px-4 py-2.5 bg-white border-2 border-slate-200 rounded-xl text-sm font-bold text-slate-900 placeholder:text-slate-400 focus:border-[#320b86] focus:ring-2 focus:ring-[#320b86]/20 outline-hidden shadow-xs transition"
                 placeholder="e.g. Couples Fellowship or New Converts"
               />
             </div>
@@ -1575,13 +1547,13 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
               <button
                 type="button"
                 onClick={() => setShowAddDeptModal(false)}
-                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold"
+                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-200 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="px-5 py-2 bg-blue-900 text-white rounded-xl text-xs font-bold"
+                className="px-5 py-2.5 bg-[#320b86] hover:bg-[#250664] text-white rounded-xl text-xs font-bold shadow-md cursor-pointer"
               >
                 Add Department
               </button>
@@ -1594,7 +1566,7 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
       {showEditDeptModal && (
         <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
           <form onSubmit={handleSaveEditDept} className="bg-white max-w-md w-full rounded-3xl shadow-2xl p-6 sm:p-8 space-y-4 border border-slate-200">
-            <div className="flex items-center gap-2 text-blue-900">
+            <div className="flex items-center gap-2 text-[#320b86]">
               <Edit3 className="w-5 h-5" />
               <h3 className="text-base font-black text-slate-900 font-['Cinzel',serif]">
                 Rename Sunday School Department
@@ -1605,13 +1577,13 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
             </p>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-[#0f2b59]">New Department Name</label>
+              <label className="text-xs font-bold text-slate-900">New Department Name</label>
               <input
                 type="text"
                 required
                 value={editingDeptNewName}
                 onChange={(e) => setEditingDeptNewName(e.target.value)}
-                className="w-full px-4 py-2.5 bg-white border-2 border-blue-900/30 rounded-xl text-sm font-bold text-[#0f2b59] placeholder:text-blue-900/40 caret-[#0f2b59] focus:text-[#0f2b59] focus:border-[#0f2b59] focus:ring-2 focus:ring-blue-900/20 outline-hidden shadow-xs"
+                className="w-full px-4 py-2.5 bg-white border-2 border-slate-200 rounded-xl text-sm font-bold text-slate-900 placeholder:text-slate-400 focus:border-[#320b86] focus:ring-2 focus:ring-[#320b86]/20 outline-hidden shadow-xs transition"
                 placeholder="e.g. Young Adults & Youth"
               />
             </div>
@@ -1624,13 +1596,13 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                   setEditingDeptOldName(null);
                   setEditingDeptNewName('');
                 }}
-                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold"
+                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-200 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="px-5 py-2 bg-blue-900 text-white rounded-xl text-xs font-bold hover:bg-blue-800 shadow-xs"
+                className="px-5 py-2.5 bg-[#320b86] hover:bg-[#250664] text-white rounded-xl text-xs font-bold shadow-md cursor-pointer"
               >
                 Save Changes
               </button>
@@ -1669,14 +1641,14 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
                   setShowDeleteDeptModal(false);
                   setDeletingDeptName(null);
                 }}
-                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold"
+                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-200 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleConfirmDeleteDept}
-                className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md"
+                className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md cursor-pointer"
               >
                 Confirm Delete
               </button>
@@ -1705,13 +1677,13 @@ export const GeneralSecretaryView: React.FC<GeneralSecretaryViewProps> = ({
             <div className="flex items-center justify-end gap-3 pt-2">
               <button
                 onClick={() => setShowArchiveConfirm(false)}
-                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold"
+                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-200 cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={handleArchiveAndTransition}
-                className="px-5 py-2.5 bg-blue-900 hover:bg-blue-800 text-white rounded-xl text-xs font-bold shadow-md"
+                className="px-5 py-2.5 bg-[#320b86] hover:bg-[#250664] text-white rounded-xl text-xs font-bold shadow-md cursor-pointer"
               >
                 Confirm Archive & Activate Next
               </button>

@@ -50,6 +50,105 @@ textarea::placeholder {
   scrollbar-width: none;
 }
 
+/* =====================================================================
+   JOBIE ADMIN PORTAL DESIGN SYSTEM
+   - Ultra-premium violet brand sidebar (#320b86 -> #28076e)
+   - Carved-out inverted-curve active tab notch
+   - Soft elevated cards (#ffffff on #f4f7fe)
+   - Sticky mobile bottom navigation bar
+   ===================================================================== */
+:root {
+  --jobie-canvas: #f4f7fe;
+  --jobie-sidebar-bg: #320b86;
+  --jobie-primary: #3b14a7;
+  --jobie-primary-dark: #28076e;
+  --jobie-accent: #4318ff;
+}
+
+.jobie-admin-canvas {
+  background-color: #f4f7fe;
+  color: #1e293b;
+  min-height: 100vh;
+}
+
+.jobie-sidebar {
+  background: linear-gradient(180deg, #320b86 0%, #28076e 100%);
+  color: #ffffff;
+}
+
+/* Inverted radius notch technique for desktop sidebar */
+.jobie-notch-item {
+  position: relative;
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.jobie-notch-item.active {
+  background-color: #f4f7fe;
+  color: #320b86;
+  font-weight: 800;
+  border-top-left-radius: 9999px;
+  border-bottom-left-radius: 9999px;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* Top concave inverted curve */
+.jobie-notch-item.active::before {
+  content: "";
+  position: absolute;
+  top: -20px;
+  right: 0;
+  width: 20px;
+  height: 20px;
+  background-color: transparent;
+  border-bottom-right-radius: 20px;
+  box-shadow: 6px 6px 0 6px #f4f7fe;
+  pointer-events: none;
+}
+
+/* Bottom concave inverted curve */
+.jobie-notch-item.active::after {
+  content: "";
+  position: absolute;
+  bottom: -20px;
+  right: 0;
+  width: 20px;
+  height: 20px;
+  background-color: transparent;
+  border-top-right-radius: 20px;
+  box-shadow: 6px -6px 0 6px #f4f7fe;
+  pointer-events: none;
+}
+
+/* Jobie elevated cards */
+.jobie-card {
+  background-color: #ffffff;
+  border-radius: 1.5rem;
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  box-shadow: 0px 18px 40px rgba(112, 144, 176, 0.08);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.jobie-card:hover {
+  box-shadow: 0px 22px 48px rgba(112, 144, 176, 0.12);
+}
+
+/* Sticky bottom mobile navigation */
+.jobie-mobile-bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-top: 1px solid rgba(226, 232, 240, 0.9);
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.06);
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+
 /* Workers Directorate — shared premium application shell */
 .workers-directorate-shell {
   --workers-navy: #071a3f;

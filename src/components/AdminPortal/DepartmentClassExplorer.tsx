@@ -16,7 +16,11 @@ import {
   PlusCircle,
   Trash2,
   Lock,
-  FileText
+  FileText,
+  ChevronLeft,
+  ChevronRight,
+  X,
+  Layers
 } from 'lucide-react';
 import {
   AdminProfile,
@@ -75,7 +79,6 @@ export const DepartmentClassExplorer: React.FC<DepartmentClassExplorerProps> = (
   initialClassId,
   onBackToOverview
 }) => {
-  const [selectedDepartment, setSelectedDepartment] = useState<string>('ALL');
   const [selectedClassId, setSelectedClassId] = useState<string>(
     initialClassId || allClasses[0]?.id || ''
   );
@@ -84,8 +87,9 @@ export const DepartmentClassExplorer: React.FC<DepartmentClassExplorerProps> = (
   );
   const [activeDashboardTab, setActiveDashboardTab] = useState<ClassDashboardTab>('REGISTRATION');
   const [selectedWeek, setSelectedWeek] = useState<number>(1);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [showMatrixInfo, setShowMatrixInfo] = useState(false);
+  const [isClassPickerOpen, setIsClassPickerOpen] = useState(false);
+  const [pickerSearchQuery, setPickerSearchQuery] = useState('');
+  const [pickerDeptFilter, setPickerDeptFilter] = useState('ALL');
 
   // Real class data states loaded directly from IndexedDB (One source of truth)
   const [classMembers, setClassMembers] = useState<Member[]>([]);
@@ -178,22 +182,6 @@ export const DepartmentClassExplorer: React.FC<DepartmentClassExplorerProps> = (
     };
   }, [selectedClassId, selectedQuarter]);
 
-  // Departments list (authorized departments from Sunday School Year)
-  const activeDepts = (sundaySchoolYear.departments && sundaySchoolYear.departments.length > 0)
-    ? sundaySchoolYear.departments
-    : ['Adult', 'Youth', 'Teenagers', 'Children'];
-  const departmentsList = ['ALL', ...Array.from(new Set(activeDepts))];
-
-  // Filtered classes by department and search
-  const filteredClasses = allClasses.filter(c => {
-    const q = (searchQuery || '').toLowerCase();
-    const matchesDept = selectedDepartment === 'ALL' || c.department === selectedDepartment;
-    const matchesSearch = (c.className || '').toLowerCase().includes(q) ||
-                          (c.department || '').toLowerCase().includes(q) ||
-                          (c.secretaryName || '').toLowerCase().includes(q);
-    return matchesDept && matchesSearch;
-  });
-
   // Admin Comment Submission
   const handleCreateComment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -259,191 +247,193 @@ export const DepartmentClassExplorer: React.FC<DepartmentClassExplorerProps> = (
   return (
     <div className="space-y-6">
       
-      {/* Full Access Authority Header Banner — CLASS INSPECTION */}
-      <div className="bg-gradient-to-r from-blue-950 via-slate-900 to-indigo-950 text-white rounded-3xl p-6 sm:p-8 shadow-xl border-2 border-amber-400/50 relative overflow-hidden space-y-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
-          <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-400/20 border border-amber-400/50 rounded-full text-xs font-black text-amber-300 uppercase tracking-wider">
-              <Lock className="w-3.5 h-3.5" />
+      {/* Streamlined Jobie Header — CLASS INSPECTION */}
+      <div className="bg-gradient-to-r from-[#290870] via-[#350e9e] to-[#4318ff] text-white rounded-3xl p-5 sm:p-6 shadow-[0px_16px_36px_rgba(50,11,134,0.16)] relative overflow-hidden">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
+          <div className="space-y-1.5">
+            <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/15 border border-white/20 rounded-full text-xs font-black text-amber-300 uppercase tracking-wider backdrop-blur-md">
+              <Lock className="w-3.5 h-3.5 text-amber-400" />
               <span>READ-ONLY INSPECTION MODE • {currentAdmin.title}</span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-black font-['Cinzel',serif] tracking-wide text-white">
+            <h1 className="text-xl sm:text-2xl font-black font-['Cinzel',serif] tracking-wide text-white">
               CLASS INSPECTION
             </h1>
-            <p className="text-xs sm:text-sm text-blue-100 max-w-3xl leading-relaxed">
-              Read-only inspection showing the actual records entered by class secretaries & teachers. Selecting any class instantly loads its live attendance, marks, visitors, and follow-up data.
-            </p>
           </div>
 
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-            {/* Quick Class Selector */}
-            <div className="bg-white/10 backdrop-blur-xs border border-amber-400/40 rounded-2xl p-2 flex items-center gap-2">
-              <span className="text-xs font-bold text-amber-300 pl-2">Select Class:</span>
+          {/* Streamlined Class Selector Control */}
+          <div className="flex flex-wrap items-center gap-2.5">
+            <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl p-1.5 flex items-center gap-2 shadow-sm">
+              <span className="text-xs font-bold text-purple-200 pl-2">Select Class:</span>
+              
+              {/* Prev button */}
+              <button
+                type="button"
+                onClick={() => {
+                  const idx = allClasses.findIndex(c => c.id === selectedClassId);
+                  if (idx > 0) setSelectedClassId(allClasses[idx - 1].id);
+                  else setSelectedClassId(allClasses[allClasses.length - 1]?.id || '');
+                }}
+                className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition cursor-pointer"
+                title="Previous Class"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+
               <select
                 value={selectedClassId}
                 onChange={(e) => setSelectedClassId(e.target.value)}
-                className="px-3 py-1.5 bg-slate-900 border border-amber-400/60 rounded-xl text-xs font-black text-amber-200 outline-none cursor-pointer focus:ring-2 focus:ring-amber-400 shadow-sm"
+                className="px-3 py-1.5 bg-[#250664] border border-white/30 rounded-xl text-xs font-black text-amber-300 outline-none cursor-pointer focus:ring-2 focus:ring-amber-400 shadow-sm"
               >
                 {allClasses.map(c => (
-                  <option key={c.id} value={c.id} className="bg-slate-900 text-white font-bold">
+                  <option key={c.id} value={c.id} className="bg-[#250664] text-white font-bold">
                     {c.className} ({c.department})
                   </option>
                 ))}
               </select>
+
+              {/* Next button */}
+              <button
+                type="button"
+                onClick={() => {
+                  const idx = allClasses.findIndex(c => c.id === selectedClassId);
+                  if (idx < allClasses.length - 1) setSelectedClassId(allClasses[idx + 1].id);
+                  else setSelectedClassId(allClasses[0]?.id || '');
+                }}
+                className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition cursor-pointer"
+                title="Next Class"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+
+              {/* Browse All Classes Button */}
+              <button
+                type="button"
+                onClick={() => setIsClassPickerOpen(true)}
+                className="px-2.5 py-1.5 bg-white/15 hover:bg-white/25 rounded-xl text-xs font-bold text-amber-300 transition flex items-center gap-1 cursor-pointer border border-white/20"
+                title="Open Class Directory Picker"
+              >
+                <Layers className="w-3.5 h-3.5 text-amber-400" />
+                <span className="hidden sm:inline">Browse</span>
+              </button>
             </div>
 
-            <button
-              onClick={() => setShowMatrixInfo(!showMatrixInfo)}
-              className="px-3.5 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl text-xs font-bold text-amber-300 transition flex items-center gap-1.5"
-            >
-              <Info className="w-3.5 h-3.5" />
-              <span>{showMatrixInfo ? 'Hide Matrix' : 'Policy'}</span>
-            </button>
             {onBackToOverview && (
               <button
+                type="button"
                 onClick={onBackToOverview}
-                className="px-3.5 py-2 bg-blue-900/80 hover:bg-blue-800 border border-blue-400/30 rounded-xl text-xs font-bold text-white transition flex items-center gap-1.5"
+                className="px-3 py-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl text-xs font-bold text-white transition flex items-center gap-1.5 cursor-pointer"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Executive Overview</span>
+                <span>Overview</span>
               </button>
             )}
           </div>
         </div>
 
-        {/* Expandable Explicit Permission Matrix Reference */}
-        {showMatrixInfo && (
-          <div className="mt-5 p-4 bg-slate-900/90 border border-amber-400/30 rounded-2xl text-xs space-y-3">
-            <div className="flex items-center justify-between border-b border-white/10 pb-2">
-              <span className="font-black text-amber-300 uppercase tracking-wide">
-                GOFAMINT_HOF Sunday School Administrative Oversight Policy:
-              </span>
-              <span className="text-[10px] text-slate-400">One Source of Truth</span>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-[11px] text-slate-300">
-              <div className="p-2.5 bg-white/5 rounded-xl border border-white/10">
-                <span className="font-bold text-emerald-300 block">General Superintendent & Secretary:</span>
-                <span>Full System Access → Every Department & Class → View all registers, provide comments, monitor quarters.</span>
+        {/* Class Picker Interactive Modal */}
+        {isClassPickerOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
+            <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl space-y-4 max-h-[85vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <School className="w-5 h-5 text-[#320b86]" />
+                  <h3 className="text-base font-black text-slate-900 font-['Cinzel',serif]">
+                    Select Sunday School Class to Inspect
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsClassPickerOpen(false)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-              <div className="p-2.5 bg-white/5 rounded-xl border border-white/10">
-                <span className="font-bold text-amber-300 block">Treasurer:</span>
-                <span>Financial Records Only → Real offering income totals and expenditure tracking.</span>
+
+              {/* Search and Dept Filter */}
+              <div className="space-y-3">
+                <div className="relative">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={pickerSearchQuery}
+                    onChange={(e) => setPickerSearchQuery(e.target.value)}
+                    placeholder="Search class or secretary..."
+                    className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white focus:outline-none focus:border-[#320b86] text-slate-800"
+                  />
+                </div>
+
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
+                  {['ALL', ...Array.from(new Set(allClasses.map(c => c.department || 'General')))].map((dept) => (
+                    <button
+                      key={dept}
+                      type="button"
+                      onClick={() => setPickerDeptFilter(dept)}
+                      className={`px-3 py-1 rounded-full text-xs font-bold transition whitespace-nowrap cursor-pointer ${
+                        pickerDeptFilter === dept
+                          ? 'bg-[#320b86] text-white shadow-xs'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      {dept}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div className="p-2.5 bg-white/5 rounded-xl border border-white/10">
-                <span className="font-bold text-blue-300 block">Record & Enrollment Officers:</span>
-                <span>Weekly returns collation & real student/visitor rosters.</span>
+
+              {/* Class Cards Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 overflow-y-auto pr-1 flex-1">
+                {allClasses
+                  .filter(c => {
+                    const matchDept = pickerDeptFilter === 'ALL' || c.department === pickerDeptFilter;
+                    const matchQ = !pickerSearchQuery.trim() || 
+                      c.className.toLowerCase().includes(pickerSearchQuery.toLowerCase()) ||
+                      String(c.secretaryName || '').toLowerCase().includes(pickerSearchQuery.toLowerCase());
+                    return matchDept && matchQ;
+                  })
+                  .map((cls) => {
+                    const isCurrent = cls.id === selectedClassId;
+                    return (
+                      <button
+                        key={cls.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedClassId(cls.id);
+                          setIsClassPickerOpen(false);
+                        }}
+                        className={`p-3.5 rounded-2xl border text-left transition flex items-center justify-between group cursor-pointer ${
+                          isCurrent
+                            ? 'border-[#320b86] bg-purple-50/70 shadow-xs'
+                            : 'border-slate-200 hover:border-[#320b86]/40 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="min-w-0 space-y-0.5">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-[#320b86] bg-purple-100/60 px-2 py-0.5 rounded-full inline-block">
+                            {cls.department}
+                          </span>
+                          <h4 className="text-sm font-black text-slate-900 truncate">
+                            {cls.className}
+                          </h4>
+                          <p className="text-[11px] text-slate-500 truncate">
+                            Sec: {cls.secretaryName || 'Unassigned'}
+                          </p>
+                        </div>
+                        {isCurrent ? (
+                          <span className="px-2 py-0.5 rounded-full bg-[#320b86] text-white text-[10px] font-black shrink-0">
+                            Active
+                          </span>
+                        ) : (
+                          <span className="text-xs font-bold text-[#320b86] opacity-0 group-hover:opacity-100 transition shrink-0">
+                            Inspect →
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
               </div>
             </div>
           </div>
         )}
-      </div>
-
-      {/* Department & Class Selector Panel */}
-      <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-xs space-y-4">
-        
-        {/* Step 1: Department Filter */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-              <Building2 className="w-3.5 h-3.5 text-blue-900" />
-              <span>1. Select Department:</span>
-            </span>
-            <span className="text-xs text-slate-500 font-bold">
-              {filteredClasses.length} class(es) available
-            </span>
-          </div>
-
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 max-w-full">
-            {departmentsList.map((dept) => {
-              const isSelected = selectedDepartment === dept;
-              return (
-                <button
-                  key={dept}
-                  onClick={() => setSelectedDepartment(dept)}
-                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition shrink-0 ${
-                    isSelected
-                      ? 'bg-blue-900 text-white font-black shadow-xs ring-2 ring-blue-900/30'
-                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                  }`}
-                >
-                  {dept === 'ALL' ? 'All Departments' : dept}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Step 2: Class Selection Grid */}
-        <div className="space-y-2 pt-2 border-t border-slate-100">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <span className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-              <School className="w-3.5 h-3.5 text-blue-900" />
-              <span>2. Choose Class to Enter & Inspect:</span>
-            </span>
-
-            <div className="relative max-w-xs w-full">
-              <Search className="w-3.5 h-3.5 text-blue-900 absolute left-3 top-2.5" />
-              <input
-                type="text"
-                placeholder="Search class or secretary..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 bg-white border-2 border-slate-300 rounded-xl text-xs font-bold text-blue-950 placeholder:text-slate-400 caret-blue-900 focus:text-blue-950 focus:border-blue-900 focus:ring-2 focus:ring-blue-900/20 outline-hidden shadow-xs"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-            {filteredClasses.map((cls) => {
-              const isSelected = selectedClassId === cls.id;
-              return (
-                <button
-                  key={cls.id}
-                  onClick={() => {
-                    setSelectedClassId(cls.id);
-                    setTimeout(() => {
-                      const el = document.getElementById('selected-class-inspector');
-                      if (el) {
-                        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                      }
-                    }, 50);
-                  }}
-                  className={`p-3.5 rounded-2xl text-left transition border flex flex-col justify-between gap-2 ${
-                    isSelected
-                      ? 'bg-blue-50/80 border-2 border-blue-900 shadow-xs ring-2 ring-blue-500/20'
-                      : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50'
-                  }`}
-                >
-                  <div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-blue-100 text-blue-950">
-                        {cls.department}
-                      </span>
-                      {isSelected ? (
-                        <span className="text-[10px] font-bold text-blue-900 flex items-center gap-0.5">
-                          <CheckCircle2 className="w-3 h-3 text-blue-900" /> Active Class
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-medium text-slate-400">Click to Open</span>
-                      )}
-                    </div>
-                    <h4 className="text-sm font-black text-slate-900 mt-1.5 line-clamp-1">{cls.className}</h4>
-                    <p className="text-[11px] text-slate-500 mt-0.5">Secretary: {cls.secretaryName}</p>
-                  </div>
-
-                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-500">
-                    <span>{cls.teachers?.length || 1} Teachers Assigned</span>
-                    <span className="font-bold text-blue-900 flex items-center gap-1 hover:underline">
-                      <span>Direct Entry</span>
-                      <span>→</span>
-                    </span>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
       </div>
 
       {/* Selected Class Active View & Permitted Dashboards */}
@@ -451,65 +441,72 @@ export const DepartmentClassExplorer: React.FC<DepartmentClassExplorerProps> = (
         <div id="selected-class-inspector" className="space-y-6 scroll-mt-6">
           
           {/* Active Class Header Card */}
-          <div className="bg-white rounded-3xl border-2 border-blue-900/30 p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs font-black uppercase px-2.5 py-0.5 rounded-full bg-blue-900 text-white">
-                  {selectedClass.department} Department
-                </span>
-                <span className="text-xs font-bold text-blue-800 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded flex items-center gap-1">
-                  <Lock className="w-3 h-3 text-blue-700" />
-                  <span>Admin Read-Only Oversight</span>
-                </span>
-                <span className="text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
-                  Inspecting Quarter {selectedQuarter}
-                </span>
+          <div className="jobie-card p-5 sm:p-6 space-y-3.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-black uppercase px-2.5 py-0.5 rounded-full bg-purple-100 text-[#320b86]">
+                    {selectedClass.department} Department
+                  </span>
+                  <span className="text-xs font-bold text-slate-700 bg-slate-100 border border-slate-200/80 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                    <Lock className="w-3 h-3 text-[#320b86]" />
+                    <span>Read-Only Oversight</span>
+                  </span>
+                  <span className="text-xs font-bold text-amber-900 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-full">
+                    Inspecting Quarter {selectedQuarter}
+                  </span>
+                </div>
+                <h2 className="text-xl sm:text-2xl font-black text-slate-900 font-['Cinzel',serif]">
+                  {selectedClass.className}
+                </h2>
               </div>
-              <h2 className="text-xl sm:text-2xl font-black text-slate-900 font-['Cinzel',serif]">
-                {selectedClass.className}
-              </h2>
-              <p className="text-xs text-slate-600">
-                Secretary: <strong>{selectedClass.secretaryName}</strong> ({selectedClass.secretaryPhone}) • Teachers: <strong>{selectedClass.teachers?.map(t => t.name).join(', ') || selectedClass.teacherInCharge || 'Assigned Teacher'}</strong>
-              </p>
+
+              {/* Quick Comment Button */}
+              <button
+                type="button"
+                onClick={() => setShowAddCommentModal(true)}
+                className="px-4 py-2 bg-gradient-to-r from-[#320b86] to-[#4318ff] hover:from-[#28076e] hover:to-[#3b14a7] text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-xs transition shrink-0 self-start sm:self-auto cursor-pointer"
+              >
+                <MessageCircle className="w-4 h-4 text-amber-300" />
+                <span>+ Add Directorate Note</span>
+              </button>
             </div>
 
-            {/* Quick Comment Button */}
-            <button
-              onClick={() => setShowAddCommentModal(true)}
-              className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-blue-950 rounded-xl text-xs font-black flex items-center gap-2 shadow-xs transition shrink-0"
-            >
-              <MessageCircle className="w-4 h-4" />
-              <span>+ Add Directorate Note</span>
-            </button>
+            <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+              <span>Secretary: <strong className="text-slate-800 font-bold">{selectedClass.secretaryName || 'Unassigned'}</strong> {selectedClass.secretaryPhone ? `(${selectedClass.secretaryPhone})` : ''}</span>
+              <span className="hidden sm:inline text-slate-300">•</span>
+              <span>Teachers: <strong className="text-slate-800 font-bold">{selectedClass.teachers?.map(t => t.name).join(', ') || selectedClass.teacherInCharge || 'None assigned'}</strong></span>
+            </div>
           </div>
 
           {/* Quarter Selection for Inspection */}
-          <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="jobie-card p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-blue-900" />
+              <Calendar className="w-4 h-4 text-[#320b86]" />
               <span className="text-xs font-black uppercase tracking-wider text-slate-700">
                 Select Quarter to Inspect:
               </span>
             </div>
 
-            <div className="flex items-center gap-2 overflow-x-auto pb-1 max-w-full">
+            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1 max-w-full">
               {([1, 2, 3, 4] as QuarterNumber[]).map((qNum) => {
                 const isSelected = selectedQuarter === qNum;
                 const isActiveYearQ = sundaySchoolYear.activeQuarterNumber === qNum;
                 return (
                   <button
                     key={qNum}
+                    type="button"
                     onClick={() => setSelectedQuarter(qNum)}
-                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shrink-0 ${
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shrink-0 cursor-pointer ${
                       isSelected
-                        ? 'bg-blue-900 text-white font-black shadow-xs ring-2 ring-blue-900/30'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                        ? 'bg-[#320b86] text-white font-black shadow-xs ring-2 ring-[#320b86]/20'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                     }`}
                   >
                     <span>Quarter {qNum}</span>
                     {isActiveYearQ && (
-                      <span className={`text-[9px] px-1.5 py-0.2 rounded font-black ${
-                        isSelected ? 'bg-amber-400 text-blue-950' : 'bg-emerald-100 text-emerald-800'
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded font-black ${
+                        isSelected ? 'bg-amber-400 text-slate-950' : 'bg-emerald-100 text-emerald-800'
                       }`}>
                         Current Active
                       </span>
@@ -521,71 +518,76 @@ export const DepartmentClassExplorer: React.FC<DepartmentClassExplorerProps> = (
           </div>
 
           {/* Navigation for Class Dashboards */}
-          <div className="flex items-center gap-2 border-b border-slate-200 pb-2 overflow-x-auto">
+          <div className="flex items-center gap-2 border-b border-slate-200 pb-2 overflow-x-auto no-scrollbar -mx-1 px-1">
             <button
+              type="button"
               onClick={() => setActiveDashboardTab('REGISTRATION')}
-              className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 shrink-0 ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 shrink-0 cursor-pointer ${
                 activeDashboardTab === 'REGISTRATION'
-                  ? 'bg-blue-900 text-white shadow-xs'
-                  : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                  ? 'bg-[#320b86] text-white shadow-xs font-black'
+                  : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200/80'
               }`}
             >
-              <Users className="w-4 h-4" />
+              <Users className="w-4 h-4 shrink-0" />
               <span>1. Class Roster ({classMembers.length})</span>
             </button>
 
             <button
+              type="button"
               onClick={() => setActiveDashboardTab('DATA_12_WEEK')}
-              className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 shrink-0 ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 shrink-0 cursor-pointer ${
                 activeDashboardTab === 'DATA_12_WEEK'
-                  ? 'bg-blue-900 text-white shadow-xs'
-                  : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                  ? 'bg-[#320b86] text-white shadow-xs font-black'
+                  : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200/80'
               }`}
             >
-              <Calendar className="w-4 h-4" />
+              <Calendar className="w-4 h-4 shrink-0" />
               <span>2. Grading Matrix (Wk {selectedWeek})</span>
             </button>
 
             <button
+              type="button"
               onClick={() => setActiveDashboardTab('CARE_DASHBOARD')}
-              className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 shrink-0 ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 shrink-0 cursor-pointer ${
                 activeDashboardTab === 'CARE_DASHBOARD'
-                  ? 'bg-blue-900 text-white shadow-xs'
-                  : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                  ? 'bg-[#320b86] text-white shadow-xs font-black'
+                  : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200/80'
               }`}
             >
-              <HeartHandshake className="w-4 h-4" />
+              <HeartHandshake className="w-4 h-4 shrink-0" />
               <span>3. Welfare & Follow-Up</span>
             </button>
 
             <button
+              type="button"
               onClick={() => setActiveDashboardTab('WEEKLY_ANALYTICS')}
-              className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 shrink-0 ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 shrink-0 cursor-pointer ${
                 activeDashboardTab === 'WEEKLY_ANALYTICS'
-                  ? 'bg-blue-900 text-white shadow-xs'
-                  : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                  ? 'bg-[#320b86] text-white shadow-xs font-black'
+                  : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200/80'
               }`}
             >
-              <TrendingUp className="w-4 h-4" />
+              <TrendingUp className="w-4 h-4 shrink-0" />
               <span>4. Quarter Analysis & Returns</span>
             </button>
 
             <button
+              type="button"
               onClick={() => setActiveDashboardTab('ADMIN_COMMENTS')}
-              className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 shrink-0 ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 shrink-0 cursor-pointer ${
                 activeDashboardTab === 'ADMIN_COMMENTS'
-                  ? 'bg-blue-900 text-white shadow-xs'
-                  : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                  ? 'bg-[#320b86] text-white shadow-xs font-black'
+                  : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200/80'
               }`}
             >
-              <MessageCircle className="w-4 h-4" />
+              <MessageCircle className="w-4 h-4 shrink-0" />
               <span>5. Discussion & Notes ({classComments.length})</span>
             </button>
           </div>
 
           {/* Read-Only Notice */}
-          <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 font-semibold flex items-center gap-2">
-            <Lock className="w-4 h-4 text-blue-700 shrink-0" />
+          <div className="p-3.5 bg-purple-50/80 border border-purple-200/60 rounded-2xl text-xs text-purple-950 font-medium flex items-center gap-2">
+            <Lock className="w-4 h-4 text-[#320b86] shrink-0" />
             <span>
               <strong>Administrative Oversight Mode:</strong> You are inspecting live records for <strong>{selectedClass.className}</strong> in <strong>Quarter {selectedQuarter}</strong>. All entries are maintained by the Class Secretary & Teachers. Use the Discussion tab to send directives.
             </span>

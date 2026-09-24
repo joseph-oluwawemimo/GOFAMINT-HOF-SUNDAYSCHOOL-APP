@@ -48,12 +48,16 @@ interface RecordOfficerViewProps {
   currentAdmin: AdminProfile;
   allClasses?: ClassProfile[];
   sundaySchoolYear?: SundaySchoolYear;
+  activeTab?: 'WEEKLY_COLLATION' | 'WEEKLY_ONBOARDED' | 'QUARTER_ANALYSIS' | 'DEPARTED_MEMBERS';
+  onTabChange?: (tab: 'WEEKLY_COLLATION' | 'WEEKLY_ONBOARDED' | 'QUARTER_ANALYSIS' | 'DEPARTED_MEMBERS') => void;
 }
 
 export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
   currentAdmin,
   allClasses = [],
-  sundaySchoolYear
+  sundaySchoolYear,
+  activeTab: controlledTab,
+  onTabChange
 }) => {
   const safeYear = sundaySchoolYear || {
     id: 'DEFAULT',
@@ -70,7 +74,9 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
   const [selectedWeek, setSelectedWeek] = useState<number>(1);
   const [selectedDepartment, setSelectedDepartment] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<'WEEKLY_COLLATION' | 'QUARTER_ANALYSIS' | 'DEPARTED_MEMBERS'>('WEEKLY_COLLATION');
+  const [internalTab, setInternalTab] = useState<'WEEKLY_COLLATION' | 'WEEKLY_ONBOARDED' | 'QUARTER_ANALYSIS' | 'DEPARTED_MEMBERS'>('WEEKLY_COLLATION');
+  const activeTab = controlledTab || internalTab;
+  const setActiveTab = onTabChange || setInternalTab;
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [collationData, setCollationData] = useState<RecordOfficerWeeklyCollation | null>(null);
   const [allQuarterCollations, setAllQuarterCollations] = useState<RecordOfficerWeeklyCollation[]>([]);
@@ -498,32 +504,36 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
     <div className="space-y-6">
       
       {/* Header Banner */}
-      <div className="bg-gradient-to-r from-blue-950 via-slate-900 to-indigo-950 text-white rounded-3xl p-6 sm:p-8 shadow-xl border-2 border-indigo-400/40 relative overflow-hidden">
+      <div className="bg-gradient-to-r from-[#20055b] via-[#320b86] to-[#4c1d95] text-white rounded-3xl p-6 sm:p-8 shadow-2xl border border-white/10 relative overflow-hidden">
+        {/* Ambient Glow Orbs */}
+        <div className="absolute top-0 right-0 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-10 -left-10 w-80 h-80 bg-amber-400/10 rounded-full blur-3xl pointer-events-none" />
+
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
           <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 px-3 py-1 bg-indigo-400/20 border border-indigo-400/50 rounded-full text-xs font-black text-indigo-300 uppercase tracking-wider">
-              <ClipboardList className="w-3.5 h-3.5" />
-              <span>Record Officer Directorate • Real Class Register Collation</span>
+            <div className="inline-flex items-center gap-2 px-3 py-1 bg-white/10 backdrop-blur-md border border-white/15 rounded-full text-[11px] font-black text-amber-300 uppercase tracking-widest font-['Cinzel',serif]">
+              <ClipboardList className="w-3.5 h-3.5 text-amber-300" />
+              <span>RECORD DIRECTORATE • REAL CLASS REGISTER COLLATION</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-black font-['Cinzel',serif] tracking-wide text-white">
-              Weekly Sunday Bible School Record & Collation
+              Sunday Bible School Records & Collation
             </h1>
-            <p className="text-xs sm:text-sm text-indigo-100 max-w-2xl leading-relaxed">
-              Officer in Charge: <strong>{currentAdmin.profileName}</strong> ({currentAdmin.username}) • Collecting weekly returns live from every Class Register, ensuring unified mathematical consistency and accurate attendance collation.
+            <p className="text-xs sm:text-sm text-purple-200/90 max-w-2xl leading-relaxed">
+              Officer in Charge: <strong className="text-white font-bold">{currentAdmin.profileName}</strong> ({currentAdmin.username}) • Collecting weekly returns live from every Class Register, ensuring unified mathematical consistency and accurate attendance collation.
             </p>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-3 shrink-0 flex-wrap">
             <button
               onClick={() => setShowPrintModal(true)}
-              className="px-4 py-2.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl text-xs font-bold text-amber-300 transition flex items-center gap-1.5 cursor-pointer"
+              className="px-4 py-2.5 bg-amber-400 hover:bg-amber-300 text-[#20055b] font-black rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-amber-400/20 transition cursor-pointer"
             >
               <Printer className="w-4 h-4" />
-              <span>Print Collation Sheet</span>
+              <span>Print Collation</span>
             </button>
             <button
               onClick={handleExportCSV}
-              className="px-4 py-2.5 bg-blue-700 hover:bg-blue-600 rounded-xl text-xs font-bold text-white transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-emerald-600/20 transition cursor-pointer"
             >
               <Download className="w-4 h-4" />
               <span>Export CSV</span>
@@ -532,184 +542,175 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
         </div>
       </div>
 
-      {/* View Mode Navigation Tabs */}
-      <div className="flex flex-wrap items-center gap-2 bg-slate-200/80 p-1.5 rounded-2xl w-fit border border-slate-300 shadow-inner">
-        <button
-          onClick={() => setActiveTab('WEEKLY_COLLATION')}
-          className={`flex items-center gap-2 px-4 sm:px-5 py-2.5 rounded-xl text-xs font-black transition cursor-pointer ${
-            activeTab === 'WEEKLY_COLLATION'
-              ? 'bg-indigo-950 text-amber-300 shadow-md ring-1 ring-indigo-800'
-              : 'text-slate-700 hover:text-slate-950 hover:bg-slate-100'
-          }`}
-        >
-          <FileSpreadsheet className="w-4 h-4" />
-          <span>Weekly Class Collation</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('QUARTER_ANALYSIS')}
-          className={`flex items-center gap-2 px-4 sm:px-5 py-2.5 rounded-xl text-xs font-black transition cursor-pointer ${
-            activeTab === 'QUARTER_ANALYSIS'
-              ? 'bg-indigo-950 text-amber-300 shadow-md ring-1 ring-indigo-800'
-              : 'text-slate-700 hover:text-slate-950 hover:bg-slate-100'
-          }`}
-        >
-          <BarChart3 className="w-4 h-4" />
-          <span>Quarter Analysis (Q{selectedQuarter})</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('DEPARTED_MEMBERS')}
-          className={`flex items-center gap-2 px-4 sm:px-5 py-2.5 rounded-xl text-xs font-black transition cursor-pointer ${
-            activeTab === 'DEPARTED_MEMBERS'
-              ? 'bg-indigo-950 text-amber-300 shadow-md ring-1 ring-indigo-800'
-              : 'text-slate-700 hover:text-slate-950 hover:bg-slate-100'
-          }`}
-        >
-          <UserX className="w-4 h-4" />
-          <span>Departed Members</span>
-          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-700">
-            {allMembersList.filter(member => member.status === 'LEFT_CLASS' || member.exitReviewOutcome === 'PERMANENT_EXIT').length}
-          </span>
-        </button>
-      </div>
-
-      {activeTab === 'WEEKLY_COLLATION' ? (
-        <>
-          {/* Control Bar: Quarter, Week, Department, and Search Selectors */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-4">
-        
-        {/* Quarter & Lesson Details Bar */}
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-4">
+      {/* Control Bar: Quarter, Week, Department, and Search Selectors (Available in Collation and Onboarded views) */}
+      {(activeTab === 'WEEKLY_COLLATION' || activeTab === 'WEEKLY_ONBOARDED') && (
+        <div className="bg-white rounded-2xl border border-slate-100/80 p-5 shadow-[0_4px_20px_rgba(0,0,0,0.03)] space-y-4">
           
-          {/* Quarter Selector */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Quarter:</span>
-            <div className="flex items-center gap-1.5">
-              {[1, 2, 3, 4].map(qNum => (
+          {/* Quarter & Lesson Details Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 pb-4">
+            
+            {/* Quarter Selector */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Quarter:</span>
+              <div className="flex items-center gap-1.5">
+                {[1, 2, 3, 4].map(qNum => (
+                  <button
+                    key={qNum}
+                    onClick={() => setSelectedQuarter(qNum)}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition cursor-pointer ${
+                      selectedQuarter === qNum
+                        ? 'bg-[#320b86] text-white shadow-sm'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    Quarter {qNum} {safeYear.activeQuarterNumber === qNum && '★'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Current Lesson Summary */}
+            {currentLesson && (
+              <div className="text-right">
+                <span className="text-[10px] font-black uppercase text-[#320b86] block">
+                  Week {selectedWeek} Lesson Theme:
+                </span>
+                <span className="text-xs font-bold text-slate-800">
+                  {currentLesson.topic} ({currentLesson.date})
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Week Selector Chips */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-[#320b86]" />
+                <span>Select Week ({totalWeeks} Weeks in Quarter {selectedQuarter}):</span>
+              </span>
+              <span className="text-xs font-black text-[#320b86]">Active: Week {selectedWeek}</span>
+            </div>
+
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+              {Array.from({ length: totalWeeks }, (_, i) => i + 1).map(w => (
                 <button
-                  key={qNum}
-                  onClick={() => setSelectedQuarter(qNum)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer ${
-                    selectedQuarter === qNum
-                      ? 'bg-indigo-900 text-amber-300 shadow-xs'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  key={w}
+                  onClick={() => setSelectedWeek(w)}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-black transition shrink-0 cursor-pointer ${
+                    selectedWeek === w
+                      ? 'bg-[#320b86] text-white shadow-md shadow-[#320b86]/25'
+                      : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200/80'
                   }`}
                 >
-                  Quarter {qNum} {sundaySchoolYear.activeQuarterNumber === qNum && '★'}
+                  Week {w}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Current Lesson Summary */}
-          {currentLesson && (
-            <div className="text-right">
-              <span className="text-[10px] font-black uppercase text-indigo-700 block">
-                Week {selectedWeek} Lesson Theme:
-              </span>
-              <span className="text-xs font-bold text-slate-800">
-                {currentLesson.topic} ({currentLesson.date})
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* Week Selector Chips */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-              <Calendar className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Select Week ({totalWeeks} Weeks in Quarter {selectedQuarter}):</span>
-            </span>
-            <span className="text-xs font-black text-indigo-950">Active Week: Week {selectedWeek}</span>
-          </div>
-
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-            {Array.from({ length: totalWeeks }, (_, i) => i + 1).map(w => (
-              <button
-                key={w}
-                onClick={() => setSelectedWeek(w)}
-                className={`px-3.5 py-2 rounded-xl text-xs font-black transition shrink-0 cursor-pointer ${
-                  selectedWeek === w
-                    ? 'bg-blue-900 text-white shadow-md ring-2 ring-blue-900/30'
-                    : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200'
-                }`}
+          {/* Department Filter & Search Input */}
+          <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-2 border-t border-slate-100">
+            <div className="sm:col-span-5 flex items-center gap-2">
+              <Filter className="w-4 h-4 text-slate-400 shrink-0" />
+              <select
+                value={selectedDepartment}
+                onChange={(e) => setSelectedDepartment(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-[#320b86]/20 focus:border-[#320b86] outline-hidden cursor-pointer"
               >
-                Week {w}
-              </button>
-            ))}
+                {departmentsList.map(dept => (
+                  <option key={dept} value={dept}>
+                    {dept === 'ALL' ? 'All Departments' : `Department: ${dept}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="sm:col-span-7 relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search by class name, teacher, or department..."
+                className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200/80 rounded-xl text-xs text-slate-800 focus:ring-2 focus:ring-[#320b86]/20 focus:border-[#320b86] outline-hidden font-medium placeholder:text-slate-400"
+              />
+            </div>
           </div>
         </div>
+      )}
 
-        {/* Department Filter & Search Input */}
-        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 pt-2 border-t border-slate-100">
-          <div className="sm:col-span-5 flex items-center gap-2">
-            <Filter className="w-4 h-4 text-slate-400 shrink-0" />
-            <select
-              value={selectedDepartment}
-              onChange={(e) => setSelectedDepartment(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 outline-hidden cursor-pointer"
-            >
-              {departmentsList.map(dept => (
-                <option key={dept} value={dept}>
-                  {dept === 'ALL' ? 'All Departments' : `Department: ${dept}`}
-                </option>
-              ))}
-            </select>
+      {/* View Mode: WEEKLY_COLLATION */}
+      {activeTab === 'WEEKLY_COLLATION' ? (
+        <>
+          {/* Primary KPI Highlights Card */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div className="bg-white p-4 rounded-2xl border border-slate-100/80 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Student Present</span>
+                <div className="w-7 h-7 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600">
+                  <Users className="w-3.5 h-3.5" />
+                </div>
+              </div>
+              <h3 className="text-xl sm:text-2xl font-black text-slate-900 mt-2">{filteredStudentPresent}</h3>
+              <p className="text-[11px] text-slate-500 mt-0.5">Enrolled Learners</p>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-slate-100/80 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Visitor Present</span>
+                <div className="w-7 h-7 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
+                  <UserCheck className="w-3.5 h-3.5" />
+                </div>
+              </div>
+              <h3 className="text-xl sm:text-2xl font-black text-indigo-700 mt-2">{filteredCurrentVisitorPresent}</h3>
+              <p className="text-[11px] text-indigo-500 mt-0.5">Existing Visitors</p>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-slate-100/80 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">New Visitors</span>
+                <div className="w-7 h-7 rounded-lg bg-purple-50 flex items-center justify-center text-[#320b86]">
+                  <UserPlus className="w-3.5 h-3.5" />
+                </div>
+              </div>
+              <h3 className="text-xl sm:text-2xl font-black text-[#320b86] mt-2">{filteredNewVisitors}</h3>
+              <p className="text-[11px] text-purple-500 mt-0.5">First-Time Visitors</p>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-slate-100/80 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Absent</span>
+                <div className="w-7 h-7 rounded-lg bg-rose-50 flex items-center justify-center text-rose-600">
+                  <UserX className="w-3.5 h-3.5" />
+                </div>
+              </div>
+              <h3 className="text-xl sm:text-2xl font-black text-rose-700 mt-2">{filteredClassMembersAbsent}</h3>
+              <p className="text-[11px] text-rose-500 mt-0.5">Existing Absentees</p>
+            </div>
+
+            <div className="bg-gradient-to-br from-[#20055b] to-[#320b86] text-white p-4 rounded-2xl shadow-md">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black text-purple-200 uppercase tracking-wider block">Total Present</span>
+                <div className="w-7 h-7 rounded-lg bg-white/15 flex items-center justify-center text-amber-300">
+                  <Sparkles className="w-3.5 h-3.5" />
+                </div>
+              </div>
+              <h3 className="text-xl sm:text-2xl font-black text-amber-300 mt-2">{filteredTotalPresent}</h3>
+              <p className="text-[11px] text-purple-200 mt-0.5">Std + Vis + New</p>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl border border-emerald-100 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black text-emerald-700 uppercase tracking-wider block">Total Offering</span>
+                <div className="w-7 h-7 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600">
+                  <Coins className="w-3.5 h-3.5" />
+                </div>
+              </div>
+              <h3 className="text-xl sm:text-2xl font-black text-emerald-700 mt-2">₦{filteredOffering.toLocaleString()}</h3>
+              <p className="text-[11px] text-emerald-600 mt-0.5">Week {selectedWeek} Offering</p>
+            </div>
           </div>
-
-          <div className="sm:col-span-7 relative">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by class name, teacher, or department..."
-              className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:ring-2 focus:ring-indigo-500 outline-hidden font-medium placeholder:text-slate-400"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Primary KPI Highlights Card */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Student Present</span>
-          <h3 className="text-xl sm:text-2xl font-black text-slate-900 mt-1">{filteredStudentPresent}</h3>
-          <p className="text-[11px] text-slate-500 mt-0.5">Enrolled Learners</p>
-        </div>
-
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Current Visitor Present</span>
-          <h3 className="text-xl sm:text-2xl font-black text-indigo-700 mt-1">{filteredCurrentVisitorPresent}</h3>
-          <p className="text-[11px] text-indigo-500 mt-0.5">Existing Visitors</p>
-        </div>
-
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">New Visitors</span>
-          <h3 className="text-xl sm:text-2xl font-black text-purple-700 mt-1">{filteredNewVisitors}</h3>
-          <p className="text-[11px] text-purple-500 mt-0.5">First-Time Visitors</p>
-        </div>
-
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Class Members Absent</span>
-          <h3 className="text-xl sm:text-2xl font-black text-rose-700 mt-1">{filteredClassMembersAbsent}</h3>
-          <p className="text-[11px] text-rose-500 mt-0.5">Existing Absentees</p>
-        </div>
-
-        <div className="bg-indigo-900 text-white p-4 rounded-2xl border border-indigo-800 shadow-xs">
-          <span className="text-[10px] font-bold text-indigo-200 uppercase tracking-wider block">Total Present</span>
-          <h3 className="text-xl sm:text-2xl font-black text-amber-300 mt-1">{filteredTotalPresent}</h3>
-          <p className="text-[11px] text-indigo-200 mt-0.5">Formula: Std + Vis + New</p>
-        </div>
-
-        <div className="bg-emerald-900 text-white p-4 rounded-2xl border border-emerald-800 shadow-xs">
-          <span className="text-[10px] font-bold text-emerald-200 uppercase tracking-wider block">Total Offering</span>
-          <h3 className="text-xl sm:text-2xl font-black text-emerald-200 mt-1">₦{filteredOffering.toLocaleString()}</h3>
-          <p className="text-[11px] text-emerald-300 mt-0.5">Week {selectedWeek} Offering</p>
-        </div>
-      </div>
 
       {/* Main Weekly Collation Table */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -1017,6 +1018,78 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
         )}
       </div>
         </>
+      ) : activeTab === 'WEEKLY_ONBOARDED' ? (
+        /* PHASE 42: DEDICATED ONBOARDED ATTENDEE VIEW */
+        <div className="bg-white rounded-2xl p-6 border border-slate-100/80 shadow-[0_4px_20px_rgba(0,0,0,0.03)] space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+            <div className="space-y-1">
+              <span className="text-[10px] font-black uppercase text-[#320b86] tracking-wider block">
+                Directorate Census & Welcoming Pipeline
+              </span>
+              <h2 className="text-xl font-black text-slate-900 font-['Cinzel',serif] flex items-center gap-2">
+                <UserPlus className="w-5 h-5 text-[#320b86]" />
+                <span>Week {selectedWeek} Newly Onboarded Attendees</span>
+              </h2>
+              <p className="text-xs text-slate-500">
+                Detailed census of first-time visitors and converted attendees onboarded during Week {selectedWeek} (Quarter {selectedQuarter}).
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-[#320b86] bg-purple-50 px-3 py-1.5 rounded-xl border border-purple-100">
+                {weeklyOnboardedAttendees.length} Onboarded Attendee{weeklyOnboardedAttendees.length !== 1 ? 's' : ''}
+              </span>
+            </div>
+          </div>
+
+          {weeklyOnboardedAttendees.length === 0 ? (
+            <div className="p-12 text-center text-slate-400 text-xs space-y-2">
+              <UserPlus className="w-8 h-8 text-slate-300 mx-auto" />
+              <p className="font-bold text-slate-600">No attendees were onboarded in Week {selectedWeek} for the selected filter.</p>
+              <p className="text-slate-400">First-time visitors and newly converted members appear here once recorded in Class Registers.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="bg-[#20055b] text-white text-[10px] font-black uppercase tracking-wider">
+                  <tr>
+                    <th className="p-3 pl-4">Name</th>
+                    <th className="p-3">Department</th>
+                    <th className="p-3">Class</th>
+                    <th className="p-3">Phone Number</th>
+                    <th className="p-3">Onboarding Date</th>
+                    <th className="p-3 text-center">Status</th>
+                    <th className="p-3 text-center pr-4">Week</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {weeklyOnboardedAttendees.map((m) => (
+                    <tr key={m.id} className="hover:bg-slate-50 transition">
+                      <td className="p-3 pl-4 font-black text-slate-900">{m.fullName}</td>
+                      <td className="p-3 text-slate-600">{m.department || 'General'}</td>
+                      <td className="p-3 font-bold text-[#320b86]">{m.className || 'General Class'}</td>
+                      <td className="p-3 font-mono text-slate-600">{m.phone || '—'}</td>
+                      <td className="p-3 text-slate-500 text-[11px]">
+                        {m.createdAt ? new Date(m.createdAt).toLocaleDateString() : `Week ${selectedWeek}`}
+                      </td>
+                      <td className="p-3 text-center">
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                          m.memberType === 'STUDENT'
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                            : 'bg-purple-100 text-purple-800 border border-purple-300'
+                        }`}>
+                          {m.memberType === 'STUDENT' ? 'Enrolled' : 'Onboarded'}
+                        </span>
+                      </td>
+                      <td className="p-3 text-center font-bold pr-4">
+                        Week {selectedWeek}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       ) : activeTab === 'QUARTER_ANALYSIS' ? (
         /* QUARTER ANALYSIS TAB */
         <div className="space-y-6">
@@ -1366,24 +1439,24 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
 
       {/* Class Register Inspection Modal */}
       {inspectedClassRow && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-3xl rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-3xl rounded-3xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col max-h-[90vh]">
             
             {/* Modal Header */}
-            <div className="p-5 bg-slate-900 text-white flex items-center justify-between">
+            <div className="p-5 bg-gradient-to-r from-[#20055b] to-[#320b86] text-white flex items-center justify-between">
               <div className="space-y-1">
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-indigo-500/20 text-indigo-300 rounded-md text-[10px] font-black uppercase">
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-white/10 text-amber-300 rounded-md text-[10px] font-black uppercase">
                   <span>Class Register Audit</span>
                 </div>
                 <h3 className="text-lg font-black text-white">{inspectedClassRow.className}</h3>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-purple-200">
                   {inspectedClassRow.department} • Teachers: {inspectedClassRow.teachersInCharge} • Week {selectedWeek}, Quarter {selectedQuarter}
                 </p>
               </div>
 
               <button
                 onClick={() => setInspectedClassRow(null)}
-                className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+                className="p-2 rounded-xl text-purple-200 hover:text-white hover:bg-white/10 transition cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1486,10 +1559,10 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
             </div>
 
             {/* Modal Footer */}
-            <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end">
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
               <button
                 onClick={() => setInspectedClassRow(null)}
-                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold text-xs cursor-pointer"
+                className="px-5 py-2.5 bg-[#320b86] hover:bg-[#28076e] text-white rounded-xl font-bold text-xs transition cursor-pointer shadow-sm"
               >
                 Close Audit
               </button>
@@ -1500,23 +1573,23 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
 
       {/* Print View Modal */}
       {showPrintModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col max-h-[90vh]">
             
             {/* Modal Top Bar */}
-            <div className="p-4 bg-slate-900 text-white flex items-center justify-between print:hidden">
+            <div className="p-4 bg-gradient-to-r from-[#20055b] to-[#320b86] text-white flex items-center justify-between print:hidden">
               <span className="text-xs font-bold text-amber-300">Sunday School Collation Print Preview</span>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => window.print()}
-                  className="px-3.5 py-1.5 bg-amber-400 text-slate-950 font-black rounded-lg text-xs flex items-center gap-1 cursor-pointer"
+                  className="px-3.5 py-1.5 bg-amber-400 hover:bg-amber-300 text-[#20055b] font-black rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-sm transition"
                 >
                   <Printer className="w-3.5 h-3.5" />
                   <span>Print Document</span>
                 </button>
                 <button
                   onClick={() => setShowPrintModal(false)}
-                  className="p-1.5 text-slate-400 hover:text-white rounded-lg cursor-pointer"
+                  className="p-1.5 text-purple-200 hover:text-white hover:bg-white/10 rounded-xl transition cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
