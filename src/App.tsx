@@ -1789,7 +1789,7 @@ export default function App() {
   const currencySymbol = classProfile?.currencySymbol || '₦';
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
+    <div className="min-h-screen bg-[#f4f7fb] text-slate-800 flex flex-col pb-[calc(4.75rem+env(safe-area-inset-bottom))] font-sans selection:bg-blue-600 selection:text-white sm:pb-0">
       {isProfileLocked && (
         <LockScreen
           userEmail={cloudUser.email || ''}
@@ -1854,7 +1854,7 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
+      <main className="flex-1 max-w-[1440px] w-full mx-auto px-3 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
         {activeTab === 'GRADING_MATRIX' && (
           <GradingMatrixView
             selectedWeek={selectedWeek}
@@ -1957,26 +1957,27 @@ export default function App() {
 
         {/* SUNDAY SCHOOL REPORT CARD (Phases 16 & 17) */}
         {activeTab === 'REPORT_CARD' && (
-          <div className="space-y-6 animate-fade-in max-w-5xl mx-auto">
-            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <span className="text-[10px] font-black uppercase tracking-wider text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-200">
-                  Official Record
+          <div className="space-y-4 sm:space-y-5 animate-fade-in max-w-5xl mx-auto">
+            <section aria-labelledby="report-card-heading" className="bg-gradient-to-br from-[#071b3d] via-[#173a77] to-[#3b1d59] rounded-2xl border border-blue-700/50 p-4 sm:p-6 shadow-xl shadow-blue-950/10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="min-w-0">
+                <span className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-950 bg-amber-400 px-2.5 py-1 rounded-lg">
+                  Progress
                 </span>
-                <h2 className="text-xl font-black text-slate-900 mt-1 font-['Cinzel',serif]">
-                  Sunday School Report Card
+                <h2 id="report-card-heading" className="text-xl sm:text-3xl font-black text-white mt-2 tracking-tight">
+                  Sunday School report card
                 </h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Authoritative weekly scorecard synchronized with official curriculum lessons.
+                <p className="text-xs sm:text-sm text-blue-100/80 mt-1">
+                  View attendance and scores for any class member.
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-slate-600">Select Member:</span>
+              <label className="w-full sm:w-auto min-w-0">
+                <span className="block text-[10px] font-black uppercase tracking-wider text-blue-100/70 mb-1.5">Member</span>
                 <select
                   value={selectedReportMemberId || members[0]?.id || ''}
                   onChange={(e) => setSelectedReportMemberId(e.target.value)}
-                  className="px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 outline-none focus:border-indigo-600 cursor-pointer shadow-xs"
+                  aria-label="Select report card member"
+                  className="w-full sm:w-64 min-h-[44px] px-3 py-2 bg-white border border-white/30 rounded-xl text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-amber-300 cursor-pointer shadow-sm"
                 >
                   {members.map(m => (
                     <option key={m.id} value={m.id}>
@@ -1984,8 +1985,8 @@ export default function App() {
                     </option>
                   ))}
                 </select>
-              </div>
-            </div>
+              </label>
+            </section>
 
             {members.length === 0 ? (
               <div className="bg-white p-12 rounded-2xl border border-slate-200 text-center text-slate-500">

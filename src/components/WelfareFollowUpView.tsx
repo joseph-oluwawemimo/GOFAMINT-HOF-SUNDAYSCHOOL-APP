@@ -223,55 +223,55 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
   };
 
   return (
-    <div className="space-y-6 animate-fade-in max-w-7xl mx-auto">
+    <div className="space-y-4 sm:space-y-5 animate-fade-in max-w-7xl mx-auto">
       
       {/* Top Banner */}
-      <div className="bg-white border border-slate-200 border-l-4 border-l-amber-500 rounded-lg p-5 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div>
+      <section aria-labelledby="welfare-heading" className="bg-gradient-to-br from-[#201005] via-[#6d2f0b] to-[#171b3d] border border-amber-600/40 rounded-2xl p-4 sm:p-6 shadow-xl shadow-amber-950/10 flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+        <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[10px] font-black uppercase tracking-widest text-amber-900 bg-amber-100 px-2 py-0.5 rounded">
-              WELFARE & SYSTEMATIC FOLLOW-UP CENTER
+            <span className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-950 bg-amber-400 px-2.5 py-1 rounded-lg">
+              Care
             </span>
-            <span className="text-[10px] font-black text-blue-900 bg-blue-100 border border-blue-200 px-2 py-0.5 rounded">
-              Follow-Up Basis: Week {currentWeek} (Latest Completed Sunday)
+            <span className="text-[10px] font-black text-amber-100 bg-white/10 border border-white/15 px-2 py-1 rounded-lg">
+              Week {currentWeek}
             </span>
           </div>
-          <h2 className="text-lg sm:text-xl font-black text-slate-900 mt-1">
-            Care Workflow, Follow-up Logs & 6-Week Exit Reviews
+          <h2 id="welfare-heading" className="text-xl sm:text-3xl font-black text-white mt-2 tracking-tight">
+            Welfare & follow-up
           </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Systematic pastoral pipeline (Wk 1: WhatsApp → Wk 2: Phone Call → Wk 3: Pastoral Visit → Wk 4–5: Continued Care → Wk 6: Exit Review).
+          <p className="text-xs sm:text-sm text-amber-100/80 mt-1 max-w-xl">
+            See who needs care, take action and keep a clear follow-up history.
           </p>
         </div>
 
         {/* Urgency Counter Badges */}
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="bg-amber-50 border border-amber-300 px-3 py-1.5 rounded-lg text-center shadow-xs">
-            <span className="text-[10px] uppercase font-bold text-amber-800 block">1 Wk (WhatsApp)</span>
-            <span className="text-sm font-black text-amber-900">
+        <div className="grid grid-cols-4 gap-1.5 sm:gap-2 w-full lg:w-auto">
+          <div className="bg-white/10 border border-white/15 px-2 sm:px-3 py-2 rounded-xl text-center">
+            <span className="text-[9px] sm:text-[10px] uppercase font-bold text-amber-100 block">Message</span>
+            <span className="text-base font-black text-white">
               {absenteesList.filter(i => i.weeksAbsent === 1).length}
             </span>
           </div>
-          <div className="bg-orange-50 border border-orange-300 px-3 py-1.5 rounded-lg text-center shadow-xs">
-            <span className="text-[10px] uppercase font-bold text-orange-800 block">2 Wks (Phone Call)</span>
-            <span className="text-sm font-black text-orange-900">
+          <div className="bg-white/10 border border-white/15 px-2 sm:px-3 py-2 rounded-xl text-center">
+            <span className="text-[9px] sm:text-[10px] uppercase font-bold text-orange-100 block">Call</span>
+            <span className="text-base font-black text-white">
               {absenteesList.filter(i => i.weeksAbsent === 2).length}
             </span>
           </div>
-          <div className="bg-indigo-50 border border-indigo-300 px-3 py-1.5 rounded-lg text-center shadow-xs">
-            <span className="text-[10px] uppercase font-bold text-indigo-800 block">3 Wks (Visitation)</span>
-            <span className="text-sm font-black text-indigo-900">
+          <div className="bg-white/10 border border-white/15 px-2 sm:px-3 py-2 rounded-xl text-center">
+            <span className="text-[9px] sm:text-[10px] uppercase font-bold text-indigo-100 block">Visit</span>
+            <span className="text-base font-black text-white">
               {absenteesList.filter(i => i.weeksAbsent === 3).length}
             </span>
           </div>
-          <div className="bg-red-50 border border-red-300 px-3 py-1.5 rounded-lg text-center shadow-xs animate-pulse">
-            <span className="text-[10px] uppercase font-bold text-red-800 block">6+ Wks (Exit Review)</span>
-            <span className="text-sm font-black text-red-900">
+          <div className="bg-red-500/20 border border-red-300/30 px-2 sm:px-3 py-2 rounded-xl text-center">
+            <span className="text-[9px] sm:text-[10px] uppercase font-bold text-red-100 block">Review</span>
+            <span className="text-base font-black text-white">
               {absenteesList.filter(i => i.weeksAbsent >= 6).length}
             </span>
           </div>
         </div>
-      </div>
+      </section>
 
       {feedback && (
         <div className="p-3 bg-emerald-50 border border-emerald-300 text-emerald-800 rounded-lg text-xs font-bold flex items-center gap-2">
@@ -281,29 +281,29 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
       )}
 
       {/* Main Tabs: Pending Follow-Ups vs Executed Archive */}
-      <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+      <div className="grid grid-cols-2 gap-2 bg-white p-1.5 rounded-2xl border border-slate-200 shadow-sm">
         <button
           onClick={() => setActiveTab('PENDING')}
-          className={`px-4 py-2 rounded-lg text-xs font-black transition flex items-center gap-2 ${
+          className={`min-h-[44px] px-3 sm:px-4 py-2 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 ${
             activeTab === 'PENDING'
               ? 'bg-blue-900 text-white shadow-xs'
               : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
           }`}
         >
           <Clock className="w-4 h-4 text-amber-400" />
-          <span>Pending Follow-Ups ({pendingAbsentees.length})</span>
+          <span>Pending ({pendingAbsentees.length})</span>
         </button>
 
         <button
           onClick={() => setActiveTab('EXECUTED')}
-          className={`px-4 py-2 rounded-lg text-xs font-black transition flex items-center gap-2 ${
+          className={`min-h-[44px] px-3 sm:px-4 py-2 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 ${
             activeTab === 'EXECUTED'
               ? 'bg-blue-900 text-white shadow-xs'
               : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
           }`}
         >
           <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-          <span>Executed Follow-Up Archive ({executedLogs.length})</span>
+          <span>Completed ({executedLogs.length})</span>
         </button>
       </div>
 
@@ -311,14 +311,14 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
         <div className="space-y-4">
           
           {/* Sub Filter */}
-          <div className="flex items-center gap-1.5 bg-white p-2 rounded-lg border border-slate-200 shadow-xs overflow-x-auto">
+          <div className="flex items-center gap-1.5 bg-white p-2 rounded-2xl border border-slate-200 shadow-sm overflow-x-auto scrollbar-none">
             <button
               onClick={() => setSelectedUrgencyFilter('ALL')}
               className={`px-3 py-1 rounded-md text-xs font-bold transition whitespace-nowrap ${
                 selectedUrgencyFilter === 'ALL' ? 'bg-blue-900 text-white' : 'text-slate-600 hover:bg-slate-100'
               }`}
             >
-              All Pending ({pendingAbsentees.length})
+              All ({pendingAbsentees.length})
             </button>
             <button
               onClick={() => setSelectedUrgencyFilter('1_WEEK')}
@@ -326,7 +326,7 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
                 selectedUrgencyFilter === '1_WEEK' ? 'bg-amber-600 text-white' : 'text-slate-600 hover:bg-slate-100'
               }`}
             >
-              Week 1: WhatsApp
+              1 week · Message
             </button>
             <button
               onClick={() => setSelectedUrgencyFilter('2_WEEKS')}
@@ -334,7 +334,7 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
                 selectedUrgencyFilter === '2_WEEKS' ? 'bg-orange-600 text-white' : 'text-slate-600 hover:bg-slate-100'
               }`}
             >
-              Week 2: Phone Call
+              2 weeks · Call
             </button>
             <button
               onClick={() => setSelectedUrgencyFilter('3_WEEKS')}
@@ -342,7 +342,7 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
                 selectedUrgencyFilter === '3_WEEKS' ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'
               }`}
             >
-              Week 3: Pastoral Visit
+              3 weeks · Visit
             </button>
             <button
               onClick={() => setSelectedUrgencyFilter('4_PLUS_WEEKS')}
@@ -350,7 +350,7 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
                 selectedUrgencyFilter === '4_PLUS_WEEKS' ? 'bg-rose-600 text-white' : 'text-slate-600 hover:bg-slate-100'
               }`}
             >
-              Weeks 4-5: Relegate / Care
+              4–5 weeks · Care
             </button>
             <button
               onClick={() => setSelectedUrgencyFilter('6_WEEK_EXIT_REVIEW')}
@@ -358,7 +358,7 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
                 selectedUrgencyFilter === '6_WEEK_EXIT_REVIEW' ? 'bg-red-700 text-white' : 'text-slate-600 hover:bg-slate-100'
               }`}
             >
-              6+ Weeks: RED EXIT REVIEW
+              6+ weeks · Review
             </button>
           </div>
 
@@ -381,7 +381,7 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
                 return (
                   <div
                     key={member.id}
-                    className={`bg-white border rounded-lg p-5 shadow-xs transition ${
+                    className={`bg-white border rounded-2xl p-4 sm:p-5 shadow-sm transition ${
                       isRedAlert
                         ? 'border-red-400 border-l-4 border-l-red-600 bg-red-50/20'
                         : isVisitation
@@ -459,12 +459,12 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
                       </div>
 
                       {/* Quick Communication & Action Buttons (Phase 6) */}
-                      <div className="flex flex-wrap items-center gap-2 shrink-0 self-end lg:self-center">
+                      <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 shrink-0 w-full lg:w-auto lg:self-center">
                         {member.phone && (
                           <>
                             <a
                               href={`tel:${normalizePhoneNumber(member.phone)}`}
-                              className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+                              className="min-h-[42px] px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
                               title="Direct Phone Call"
                             >
                               <PhoneCall className="w-3.5 h-3.5" />
@@ -475,7 +475,7 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
                               href={`https://wa.me/${normalizePhoneNumber(member.phone).replace(/[^0-9]/g, '')}?text=${generateWhatsAppMessage(member)}`}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+                              className="min-h-[42px] px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
                               title="Personalized WhatsApp message"
                             >
                               <MessageCircle className="w-3.5 h-3.5" />
@@ -486,7 +486,7 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
 
                         <button
                           onClick={() => handleOpenActionModal(member, weeksAbsent, actionType)}
-                          className={`px-3.5 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer ${
+                          className={`col-span-2 sm:col-span-1 min-h-[42px] px-3.5 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer ${
                             isRedAlert
                               ? 'bg-red-700 hover:bg-red-800 text-white'
                               : 'bg-slate-900 hover:bg-slate-800 text-white'

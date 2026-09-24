@@ -184,34 +184,36 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
   };
 
   return (
-    <div className="space-y-6 animate-fade-in print:bg-white print:text-black">
+    <div className="space-y-4 sm:space-y-5 animate-fade-in print:bg-white print:text-black">
       
       {/* Top Header & Actions */}
-      <div className="bg-white border border-slate-200 border-l-4 border-l-amber-500 rounded-lg p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 print:hidden">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-black uppercase tracking-widest text-amber-900 bg-amber-100 px-2 py-0.5 rounded">
-              QUARTER {quarterNumber} COMPREHENSIVE CLOSEOUT
+      <section aria-labelledby="quarter-analysis-heading" className="bg-gradient-to-br from-[#071b3d] via-[#18366f] to-[#3a1d58] border border-blue-700/50 rounded-2xl p-4 sm:p-6 shadow-xl shadow-blue-950/10 flex flex-col lg:flex-row lg:items-center justify-between gap-5 print:hidden">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-950 bg-amber-400 px-2.5 py-1 rounded-lg">
+              Quarter {quarterNumber}
             </span>
-            <span className="text-[10px] font-bold text-slate-500">
-              {quarterData?.quarterTheme || 'GOFAMINT_HOF Directorate Theme'}
-            </span>
+            {quarterData?.quarterTheme && (
+              <span className="text-[10px] font-bold text-blue-100/80 bg-white/10 border border-white/15 px-2 py-1 rounded-lg truncate max-w-[220px]">
+                {quarterData.quarterTheme}
+              </span>
+            )}
           </div>
-          <h2 className="text-xl font-black text-slate-900 mt-1 font-['Cinzel',serif] tracking-wide">
-            Quarter {quarterNumber} Report & Analytical Dashboard
+          <h2 id="quarter-analysis-heading" className="text-xl sm:text-3xl font-black text-white mt-2 tracking-tight">
+            Quarter analysis
           </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            2D Roster Shift Trend, 5 Award Leaderboard Champions, Financial Return (₦), and Quarter-End Progression.
+          <p className="text-xs sm:text-sm text-blue-100/80 mt-1 max-w-2xl">
+            Attendance, offering, class growth and student recognition in one view.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
+        <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 shrink-0">
           {onOpenQuarterTransition && (
             <button
               id="btn-quarter-transition-in-analysis"
               onClick={handleQuarterTransitionClick}
               disabled={!isLesson12Completed}
-              className={`px-3.5 py-2.5 rounded-lg text-xs font-black flex items-center gap-1.5 transition shadow-xs cursor-pointer ${
+              className={`min-h-[44px] px-3.5 py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition shadow-xs cursor-pointer ${
                 isLesson12Completed
                   ? 'bg-teal-700 hover:bg-teal-600 text-white'
                   : 'bg-slate-200 text-slate-400 opacity-60 cursor-not-allowed border border-slate-300'
@@ -219,7 +221,7 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
               title={isLesson12Completed ? "Forward active students and eligible visitors to the next Quarter" : "Quarter transition and quarter-end student review become available after Lesson 12."}
             >
               {!isLesson12Completed ? <Lock className="w-3.5 h-3.5 text-slate-400" /> : <Sparkles className="w-4 h-4 text-amber-300" />}
-              <span>Quarter Transition</span>
+              <span>Next quarter</span>
             </button>
           )}
 
@@ -227,27 +229,27 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
             id="btn-quarter-review"
             onClick={handleQuarterReviewClick}
             disabled={!isLesson12Completed}
-            className={`px-3.5 py-2.5 rounded-lg text-xs font-black flex items-center gap-1.5 transition shadow-xs ${
+            className={`min-h-[44px] px-3.5 py-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition shadow-xs ${
               isLesson12Completed
                 ? 'bg-amber-500 hover:bg-amber-400 text-blue-950 cursor-pointer'
-                : 'bg-slate-200 text-slate-400 opacity-60 cursor-not-allowed border border-slate-300'
+                : 'bg-white/10 text-blue-200/50 opacity-60 cursor-not-allowed border border-white/15'
             }`}
             title={isLesson12Completed ? "Review qualifying visitors" : "Quarter transition and quarter-end student review become available after Lesson 12."}
           >
             {!isLesson12Completed ? <Lock className="w-3.5 h-3.5 text-slate-400" /> : <Sparkles className="w-4 h-4 text-blue-950" />}
-            <span>Quarter-End Student Review ({qualifyingVisitors.length} Qualify)</span>
+            <span>Review ({qualifyingVisitors.length})</span>
           </button>
 
           <button
             id="btn-print-official-return"
             onClick={handlePrint}
-            className="px-4 py-2.5 bg-blue-900 hover:bg-blue-800 text-white rounded-lg text-xs font-bold flex items-center gap-2 transition shadow-xs cursor-pointer"
+            className="col-span-2 sm:col-span-1 min-h-[44px] px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition shadow-xs cursor-pointer"
           >
             <Printer className="w-4 h-4 text-amber-300" />
-            <span>Print Official Return</span>
+            <span>Print return</span>
           </button>
         </div>
-      </div>
+      </section>
 
       {!isLesson12Completed && (
         <div className="p-3 bg-amber-50 border border-amber-300 text-amber-900 rounded-lg text-xs font-bold flex items-center gap-2 print:hidden">
@@ -264,9 +266,9 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
       )}
 
       {/* Aggregate Metrics Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 print:hidden">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3.5 print:hidden">
         
-        <div className="bg-white border border-slate-200 p-4 rounded-lg shadow-xs">
+        <div className="bg-white border border-slate-200 p-3.5 sm:p-4 rounded-2xl shadow-sm">
           <div className="flex items-center justify-between text-slate-500 mb-1">
             <span className="text-[11px] font-bold uppercase tracking-wider">Quarter Attendance</span>
             <Users className="w-4 h-4 text-blue-600" />
@@ -280,7 +282,7 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
           </p>
         </div>
 
-        <div className="bg-white border border-slate-200 p-4 rounded-lg shadow-xs">
+        <div className="bg-white border border-slate-200 p-3.5 sm:p-4 rounded-2xl shadow-sm">
           <div className="flex items-center justify-between text-slate-500 mb-1">
             <span className="text-[11px] font-bold uppercase tracking-wider">Cumulative Offering</span>
             <span className="text-emerald-700 font-black text-base">{currencySymbol}</span>
@@ -295,7 +297,7 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
           </p>
         </div>
 
-        <div className="bg-white border border-slate-200 p-4 rounded-lg shadow-xs">
+        <div className="bg-white border border-slate-200 p-3.5 sm:p-4 rounded-2xl shadow-sm">
           <div className="flex items-center justify-between text-slate-500 mb-1">
             <span className="text-[11px] font-bold uppercase tracking-wider">Active Enrollment</span>
             <HeartHandshake className="w-4 h-4 text-purple-600" />
@@ -309,7 +311,7 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
           </p>
         </div>
 
-        <div className="bg-white border border-slate-200 p-4 rounded-lg shadow-xs">
+        <div className="bg-white border border-slate-200 p-3.5 sm:p-4 rounded-2xl shadow-sm">
           <div className="flex items-center justify-between text-slate-500 mb-1">
             <span className="text-[11px] font-bold uppercase tracking-wider">Quarter Diligence</span>
             <Trophy className="w-4 h-4 text-amber-500" />
@@ -328,7 +330,7 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
       </div>
 
       {/* 2D Trend Visualization (+Y Students, -Y Visitors, X Weeks 1 to totalWeeks) */}
-      <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs print:hidden">
+      <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm print:hidden overflow-hidden">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
           <div>
             <div className="flex items-center gap-2">
@@ -355,7 +357,7 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
         </div>
 
         {/* 2D Bar Chart Grid */}
-        <div className="grid grid-cols-6 sm:grid-cols-12 md:grid-cols-13 gap-1 pt-4 pb-2 border-b border-t border-slate-200">
+        <div className="grid grid-cols-6 sm:grid-cols-12 md:grid-cols-13 gap-1 pt-4 pb-2 border-b border-t border-slate-200 min-w-0">
           {trendData.map((d) => {
             const studentHeightPct = Math.round((d.students / maxAxisVal) * 100);
             const visitorHeightPct = Math.round((d.visitors / maxAxisVal) * 100);
@@ -413,7 +415,7 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
       </div>
 
       {/* 5 Award Leaderboards Section */}
-      <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-xs print:hidden">
+      <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm print:hidden">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-5">
           <div>
             <div className="flex items-center gap-2">

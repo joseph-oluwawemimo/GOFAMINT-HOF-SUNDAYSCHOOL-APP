@@ -4,14 +4,9 @@ import {
   WifiOff,
   RefreshCw,
   Lock,
-  Sparkles,
   Users,
-  Award,
-  BookOpen,
   Calendar,
-  Home,
-  Shield,
-  ArrowLeft
+  Home
 } from 'lucide-react';
 import { GofamintLogo } from './GofamintLogo';
 import { ClassProfile, QuarterData, QuarterNumber, QuarterStatus, SyncState } from '../types';
@@ -41,10 +36,7 @@ export const Header: React.FC<HeaderProps> = ({
   syncState,
   onSyncClick,
   onLockClick,
-  onOpenAI,
   onOpenWelcome,
-  onOpenAdminPortal,
-  onOpenWorkersModule,
   totalStudents,
   totalVisitors,
   selectedQuarter = 1,
@@ -59,155 +51,157 @@ export const Header: React.FC<HeaderProps> = ({
     if (quarterNumber === activeQuarterNumber) return 'ACTIVE';
     return quarterNumber < activeQuarterNumber ? 'ARCHIVED' : 'UPCOMING';
   };
+
   const selectedQuarterStatus = getQuarterStatus(selectedQuarter);
+  const quarterStatusLabel = selectedQuarterStatus === 'ACTIVE'
+    ? 'Active'
+    : selectedQuarterStatus === 'ARCHIVED'
+      ? 'Archive'
+      : 'Upcoming';
 
   return (
-    <header className="bg-gradient-to-r from-slate-950 via-indigo-950 to-slate-900 text-white border-b-2 border-indigo-500/40 sticky top-0 z-40 shadow-xl">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3.5">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-
-          {/* Main Logo & Church Branding */}
-          <div className="flex items-center gap-3.5 cursor-pointer" onClick={onOpenWelcome} title="Go to Opening Page">
-            <div className="hover:scale-105 transition transform">
-              <GofamintLogo className="w-11 h-11 drop-shadow-md" />
-            </div>
-
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] font-bold tracking-widest opacity-80 uppercase text-amber-300 font-['Cinzel',serif]">
-                  THE GOSPEL FAITH MISSION INTERNATIONAL(HOUSE OF FAVOUR)
+    <header className="relative z-30 border-b border-indigo-400/30 bg-gradient-to-r from-[#06152f] via-[#10245a] to-[#211947] text-white shadow-xl">
+      <div className="mx-auto max-w-[1440px] px-3 py-2.5 sm:px-6 sm:py-3">
+        <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between lg:gap-5">
+          <div className="flex min-w-0 items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={onOpenWelcome}
+              className="flex min-w-0 items-center gap-2.5 rounded-xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
+              title="Open welcome page"
+            >
+              <GofamintLogo className="h-9 w-9 shrink-0 drop-shadow-md sm:h-11 sm:w-11" />
+              <span className="min-w-0">
+                <span className="hidden text-[9px] font-bold uppercase tracking-[0.18em] text-amber-300/90 sm:block">
+                  GOFAMINT · House of Favour
                 </span>
-              </div>
+                <span className="block truncate text-base font-black tracking-tight sm:text-xl">
+                  Sunday School Register
+                </span>
+                <span className="flex items-center gap-1.5 text-[11px] font-semibold text-blue-100/80">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                  <span className="truncate">{classProfile?.className || 'Class register'}</span>
+                  {classProfile?.department && <span className="hidden sm:inline">· {classProfile.department}</span>}
+                </span>
+              </span>
+            </button>
 
-              <div className="flex flex-wrap items-center gap-2.5 mt-0.5">
-                <h2 className="text-base sm:text-xl font-black tracking-tight text-white uppercase font-['Cinzel',serif]">
-                  GOFAMINT_HOF Sunday School Register
-                </h2>
-                {classProfile && (
-                  <div className="bg-blue-800 px-3 py-1 rounded text-xs sm:text-sm font-bold border border-blue-400 text-white flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                    <span>CLASS: {classProfile.className.toUpperCase()}</span>
-                    <span className="opacity-75 text-xs font-normal">({classProfile.department})</span>
-                  </div>
-                )}
-              </div>
+            <div className="flex items-center gap-1.5 lg:hidden">
+              {onOpenWelcome && (
+                <button
+                  id="header-btn-back-welcome-mobile"
+                  type="button"
+                  onClick={onOpenWelcome}
+                  className="grid h-10 w-10 place-items-center rounded-xl border border-white/15 bg-white/10 text-amber-300 transition hover:bg-white/20"
+                  aria-label="Open welcome page"
+                >
+                  <Home className="h-4 w-4" />
+                </button>
+              )}
+              <button
+                id="header-btn-lock-mobile"
+                type="button"
+                onClick={onLockClick}
+                className="grid h-10 w-10 place-items-center rounded-xl border border-white/15 bg-white/10 text-blue-100 transition hover:bg-white/20"
+                aria-label="Lock secretary console"
+              >
+                <Lock className="h-4 w-4" />
+              </button>
             </div>
           </div>
 
-          {/* Quick Metrics & System Controls */}
-          <div className="flex flex-wrap items-center gap-2 sm:gap-3 self-end md:self-center">
-
-            {/* Quarter Selector / Indicator */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-0.5 scrollbar-none lg:justify-end lg:overflow-visible lg:pb-0">
             {onQuarterChange ? (
-              <div className="flex items-center gap-1 bg-blue-950/90 border border-amber-400/50 px-2 py-1 rounded-lg text-xs font-black">
-                <span className="text-[10px] text-amber-300 uppercase tracking-wider hidden sm:inline">Quarter:</span>
+              <label className="flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-xl border border-amber-300/35 bg-blue-950/70 px-2.5 text-xs font-black">
+                <span className="hidden text-[10px] uppercase tracking-wider text-amber-300 sm:inline">Quarter</span>
                 <select
                   id="header-quarter-select"
                   value={selectedQuarter}
-                  onChange={(e) => onQuarterChange(Number(e.target.value))}
-                  className="bg-blue-900 text-amber-300 font-black text-xs rounded px-1.5 py-0.5 border border-amber-400/40 cursor-pointer focus:outline-none focus:ring-1 focus:ring-amber-300"
+                  onChange={(event) => onQuarterChange(Number(event.target.value))}
+                  className="cursor-pointer rounded-md border border-white/15 bg-blue-900 px-1.5 py-1 text-xs font-black text-white outline-none focus:ring-2 focus:ring-amber-300"
+                  aria-label="Select quarter"
                 >
                   {([1, 2, 3, 4] as QuarterNumber[]).map(quarterNumber => (
-                    <option key={quarterNumber} value={quarterNumber}>
-                      Q{quarterNumber} ({getQuarterStatus(quarterNumber) === 'ACTIVE' ? 'Active' : getQuarterStatus(quarterNumber) === 'ARCHIVED' ? 'Archived' : 'Upcoming'})
-                    </option>
+                    <option key={quarterNumber} value={quarterNumber}>Q{quarterNumber}</option>
                   ))}
                 </select>
-                {selectedQuarterStatus === 'ACTIVE' ? (
-                  <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-300 text-[9px] uppercase font-black rounded border border-emerald-400/30">Active</span>
-                ) : selectedQuarterStatus === 'ARCHIVED' ? (
-                  <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-300 text-[9px] uppercase font-black rounded border border-amber-400/30">Archived</span>
-                ) : (
-                  <span className="px-1.5 py-0.5 bg-slate-500/30 text-slate-300 text-[9px] uppercase font-bold rounded">Upcoming</span>
-                )}
-              </div>
+                <span className={`rounded-full px-1.5 py-0.5 text-[9px] uppercase ${
+                  selectedQuarterStatus === 'ACTIVE'
+                    ? 'bg-emerald-400/20 text-emerald-300'
+                    : selectedQuarterStatus === 'ARCHIVED'
+                      ? 'bg-amber-400/20 text-amber-300'
+                      : 'bg-white/10 text-blue-100'
+                }`}>
+                  {quarterStatusLabel}
+                </span>
+              </label>
             ) : (
-              <div className="flex items-center gap-1.5 bg-blue-950/80 border border-blue-700/80 px-2.5 py-1.5 rounded-lg text-xs font-bold text-blue-100">
-                <span className="text-[10px] uppercase text-amber-300">Q{activeQuarterNumber}</span>
+              <div className="flex min-h-[40px] shrink-0 items-center rounded-xl border border-white/15 bg-blue-950/70 px-3 text-xs font-black text-amber-300">
+                Q{activeQuarterNumber}
               </div>
             )}
 
-            {/* Current Lesson Badge */}
-            <div className="flex items-center gap-1.5 bg-blue-950/80 border border-blue-700/80 px-3 py-1.5 rounded-lg text-xs font-bold text-blue-100">
-              <Calendar className="w-3.5 h-3.5 text-amber-400" />
-              <span className="text-[10px] uppercase opacity-75">Lesson</span>
-              <span className="font-black text-amber-300 text-sm">#{currentWeek}</span>
-              <span className="text-blue-300 text-[10px]">/ {totalWeeksInQuarter}</span>
+            <div className="flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-xl border border-white/15 bg-blue-950/70 px-3 text-xs font-bold text-blue-100">
+              <Calendar className="h-3.5 w-3.5 text-amber-300" />
+              <span className="text-white">Week {currentWeek}</span>
+              <span className="text-blue-300">/ {totalWeeksInQuarter}</span>
             </div>
 
-            {/* Quick Stats Pill */}
-            <div className="hidden sm:flex items-center gap-2 bg-blue-950/80 border border-blue-700/80 px-3 py-1.5 rounded-lg text-xs text-blue-200">
-              <Users className="w-3.5 h-3.5 text-blue-300" />
-              <span>Students: <strong className="text-white">{totalStudents}</strong></span>
-              <span className="text-blue-600">|</span>
-              <span>Visitors: <strong className="text-emerald-300">{totalVisitors}</strong></span>
+            <div className="hidden min-h-[40px] shrink-0 items-center gap-2 rounded-xl border border-white/15 bg-blue-950/70 px-3 text-xs text-blue-100 md:flex">
+              <Users className="h-3.5 w-3.5 text-blue-300" />
+              <span><strong className="text-white">{totalStudents}</strong> students</span>
+              <span className="text-blue-500">·</span>
+              <span><strong className="text-emerald-300">{totalVisitors}</strong> visitors</span>
             </div>
 
-            {/* Network & Realtime Sync Status Pill (UX Issue 16) */}
             <button
               id="header-sync-status-pill"
+              type="button"
               onClick={onSyncClick}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition border cursor-pointer ${
+              className={`flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-xl border px-3 text-xs font-bold transition ${
                 !syncState.isOnline
-                  ? 'bg-amber-950/90 border-amber-500/80 text-amber-300 hover:bg-amber-900'
+                  ? 'border-amber-500/70 bg-amber-950/80 text-amber-300'
                   : syncState.isSyncing
-                  ? 'bg-blue-900/90 border-blue-400 text-white animate-pulse'
-                  : syncState.syncQueueCount > 0
-                  ? 'bg-amber-900/70 border-amber-400/60 text-amber-200 hover:bg-amber-800'
-                  : 'bg-emerald-950/80 border-emerald-500/60 text-emerald-300 hover:bg-emerald-900'
+                    ? 'border-blue-400 bg-blue-900 text-white'
+                    : syncState.syncQueueCount > 0
+                      ? 'border-amber-400/60 bg-amber-900/60 text-amber-200'
+                      : 'border-emerald-500/50 bg-emerald-950/70 text-emerald-300'
               }`}
-              title={syncState.syncStatusText || (!syncState.isOnline ? 'Working offline. Changes are saved to this device.' : 'Online and synchronized with central database.')}
-              aria-label={syncState.syncStatusText}
+              title={syncState.syncStatusText}
+              aria-label={syncState.syncStatusText || 'Synchronization status'}
             >
               {!syncState.isOnline ? (
-                <>
-                  <WifiOff className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                  <span className="hidden sm:inline">Offline (Local DB)</span>
-                  <span className="sm:hidden">Offline</span>
-                </>
+                <><WifiOff className="h-3.5 w-3.5" /><span>Offline</span></>
               ) : syncState.isSyncing ? (
-                <>
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-white shrink-0" />
-                  <span>Syncing...</span>
-                </>
+                <><RefreshCw className="h-3.5 w-3.5 animate-spin" /><span>Syncing</span></>
               ) : syncState.syncQueueCount > 0 ? (
-                <>
-                  <RefreshCw className="w-3.5 h-3.5 text-amber-300 shrink-0" />
-                  <span>{syncState.syncQueueCount} Pending</span>
-                </>
+                <><RefreshCw className="h-3.5 w-3.5" /><span>{syncState.syncQueueCount} pending</span></>
               ) : (
-                <>
-                  <Wifi className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                  <span className="hidden sm:inline">Online & Synced</span>
-                  <span className="sm:hidden">Synced</span>
-                </>
+                <><Wifi className="h-3.5 w-3.5" /><span>Synced</span></>
               )}
             </button>
 
-            {/* Navigation Actions: Back to Welcome Page & Portals */}
             {onOpenWelcome && (
               <button
                 id="header-btn-back-welcome"
+                type="button"
                 onClick={onOpenWelcome}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-indigo-400/40 rounded-lg text-xs font-bold text-amber-300 hover:text-white transition shadow-xs cursor-pointer"
-                title="Return to Welcome Page"
+                className="hidden min-h-[40px] shrink-0 items-center gap-1.5 rounded-xl border border-white/15 bg-white/10 px-3 text-xs font-bold text-amber-300 transition hover:bg-white/20 lg:flex"
               >
-                <ArrowLeft className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Back to Welcome Page</span>
-                <span className="sm:hidden">Welcome</span>
+                <Home className="h-3.5 w-3.5" />
+                <span>Home</span>
               </button>
             )}
 
-            {/* Lock / Security Button */}
             <button
               id="header-btn-lock"
+              type="button"
               onClick={onLockClick}
-              className="p-1.5 bg-blue-950 hover:bg-blue-800 border border-blue-700 text-blue-200 hover:text-white rounded-lg transition"
-              title="Lock Secretary Console"
+              className="hidden h-10 w-10 shrink-0 place-items-center rounded-xl border border-white/15 bg-white/10 text-blue-100 transition hover:bg-white/20 lg:grid"
+              aria-label="Lock secretary console"
             >
-              <Lock className="w-4 h-4" />
+              <Lock className="h-4 w-4" />
             </button>
-
           </div>
         </div>
       </div>

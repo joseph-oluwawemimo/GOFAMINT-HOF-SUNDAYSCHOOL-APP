@@ -387,46 +387,46 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
   });
 
   return (
-    <div className="space-y-5 animate-fade-in">
+    <div className="space-y-4 sm:space-y-5 animate-fade-in">
       
       {/* Top Banner & Dynamic Creation Controls */}
-      <div className="bg-white border border-slate-200 border-l-4 border-l-blue-600 rounded-lg p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
+      <section aria-labelledby="student-registration-heading" className="relative overflow-visible bg-gradient-to-br from-[#071b3d] via-[#0d3470] to-[#281b57] border border-blue-700/50 rounded-2xl p-4 sm:p-6 shadow-xl shadow-blue-950/10 flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+        <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-[10px] font-black uppercase tracking-widest text-blue-900 bg-blue-100 px-2 py-0.5 rounded">
-              REGISTRATION SECTION
+            <span className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-950 bg-amber-400 px-2.5 py-1 rounded-lg">
+              People
             </span>
           </div>
-          <h2 className="text-lg sm:text-xl font-black text-slate-900 mt-1">
-            Student Roster & Visitor Welcoming
+          <h2 id="student-registration-heading" className="text-xl sm:text-3xl font-black text-white mt-2 tracking-tight">
+            Student registration
           </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Every person begins as a Visitor. Once sufficient attendance is demonstrated (3 consecutive visits or 50% attendance), visitors qualify for promotion to full Student status.
+          <p className="text-xs sm:text-sm text-blue-100/80 mt-1 max-w-2xl">
+            Welcome visitors, manage students and record class movements.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2.5 shrink-0">
           {!isReadOnly ? (
             <>
               {/* Add Visitor is the primary addition action (Phase 22) */}
               <button
                 id="btn-add-visitor"
                 onClick={() => openAddModal('VISITOR')}
-                className="px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-bold flex items-center gap-2 shadow-xs transition active:scale-95 cursor-pointer"
+                className="min-h-[44px] px-4 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 rounded-xl text-xs font-black flex items-center justify-center gap-2 shadow-sm transition active:scale-95 cursor-pointer"
               >
                 <HeartHandshake className="w-4 h-4" />
-                <span>+ Add Visitor</span>
+                <span>Add visitor</span>
               </button>
 
               {/* Log Student Movement Button (Phase 25) */}
               <button
                 id="btn-log-student-movement"
                 onClick={() => setIsMovementModalOpen(true)}
-                className="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-lg text-xs font-bold flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
+                className="min-h-[44px] px-3.5 py-2.5 bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer"
                 title="Record student departure due to marriage, relocation, transfer, etc."
               >
-                <UserMinus className="w-4 h-4 text-slate-500" />
-                <span>Log Student Movement</span>
+                <UserMinus className="w-4 h-4 text-blue-200" />
+                <span>Movement</span>
               </button>
 
               {/* Subtle More Actions Menu for Mass Import (Phase 23) */}
@@ -435,13 +435,14 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                   type="button"
                   id="btn-roster-more-menu"
                   onClick={() => setIsMoreMenuOpen(!isMoreMenuOpen)}
-                  className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold border border-slate-300 transition cursor-pointer"
-                  title="More actions"
+                  className="col-span-2 sm:col-span-1 min-h-[44px] min-w-[44px] px-3.5 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold border border-white/20 transition cursor-pointer flex items-center justify-center gap-1.5"
+                  title="Import students"
                 >
                   <MoreVertical className="w-4 h-4" />
+                  <span>Import</span>
                 </button>
                 {isMoreMenuOpen && (
-                  <div className="absolute right-0 mt-1 w-56 bg-white border border-slate-200 rounded-xl shadow-xl py-1.5 z-20 animate-in fade-in">
+                  <div className="absolute right-0 mt-2 w-56 bg-white border border-slate-200 rounded-xl shadow-2xl py-1.5 z-30 animate-in fade-in">
                     <button
                       onClick={() => {
                         setIsMoreMenuOpen(false);
@@ -457,12 +458,12 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
               </div>
             </>
           ) : (
-            <span className="px-3 py-1.5 rounded bg-slate-100 text-slate-500 text-xs font-bold border border-slate-200">
-              🔒 Roster Locked in Read-Only Mode
+            <span className="col-span-2 px-3 py-2 rounded-xl bg-white/10 text-blue-100 text-xs font-bold border border-white/20">
+              Roster is read-only
             </span>
           )}
         </div>
-      </div>
+      </section>
 
       {/* Automated Visitor Progression Logic Alert Section */}
       {visitorsWithConsecutive.length > 0 && (
@@ -522,21 +523,21 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
       )}
 
       {/* Roster Tab Switcher & Search Bar */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-4 rounded-lg border border-slate-200 shadow-xs">
-        <div className="flex items-center gap-1.5 w-full sm:w-auto">
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200 shadow-sm">
+        <div className="grid grid-cols-3 gap-1.5 w-full sm:flex sm:items-center sm:w-auto">
           <button
             onClick={() => setActiveRosterTab('ALL')}
-            className={`px-3.5 py-2 rounded-lg text-xs font-bold transition ${
+            className={`min-h-[42px] px-2.5 sm:px-3.5 py-2 rounded-xl text-xs font-bold transition ${
               activeRosterTab === 'ALL'
                 ? 'bg-blue-900 text-white'
                 : 'bg-slate-50 text-slate-600 hover:text-slate-900 border border-slate-200'
             }`}
           >
-            All Members ({members.length})
+            All ({members.length})
           </button>
           <button
             onClick={() => setActiveRosterTab('STUDENTS')}
-            className={`px-3.5 py-2 rounded-lg text-xs font-bold transition ${
+            className={`min-h-[42px] px-2.5 sm:px-3.5 py-2 rounded-xl text-xs font-bold transition ${
               activeRosterTab === 'STUDENTS'
                 ? 'bg-blue-600 text-white'
                 : 'bg-slate-50 text-slate-600 hover:text-slate-900 border border-slate-200'
@@ -546,7 +547,7 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
           </button>
           <button
             onClick={() => setActiveRosterTab('VISITORS')}
-            className={`px-3.5 py-2 rounded-lg text-xs font-bold transition ${
+            className={`min-h-[42px] px-2.5 sm:px-3.5 py-2 rounded-xl text-xs font-bold transition ${
               activeRosterTab === 'VISITORS'
                 ? 'bg-purple-600 text-white'
                 : 'bg-slate-50 text-slate-600 hover:text-slate-900 border border-slate-200'
@@ -557,19 +558,20 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
         </div>
 
         <div className="relative w-full sm:w-72">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
           <input
             type="text"
             placeholder="Search by name, phone, occupation..."
+            aria-label="Search students and visitors"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-slate-50 border border-slate-300 rounded-lg pl-9 pr-3 py-2 text-xs text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:border-blue-600 font-medium"
+            className="w-full min-h-[44px] bg-slate-50 border border-slate-300 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:border-blue-600 font-medium"
           />
         </div>
       </div>
 
       {/* Members Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5 sm:gap-4">
         {filteredMembers.length === 0 ? (
           <div className="col-span-full bg-white border border-slate-200 p-10 rounded-lg text-center text-slate-500 shadow-xs">
             <Users className="w-12 h-12 mx-auto mb-3 text-slate-400" />
@@ -598,7 +600,7 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
               <div
                 key={member.id}
                 id={`roster-card-${member.id}`}
-                className={`bg-white border rounded-lg p-5 shadow-xs flex flex-col justify-between transition ${
+                className={`bg-white border rounded-2xl p-4 sm:p-5 shadow-sm flex flex-col justify-between transition ${
                   member.memberType === 'STUDENT'
                     ? 'border-slate-200 border-l-4 border-l-blue-600'
                     : 'border-slate-200 border-l-4 border-l-purple-600'
@@ -1436,4 +1438,3 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
     </div>
   );
 };
-

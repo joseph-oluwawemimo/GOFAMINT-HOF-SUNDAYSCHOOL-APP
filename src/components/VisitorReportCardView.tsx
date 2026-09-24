@@ -108,11 +108,11 @@ export const VisitorReportCardView: React.FC<VisitorReportCardViewProps> = ({
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-800 p-3 sm:p-6 lg:p-8 font-sans animate-fade-in">
-      <div className="max-w-3xl mx-auto space-y-5">
+    <div className="text-slate-800 font-sans animate-fade-in">
+      <div className="max-w-3xl mx-auto space-y-4 sm:space-y-5">
         
         {/* Top Floating Control Bar */}
-        <div className="flex items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
+        <div className="flex items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
           {onBack ? (
             <button
               onClick={onBack}
@@ -122,8 +122,8 @@ export const VisitorReportCardView: React.FC<VisitorReportCardViewProps> = ({
               <span>Back to Register</span>
             </button>
           ) : (
-            <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-              Official Sunday School Report Card
+            <div className="text-xs font-black text-slate-700">
+              Member report
             </div>
           )}
 
@@ -132,19 +132,19 @@ export const VisitorReportCardView: React.FC<VisitorReportCardViewProps> = ({
             id="btn-refresh-report-card"
             onClick={handleRefreshClick}
             disabled={isRefreshing}
-            className="flex items-center gap-2 px-5 py-2.5 bg-blue-900 hover:bg-blue-800 disabled:opacity-50 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md transition active:scale-95 ml-auto"
+            className="flex min-h-[42px] items-center gap-2 px-4 py-2.5 bg-blue-900 hover:bg-blue-800 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-sm transition active:scale-95 ml-auto"
           >
             <RefreshCw className={`w-4 h-4 text-amber-300 ${isRefreshing ? 'animate-spin' : ''}`} />
-            <span>{refreshSuccess ? 'Refreshed!' : isRefreshing ? 'Refreshing...' : 'Refresh Report Card'}</span>
+            <span>{refreshSuccess ? 'Updated' : isRefreshing ? 'Updating...' : 'Refresh'}</span>
           </button>
         </div>
 
         {/* Official Header Card */}
-        <div className="bg-white border-2 border-slate-200 rounded-2xl p-6 shadow-md relative overflow-hidden">
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-sm relative overflow-hidden">
           <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-6 text-center sm:text-left">
             
             {/* Member Photo */}
-            <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl bg-slate-100 border-2 border-blue-900 overflow-hidden flex items-center justify-center shrink-0 shadow-md">
+            <div className="w-20 h-20 sm:w-28 sm:h-28 rounded-2xl bg-slate-100 border-2 border-blue-900 overflow-hidden flex items-center justify-center shrink-0 shadow-md">
               {member.photoBase64 ? (
                 <img
                   src={member.photoBase64}
@@ -160,12 +160,12 @@ export const VisitorReportCardView: React.FC<VisitorReportCardViewProps> = ({
 
             {/* Main Information */}
             <div className="flex-1 space-y-1.5">
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-100 border border-amber-300 rounded-full text-[10px] font-black uppercase text-amber-900">
+              <div className="inline-flex max-w-full items-center gap-1.5 px-3 py-1 bg-amber-100 border border-amber-300 rounded-full text-[9px] sm:text-[10px] font-black uppercase text-amber-900">
                 <GofamintLogo className="w-4 h-4" />
-                <span>The Gospel Faith Mission International (House of Favour)</span>
+                <span className="truncate">GOFAMINT · House of Favour</span>
               </div>
 
-              <h1 className="text-2xl sm:text-3xl font-black text-slate-900 font-['Cinzel',serif]">
+              <h1 className="text-xl sm:text-3xl font-black text-slate-900">
                 {member.fullName}
               </h1>
 
@@ -236,8 +236,8 @@ export const VisitorReportCardView: React.FC<VisitorReportCardViewProps> = ({
         </div>
 
         {/* Summary Stats Overview */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="bg-white border border-slate-200 rounded-xl p-4 text-center shadow-xs">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
+          <div className="bg-white border border-slate-200 rounded-2xl p-3 sm:p-4 text-center shadow-sm">
             <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 block mb-1">
               Attendance
             </span>
@@ -247,7 +247,7 @@ export const VisitorReportCardView: React.FC<VisitorReportCardViewProps> = ({
             <span className="text-xs text-slate-500 font-bold block mt-0.5">/ 12 Weeks</span>
           </div>
 
-          <div className="bg-white border border-slate-200 rounded-xl p-4 text-center shadow-xs">
+          <div className="bg-white border border-slate-200 rounded-2xl p-3 sm:p-4 text-center shadow-sm">
             <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 block mb-1">
               Total Points
             </span>
@@ -257,7 +257,7 @@ export const VisitorReportCardView: React.FC<VisitorReportCardViewProps> = ({
             <span className="text-xs text-slate-500 font-bold block mt-0.5">/ {stats.totalPossiblePointsSinceFirst}</span>
           </div>
 
-          <div className="bg-white border border-slate-200 rounded-xl p-4 text-center shadow-xs">
+          <div className="bg-white border border-slate-200 rounded-2xl p-3 sm:p-4 text-center shadow-sm">
             <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 block mb-1">
               Hard Work Rate
             </span>
@@ -267,7 +267,7 @@ export const VisitorReportCardView: React.FC<VisitorReportCardViewProps> = ({
             <span className="text-xs text-slate-500 font-bold block mt-0.5">Performance</span>
           </div>
 
-          <div className="bg-white border border-slate-200 rounded-xl p-4 text-center shadow-xs">
+          <div className="bg-white border border-slate-200 rounded-2xl p-3 sm:p-4 text-center shadow-sm">
             <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 block mb-1">
               Memory Verse Recitation
             </span>
@@ -281,8 +281,8 @@ export const VisitorReportCardView: React.FC<VisitorReportCardViewProps> = ({
         </div>
 
         {/* 12-Week Scorecard Breakdown Table */}
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
-          <div className="p-4 sm:p-5 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+          <div className="p-4 sm:p-5 border-b border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <BookOpen className="w-4 h-4 text-blue-900" />
               <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">
@@ -301,7 +301,7 @@ export const VisitorReportCardView: React.FC<VisitorReportCardViewProps> = ({
               const isExempt = !grade || grade.attendance === 'EXEMPT' || weekNum < (member.firstLessonWeek || 1);
 
               return (
-                <div key={weekNum} className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/70 transition">
+                <div key={weekNum} className="p-3.5 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/70 transition">
                   
                   {/* Week & Topic Details */}
                   <div className="space-y-0.5 flex-1 min-w-0">
@@ -322,7 +322,7 @@ export const VisitorReportCardView: React.FC<VisitorReportCardViewProps> = ({
                   </div>
 
                   {/* Attendance & Score Display */}
-                  <div className="flex items-center gap-4 pl-8 sm:pl-0">
+                  <div className="grid grid-cols-1 gap-2 pl-8 sm:flex sm:items-center sm:gap-4 sm:pl-0">
                     
                     {/* Status Badge */}
                     <div className="shrink-0">
@@ -346,22 +346,22 @@ export const VisitorReportCardView: React.FC<VisitorReportCardViewProps> = ({
 
                     {/* Breakdown Scores */}
                     {isPresent && grade ? (
-                      <div className="flex items-center gap-2 sm:gap-3 text-xs bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
+                      <div className="grid grid-cols-4 gap-1 sm:flex sm:items-center sm:gap-3 text-xs bg-slate-50 px-2.5 sm:px-3 py-2 sm:py-1.5 rounded-xl border border-slate-200 w-full sm:w-auto">
                         <div className="text-center">
                           <span className="text-[9px] text-slate-400 block font-semibold">Punct.</span>
                           <span className="font-bold text-slate-800">{grade.punctuality}/15</span>
                         </div>
-                        <span className="text-slate-300">•</span>
+                        <span className="hidden sm:inline text-slate-300">•</span>
                         <div className="text-center">
                           <span className="text-[9px] text-slate-400 block font-semibold">M Vars</span>
                           <span className="font-bold text-slate-800">{grade.memoryVerse}/15</span>
                         </div>
-                        <span className="text-slate-300">•</span>
+                        <span className="hidden sm:inline text-slate-300">•</span>
                         <div className="text-center">
                           <span className="text-[9px] text-slate-400 block font-semibold">C Part.</span>
                           <span className="font-bold text-slate-800">{grade.classParticipation}/20</span>
                         </div>
-                        <span className="text-slate-300">|</span>
+                        <span className="hidden sm:inline text-slate-300">|</span>
                         <div className="text-center font-black text-blue-900">
                           <span className="text-[9px] text-blue-600 block">Total</span>
                           <span>{grade.lessonTotal}/50</span>

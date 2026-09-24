@@ -12,7 +12,6 @@ import {
   Minus,
   Sparkles,
   HelpCircle,
-  Share2,
   Award,
   ChevronLeft,
   ChevronRight,
@@ -22,8 +21,6 @@ import {
   Save,
   PlusCircle,
   Printer,
-  Copy,
-  FileText,
   Star,
   Zap,
   PhoneCall,
@@ -33,12 +30,13 @@ import {
   CheckCircle2,
   AlertCircle,
   Clock,
-  Send,
   Filter,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  GripVertical
+  GripVertical,
+  Search,
+  ClipboardCheck
 } from 'lucide-react';
 import { backgroundStateManager } from '../utils/backgroundStateManager';
 import {
@@ -285,13 +283,9 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
   const [newVisitorPhone, setNewVisitorPhone] = useState('');
   const [newVisitorSponsorId, setNewVisitorSponsorId] = useState('');
 
-  // Weekly Secretary Return Share Modal
-  const [showReturnModal, setShowReturnModal] = useState(false);
   const [showOfficialPrintModal, setShowOfficialPrintModal] = useState(false);
-  const [copiedReturn, setCopiedReturn] = useState(false);
   const [showRemitConfirmModal, setShowRemitConfirmModal] = useState(false);
   const [isRemitting, setIsRemitting] = useState(false);
-  const [showMoreActions, setShowMoreActions] = useState(false);
   const [persistenceError, setPersistenceError] = useState<string | null>(null);
 
   const persistWithoutBlockingInput = (label: string, operation: () => void | Promise<void>) => {
@@ -341,6 +335,18 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
   };
 
   const weekSummary = calculateWeekSummary(selectedWeek, members, grades, offerings);
+  const recordedMemberIds = new Set(
+    grades
+      .filter(grade => grade.weekNumber === selectedWeek)
+      .map(grade => grade.memberId)
+  );
+  const recordedCount = members.filter(member => recordedMemberIds.has(member.id)).length;
+  const attendanceRate = members.length > 0
+    ? Math.round((weekSummary.totalAttendance / members.length) * 100)
+    : 0;
+  const registerCompletionRate = members.length > 0
+    ? Math.round((recordedCount / members.length) * 100)
+    : 0;
 
   const handleSaveTopic = async () => {
     if (!onUpdateLessonTopic) {
@@ -707,71 +713,6 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
     setTimeout(() => setRemitSuccessMsg(null), 6000);
   };
 
-  // Top Scoring Students of the Week
-  const presentGrades = members
-    .filter(m => selectedWeek >= (m.firstLessonWeek || 1))
-    .map(m => ({
-      member: m,
-      grade: getMemberGrade(m.id)
-    }))
-    .filter(item => item.grade.attendance === 'PRESENT')
-    .sort((a, b) => (b.grade.lessonTotal || 0) - (a.grade.lessonTotal || 0));
-
-  const topScorers = presentGrades.slice(0, 3);
-
-  // Generate Official GOFAMINT_HOF Weekly Sunday School Return
-  const generateReturnText = () => {
-    const className = classProfile?.className || 'Sunday School Class';
-    const dept = classProfile?.department || 'Bible Class';
-    const secretary = classProfile?.secretaryName || 'Secretary';
-    const totalMembers = members.length;
-    const absenteesCount = Math.max(0, totalMembers - weekSummary.totalAttendance);
-    const attendancePct = totalMembers > 0 ? Math.round((weekSummary.totalAttendance / totalMembers) * 100) : 0;
-
-    const lines = [
-      `*THE GOSPEL FAITH MISSION INTERNATIONAL(HOUSE OF FAVOUR)*`,
-      `📖 *SUNDAY SCHOOL DEPARTMENT*`,
-      `━━━━━━━━━━━━━━━━━━━━━━`,
-      `📌 *WEEKLY SECRETARY RETURN*`,
-      `• *Class:* ${className}`,
-      `• *Department:* ${dept}`,
-      `• *Lesson:* Week ${selectedWeek} of 12`,
-      `• *Topic:* "${currentLesson.topic}"`,
-      currentLesson.scriptureReading && currentLesson.scriptureReading !== 'Scripture to be assigned' ? `• *Scripture:* ${currentLesson.scriptureReading}` : null,
-      currentLesson.memoryVerseRef ? `• *M Vars Ref:* ${currentLesson.memoryVerseRef}` : null,
-      `━━━━━━━━━━━━━━━━━━━━━━`,
-      `📊 *ATTENDANCE & STATISTICS*`,
-      `• Total on Roll: ${totalMembers}`,
-      `• Students Present: ${weekSummary.studentCount}`,
-      `• Visitors Present: ${weekSummary.visitorCount} (${weekSummary.newVisitorCount} New)`,
-      `• *Total Attendance:* ${weekSummary.totalAttendance} (${attendancePct}%)`,
-      `• Absentees: ${absenteesCount}`,
-      `• Class Avg Score: ${weekSummary.classAverageScore} / 50`,
-      `💰 *Offering Collected:* ${currencySymbol}${currentOffering.amount ? Number(currentOffering.amount).toLocaleString() : '0.00'}`,
-      `━━━━━━━━━━━━━━━━━━━━━━`,
-      topScorers.length > 0 ? `🌟 *TOP SCORERS OF THE WEEK:*` : null,
-      ...topScorers.map((s, idx) => `  ${idx + 1}. ${s.member.fullName} — *${s.grade.lessonTotal}/50 pts* (${s.member.memberType})`),
-      `━━━━━━━━━━━━━━━━━━━━━━`,
-      `✍️ _Submitted by:_ *${secretary}*`,
-      `_Status: Recorded via GOFAMINT_HOF Sunday School Secretary Console_`
-    ].filter(Boolean);
-
-    return lines.join('\n');
-  };
-
-  const handleCopyReturn = () => {
-    const text = generateReturnText();
-    navigator.clipboard.writeText(text);
-    setCopiedReturn(true);
-    setTimeout(() => setCopiedReturn(false), 2500);
-  };
-
-  const handleShareWhatsApp = () => {
-    const text = generateReturnText();
-    const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
-    window.open(url, '_blank');
-  };
-
   const handleSendDirectCareWhatsApp = (member: Member) => {
     const text = `Calvary greetings in Christ ${member.fullName}! 🙏\n\nWe dearly missed your warm presence in our GOFAMINT_HOF Sunday School class today (*${classProfile?.className || 'Bible Class'}*).\n\nOur Week ${selectedWeek} lesson topic was: *"${currentLesson.topic}"*.\n\nWe pray God's divine favor, good health, and peace over you throughout this week. Looking forward to rejoicing together in class next Sunday!\n\n_With love and prayers,_\n*${classProfile?.secretaryName || 'Sunday School Secretary'}*`;
     const cleanPhone = member.phone ? member.phone.replace(/[^0-9]/g, '') : '';
@@ -780,7 +721,7 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
   };
 
   return (
-    <div className="space-y-5 animate-fade-in print:bg-white print:text-black">
+    <div className="space-y-4 sm:space-y-5 animate-fade-in print:bg-white print:text-black">
       {persistenceError && (
         <div role="alert" className="print:hidden flex items-start justify-between gap-3 rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-900 shadow-sm">
           <span>{persistenceError}</span>
@@ -855,47 +796,40 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
       {/* Remitted & Locked Banner / Changes Mode Banner */}
       {isRemittedOrAudited && quarterStatus === 'ACTIVE' && (
         isChangesModeActive ? (
-          <div className="bg-amber-500/15 border-2 border-amber-500 rounded-xl p-4 shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-fade-in print:hidden">
+          <div className="bg-amber-50 border border-amber-300 rounded-2xl p-3.5 sm:p-4 shadow-sm flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 animate-fade-in print:hidden">
             <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-lg bg-amber-500 text-slate-950 font-black shrink-0 shadow-sm">
-                <Edit2 className="w-5 h-5" />
+              <div className="p-2.5 rounded-xl bg-amber-500 text-slate-950 font-black shrink-0 shadow-sm">
+                <Edit2 className="w-4 h-4" />
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h4 className="text-xs font-black uppercase tracking-wider text-amber-900">
-                    CHANGES MODE: You are editing a previously remitted record
-                  </h4>
-                  <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-500 text-slate-950">
-                    EDITABLE
-                  </span>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h4 className="text-xs font-black uppercase tracking-wider text-amber-950">Week {selectedWeek} · Changes mode</h4>
+                  <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-500 text-slate-950">Editing</span>
                 </div>
-                <p className="text-xs text-slate-700 mt-0.5">
-                  Offering and grade entries for Week {selectedWeek} are temporarily unlocked for corrections. When finished, click <strong>CHANGES DONE</strong> to validate, save to database, and lock the record again.
-                </p>
+                <p className="text-xs text-amber-900 mt-0.5">Correct the register, then save and lock it again.</p>
               </div>
             </div>
-            <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+            <div className="shrink-0">
               <button
                 type="button"
+                id="btn-done-changes-mode"
                 onClick={handleFinishChangesMode}
-                className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-black transition flex items-center gap-1.5 shadow-md cursor-pointer active:scale-95"
+                className="w-full sm:w-auto min-h-[42px] px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer active:scale-95"
               >
                 <Check className="w-4 h-4" />
-                <span>CHANGES DONE (SAVE & LOCK)</span>
+                <span>Save & lock</span>
               </button>
             </div>
           </div>
         ) : (
-          <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-xl p-4 shadow-md border border-indigo-500/40 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-fade-in print:hidden">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-lg bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 shrink-0">
-                <Lock className="w-5 h-5" />
+          <div className="bg-gradient-to-r from-[#081a3b] via-indigo-950 to-[#111a3c] text-white rounded-2xl p-3.5 sm:p-4 shadow-md border border-indigo-500/40 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 animate-fade-in print:hidden">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="p-2.5 rounded-xl bg-indigo-500/20 text-indigo-300 border border-indigo-400/30 shrink-0">
+                <Lock className="w-4 h-4" />
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h4 className="text-xs font-black uppercase tracking-wider text-indigo-300">
-                    WEEK {selectedWeek} REGISTER LOCKED — OFFERING REMITTED
-                  </h4>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h4 className="text-xs font-black uppercase tracking-wider text-white">Week {selectedWeek} locked</h4>
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                     currentOffering.remittanceStatus === 'AUDITED'
                       ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
@@ -904,31 +838,28 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                     {currentOffering.remittanceStatus === 'AUDITED' ? 'AUDITED' : 'REMITTED'}
                   </span>
                 </div>
-                <p className="text-xs text-slate-300 mt-0.5">
-                  Class offering of {currencySymbol}{Number(currentOffering.amount).toLocaleString()} has been remitted {currentOffering.remittedBy ? `by ${currentOffering.remittedBy}` : ''} {currentOffering.remittedAt ? `at ${new Date(currentOffering.remittedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}. Attendance markings, scores, and offering are locked to maintain administrative and financial integrity.
+                <p className="text-xs text-indigo-100/80 mt-0.5 truncate sm:whitespace-normal">
+                  {currencySymbol}{Number(currentOffering.amount).toLocaleString()} remitted{currentOffering.remittedBy ? ` by ${currentOffering.remittedBy}` : ''}.
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+            <div className="flex items-center gap-2 shrink-0">
               {currentOffering.remittanceStatus === 'AUDITED' ? (
-                <div className="px-3 py-1.5 bg-slate-900 border border-emerald-500/40 text-emerald-300 text-xs font-semibold rounded-lg flex items-center gap-2">
+                <div className="w-full sm:w-auto min-h-[42px] px-3 py-2 bg-slate-900 border border-emerald-500/40 text-emerald-300 text-xs font-semibold rounded-xl flex items-center justify-center gap-2">
                   <Lock className="w-4 h-4 text-emerald-400" />
-                  <span>This record has already been accepted and audited by the Treasurer and is now locked.</span>
+                  <span>Audited & locked</span>
                 </div>
               ) : (
                 <button
                   type="button"
+                  id="btn-enter-changes-mode"
                   onClick={() => setIsConfirmChangesModalOpen(true)}
-                  className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-lg text-xs transition flex items-center gap-1.5 shadow-sm cursor-pointer active:scale-95"
+                  className="w-full sm:w-auto min-h-[42px] px-4 py-2 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer active:scale-95"
                 >
                   <Edit2 className="w-3.5 h-3.5" />
-                  <span>MAKE CHANGES</span>
+                  <span>Make changes</span>
                 </button>
               )}
-              <span className="px-3 py-1.5 bg-slate-800/80 border border-slate-700 text-indigo-200 text-xs font-mono font-bold rounded-lg flex items-center gap-1.5">
-                <ShieldCheck className="w-4 h-4 text-indigo-400" />
-                <span>{currentOffering.remittanceStatus === 'AUDITED' ? 'FINANCIALLY AUDITED' : 'LOCKED (REMITTED)'}</span>
-              </span>
             </div>
           </div>
         )
@@ -959,95 +890,44 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
         </div>
       )}
 
-      {/* 12-Lesson Week Switcher Carousel & Date-Aware Intelligence (Phases 7 & 19) */}
-      <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs print:hidden">
-        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-          <div className="flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-blue-900" />
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              12-Lesson Quarter Matrix Selector
-            </h3>
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[11px] font-black text-slate-800 bg-slate-100 border border-slate-300 px-2 py-0.5 rounded-md">
-                Current Week: Week {activeCalendarWeek}
-              </span>
-              {!sundayRegisterIntel.isRegisterOpenForCalendarWeek && selectedWeek === activeCalendarWeek ? (
-                <span className="text-[11px] font-black text-amber-800 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-md flex items-center gap-1">
-                  <Lock className="w-3 h-3 text-amber-600" />
-                  <span>Register: Locked (Opens Sunday)</span>
-                </span>
-              ) : (
-                <span className="text-[11px] font-black text-emerald-800 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-md">
-                  Active Register: Week {sundayRegisterIntel.activeRegisterWeek}
-                </span>
-              )}
+      {/* Compact 12-week switcher: the same controls on phone and desktop. */}
+      <section aria-labelledby="week-selector-heading" className="bg-white border border-slate-200/90 rounded-2xl p-3 sm:p-4 shadow-sm print:hidden">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-blue-950 text-amber-300 flex items-center justify-center shrink-0 shadow-sm">
+              <Calendar className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <h3 id="week-selector-heading" className="text-sm font-black text-slate-950">Register week</h3>
+              <p className="text-[11px] text-slate-500 truncate">
+                Week {selectedWeek} of {totalWeeks} · {selectedWeek === activeCalendarWeek ? 'Current' : selectedWeek > activeCalendarWeek ? 'Upcoming' : 'Past'}
+              </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 shrink-0">
             <button
+              type="button"
               onClick={() => handleSelectWeek(Math.max(1, selectedWeek - 1))}
               disabled={selectedWeek <= 1}
-              className="p-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-30 rounded text-slate-700 transition cursor-pointer"
-              title="Previous Lesson"
+              aria-label="Previous register week"
+              className="w-10 h-10 grid place-items-center bg-slate-100 hover:bg-slate-200 disabled:opacity-30 rounded-xl text-slate-700 transition cursor-pointer"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <span className="text-xs font-black text-blue-900 px-2">
-              Week {selectedWeek} of {totalWeeks} {selectedWeek === activeCalendarWeek ? '• ACTIVE' : selectedWeek > activeCalendarWeek ? '• FUTURE' : '• PAST'}
-            </span>
             <button
+              type="button"
               onClick={() => handleSelectWeek(Math.min(totalWeeks, selectedWeek + 1))}
               disabled={selectedWeek >= totalWeeks || selectedWeek >= activeCalendarWeek}
-              className="p-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-30 rounded text-slate-700 transition cursor-pointer"
-              title="Next Lesson"
+              aria-label="Next register week"
+              className="w-10 h-10 grid place-items-center bg-slate-100 hover:bg-slate-200 disabled:opacity-30 rounded-xl text-slate-700 transition cursor-pointer"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        {/* Mobile Week Selector Dropdown (Phase 19) */}
-        <div className="sm:hidden flex items-center justify-between gap-2 p-2 bg-slate-50 border border-slate-200 rounded-xl mb-2">
-          <button
-            type="button"
-            onClick={() => handleSelectWeek(Math.max(1, selectedWeek - 1))}
-            disabled={selectedWeek <= 1}
-            className="p-2 bg-white rounded-lg border border-slate-200 text-slate-700 disabled:opacity-30 cursor-pointer"
-            title="Previous Lesson"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          <div className="flex-1 relative">
-            <select
-              value={selectedWeek}
-              onChange={(e) => handleSelectWeek(Number(e.target.value))}
-              className="w-full text-center font-black text-xs py-2 px-3 bg-white border border-slate-200 rounded-lg text-slate-900 focus:ring-2 focus:ring-blue-500 outline-hidden"
-            >
-              {Array.from({ length: totalWeeks }, (_, i) => i + 1).map((wk) => {
-                const isAct = wk === activeCalendarWeek;
-                const isFut = wk > activeCalendarWeek;
-                return (
-                  <option key={wk} value={wk}>
-                    Week {wk} {isAct ? '— ACTIVE' : isFut ? '— FUTURE (LOCKED)' : '— PAST'}
-                  </option>
-                );
-              })}
-            </select>
-          </div>
-          <button
-            type="button"
-            onClick={() => handleSelectWeek(Math.min(totalWeeks, selectedWeek + 1))}
-            disabled={selectedWeek >= totalWeeks || selectedWeek >= activeCalendarWeek}
-            className="p-2 bg-white rounded-lg border border-slate-200 text-slate-700 disabled:opacity-30 cursor-pointer"
-            title="Next Lesson"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Desktop Horizontal Week Pill Tabs */}
-        <div className={`hidden sm:grid grid-cols-6 ${totalWeeks >= 13 ? 'sm:grid-cols-13' : 'sm:grid-cols-12'} gap-1.5`}>
+        <div className={`grid grid-cols-6 ${totalWeeks >= 13 ? 'lg:grid-cols-13' : 'sm:grid-cols-12'} gap-1.5`}>
           {Array.from({ length: totalWeeks }, (_, i) => i + 1).map((wk) => {
             const isSelected = wk === selectedWeek;
             const weekStats = calculateWeekSummary(wk, members, grades, offerings);
@@ -1062,9 +942,11 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                 key={wk}
                 id={`btn-week-pill-${wk}`}
                 onClick={() => handleSelectWeek(wk)}
-                className={`py-2 px-1 rounded-lg text-center transition flex flex-col items-center justify-center border cursor-pointer ${
+                aria-label={`Select week ${wk}${isAct ? ', open' : isFut ? ', locked' : ''}`}
+                aria-current={isSelected ? 'true' : undefined}
+                className={`min-h-[48px] sm:min-h-[54px] py-1.5 px-1 rounded-xl text-center transition-all flex flex-col items-center justify-center border cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 ${
                   isSelected
-                    ? 'bg-blue-900 border-blue-900 text-white shadow-xs ring-2 ring-blue-500/50'
+                    ? 'bg-blue-950 border-blue-950 text-white shadow-sm ring-2 ring-blue-500/30'
                     : isAct
                     ? 'bg-emerald-50 hover:bg-emerald-100 border-emerald-400 text-emerald-950 font-black'
                     : isFut
@@ -1074,58 +956,53 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                     : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
                 }`}
               >
-                <span className="text-[10px] uppercase font-bold text-slate-400">
-                  {isAct ? '★ ACTIVE' : isCalCurrent && !isWkOpen ? '🔒 OPENS SUN' : isFut ? '🔒 FUTURE' : 'Wk'}
-                </span>
-                <span className="text-sm font-black flex items-center gap-0.5">
-                  {wk}
-                  {isFut && <Lock className="w-2.5 h-2.5 text-slate-400 inline" />}
-                </span>
-                <span className={`text-[9px] font-bold mt-0.5 ${
-                  isNoRec
-                    ? 'text-amber-700 font-black'
-                    : isAct
-                    ? (isSelected ? 'text-emerald-300' : 'text-emerald-700 font-black')
-                    : weekStats.totalAttendance > 0
-                    ? (isSelected ? 'text-green-300' : 'text-emerald-600')
-                    : 'text-slate-400'
-                }`}>
-                  {isNoRec ? 'NO REC' : isAct ? 'OPEN' : isCalCurrent && !isWkOpen ? 'LOCKED' : weekStats.totalAttendance > 0 ? `${weekStats.totalAttendance} att` : '—'}
-                </span>
+                <span className={`text-[9px] uppercase font-black ${isSelected ? 'text-blue-200' : 'text-slate-400'}`}>Wk</span>
+                <span className="text-sm font-black leading-none">{wk}</span>
+                <span className={`mt-1 h-1.5 w-1.5 rounded-full ${
+                  isNoRec ? 'bg-amber-500' : isAct ? 'bg-emerald-500' : isFut || (isCalCurrent && !isWkOpen) ? 'bg-slate-400' : weekStats.totalAttendance > 0 ? 'bg-blue-500' : 'bg-slate-200'
+                }`} />
               </button>
             );
           })}
         </div>
-      </div>
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-bold text-slate-500" aria-label="Week status legend">
+          <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-blue-500" /> Recorded</span>
+          <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Open</span>
+          <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-slate-400" /> Locked</span>
+          <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> No record</span>
+        </div>
+      </section>
 
       {/* Admin-Published Curriculum Lesson Topic & Memory Verse */}
-      <div className="bg-white border-2 border-slate-200 border-l-4 border-l-blue-900 rounded-xl p-5 shadow-xs">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <section aria-labelledby="lesson-topic-heading" className="relative overflow-hidden bg-gradient-to-br from-[#071b3d] via-[#0d3470] to-[#281b57] border border-blue-700/60 rounded-2xl p-4 sm:p-6 shadow-xl shadow-blue-950/10">
+        <div className="absolute -right-20 -top-20 w-56 h-56 rounded-full bg-amber-300/10 blur-2xl pointer-events-none" />
+        <div className="absolute -left-16 -bottom-24 w-48 h-48 rounded-full bg-cyan-300/10 blur-2xl pointer-events-none" />
+        <div className="relative flex flex-col lg:flex-row lg:items-center justify-between gap-5">
           <div className="space-y-1.5 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[11px] font-black uppercase tracking-wider bg-blue-900 text-amber-300 px-2.5 py-0.5 rounded-md shadow-xs">
-                WEEK {currentLesson.weekNumber} LESSON TOPIC
+              <span className="text-[11px] font-black uppercase tracking-[0.13em] bg-amber-400 text-slate-950 px-2.5 py-1 rounded-lg shadow-sm">
+                Week {currentLesson.weekNumber} · Class register
               </span>
-              <span className="text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 px-2 py-0.5 rounded flex items-center gap-1">
-                <ShieldCheck className="w-3 h-3 text-amber-700" />
+              <span className="text-[10px] font-bold bg-white/10 text-blue-100 border border-white/20 px-2 py-1 rounded-lg flex items-center gap-1 backdrop-blur-sm">
+                <ShieldCheck className="w-3 h-3 text-emerald-300" />
                 <span>Admin-Published Curriculum</span>
               </span>
             </div>
 
-            <h3 className="text-lg sm:text-2xl font-black text-slate-900 tracking-tight">
+            <h3 id="lesson-topic-heading" className="text-xl sm:text-3xl font-black text-white tracking-tight leading-tight max-w-3xl">
               {currentLesson.topic}
             </h3>
 
             {currentLesson.memoryVerse ? (
-              <div className="pt-1 text-xs sm:text-sm text-slate-700 font-medium italic">
-                <span className="font-black not-italic text-blue-950 uppercase tracking-wider text-[11px] mr-1.5">Memory Verse:</span>
+              <div className="pt-1 text-xs sm:text-sm text-blue-100/90 font-medium italic max-w-3xl leading-relaxed">
+                <span className="font-black not-italic text-amber-300 uppercase tracking-wider text-[11px] mr-1.5">Memory Verse:</span>
                 "{currentLesson.memoryVerse}" {currentLesson.memoryVerseRef ? `(${currentLesson.memoryVerseRef})` : ''}
               </div>
             ) : null}
           </div>
 
           {/* Quick Action Toolbar */}
-          <div className="flex flex-wrap items-center gap-2 pt-2 lg:pt-0">
+          <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 pt-1 lg:pt-0 lg:justify-end">
             <button
               id="btn-quick-add-student"
               onClick={() => {
@@ -1136,140 +1013,39 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                 setShowQuickAdd(!showQuickAdd);
               }}
               disabled={isWeekLocked}
-              className="px-3.5 py-2 bg-purple-700 hover:bg-purple-800 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+              className="min-h-[44px] px-3.5 py-2 bg-white/10 hover:bg-white/20 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border border-white/20 shadow-sm transition cursor-pointer backdrop-blur-sm"
             >
               <PlusCircle className="w-4 h-4 text-amber-300" />
-              <span>+ Add New Visitor</span>
-            </button>
-
-            <button
-              id="btn-open-return-modal"
-              onClick={() => setShowReturnModal(true)}
-              className="px-3.5 py-2 bg-blue-900 hover:bg-blue-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
-            >
-              <Share2 className="w-4 h-4 text-amber-300" />
-              <span>Share Return</span>
+              <span>Add visitor</span>
             </button>
 
             <button
               id="btn-print-official-return"
               onClick={() => setShowOfficialPrintModal(true)}
-              className="px-3.5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md transition cursor-pointer"
+              className="min-h-[44px] px-3.5 py-2 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 shadow-md transition cursor-pointer"
               title="Print formatted official weekly Sunday School return for pastors and superintendents"
             >
               <Printer className="w-4 h-4" />
-              <span>Print Official Return</span>
+              <span>Print return</span>
             </button>
 
-            {/* Subtle More Actions Menu for "Mark as No Record" (Item 17) */}
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setShowMoreActions(!showMoreActions)}
-                className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-bold border border-slate-300 transition cursor-pointer"
-                title="More weekly options"
-              >
-                •••
-              </button>
-              {showMoreActions && (
-                <div className="absolute right-0 mt-1 w-56 bg-white border border-slate-200 rounded-xl shadow-xl py-1.5 z-20 animate-in fade-in">
-                  <button
-                    onClick={() => {
-                      setShowMoreActions(false);
-                      handleToggleNoRecord();
-                    }}
-                    disabled={isWeekLocked}
-                    className={`w-full px-3.5 py-2 text-left text-xs font-bold flex items-center gap-2 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer ${
-                      isCurrentWeekNoRecord ? 'text-amber-700' : 'text-slate-700'
-                    }`}
-                  >
-                    <span>{isCurrentWeekNoRecord ? '⚠️ Remove No-Record Flag' : 'Mark Week as No Record'}</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Remit Locked / Changes Mode Banner */}
-      {isRemittedOrAudited && !isChangesModeActive && (
-        <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs animate-fade-in">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-amber-200 text-amber-900 flex items-center justify-center shrink-0">
-              <Lock className="w-5 h-5 text-amber-800" />
-            </div>
-            <div>
-              <h4 className="font-bold text-xs sm:text-sm text-slate-900">
-                This week's record has been remitted and is currently locked.
-              </h4>
-              <p className="text-[11px] text-slate-600">
-                Offering of {currencySymbol}{Number(currentOffering.amount).toLocaleString()} was remitted {currentOffering.remittedAt ? `on ${new Date(currentOffering.remittedAt).toLocaleDateString()}` : ''}.
-              </p>
-            </div>
-          </div>
-          {!isReadOnly && (
-            currentOffering.remittanceStatus === 'AUDITED' ? (
-              <div className="px-3.5 py-2 bg-slate-900 text-emerald-300 border border-emerald-500/40 text-xs font-semibold rounded-xl flex items-center gap-2">
-                <Lock className="w-4 h-4 text-emerald-400" />
-                <span>This record has already been accepted and audited by the Treasurer and is now locked.</span>
-              </div>
-            ) : (
-              <button
-                type="button"
-                id="btn-enter-changes-mode"
-                onClick={() => setIsConfirmChangesModalOpen(true)}
-                className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
-              >
-                <Edit2 className="w-3.5 h-3.5" />
-                <span>MAKE CHANGES</span>
-              </button>
-            )
-          )}
-        </div>
-      )}
-
-      {isChangesModeActive && (
-        <div className="bg-blue-900 text-white rounded-xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg animate-fade-in border-2 border-amber-400">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center shrink-0 font-black">
-              <Sparkles className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="px-2 py-0.5 rounded bg-amber-400 text-slate-950 text-[10px] font-black uppercase tracking-wider">
-                  CHANGES MODE
-                </span>
-                <span className="text-xs text-blue-200 font-bold">Week {selectedWeek}</span>
-              </div>
-              <h4 className="font-bold text-sm text-white mt-0.5">
-                You are editing a previously remitted record.
-              </h4>
-              <p className="text-[11px] text-blue-200">
-                Update offering, attendance, or student scores. When finished, tap "CHANGES DONE" to save and lock again.
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
-              onClick={() => setIsChangesModeActive(false)}
-              className="px-3.5 py-2 bg-blue-800 hover:bg-blue-700 text-blue-100 rounded-xl text-xs font-bold transition cursor-pointer"
+              id="btn-toggle-no-record"
+              onClick={handleToggleNoRecord}
+              disabled={isWeekLocked}
+              className={`col-span-2 sm:col-span-1 min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
+                isCurrentWeekNoRecord
+                  ? 'bg-amber-400 text-slate-950 border-amber-300 hover:bg-amber-300'
+                  : 'bg-white/10 text-white border-white/20 hover:bg-white/20'
+              }`}
             >
-              Cancel
-            </button>
-            <button
-              type="button"
-              id="btn-done-changes-mode"
-              onClick={handleFinishChangesMode}
-              className="px-5 py-2.5 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 text-slate-950 font-black text-xs rounded-xl shadow-md transition flex items-center gap-1.5 cursor-pointer active:scale-95"
-            >
-              <CheckCircle2 className="w-4 h-4 text-slate-950" />
-              <span>CHANGES DONE</span>
+              <Minus className="w-4 h-4" />
+              <span>{isCurrentWeekNoRecord ? 'Restore week' : 'No record'}</span>
             </button>
           </div>
         </div>
-      )}
+      </section>
 
       {/* No Record Week Banner */}
       {isCurrentWeekNoRecord && (
@@ -1374,66 +1150,69 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
         </div>
       )}
 
-      {/* Geometric Balance 4-Column Summary Bar */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        
-        {/* Total Attendance */}
-        <div className="bg-white border border-slate-200 border-l-4 border-l-blue-900 p-4 rounded-xl shadow-xs">
-          <div className="flex items-center justify-between text-slate-400 mb-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Attendance</span>
-            <Users className="w-4 h-4 text-blue-900" />
-          </div>
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-2xl font-black text-slate-900">{weekSummary.totalAttendance}</span>
-            <span className="text-sm font-normal text-slate-500">/ {members.length}</span>
-          </div>
-          <p className="text-[10px] text-slate-500 mt-1 font-semibold">
-            Avg Score: <strong className="text-blue-900">{weekSummary.classAverageScore}</strong> / 50
-          </p>
-        </div>
-
-        {/* Registration Section Split */}
-        <div className="bg-white border border-slate-200 border-l-4 border-l-purple-600 p-4 rounded-xl shadow-xs">
-          <div className="flex items-center justify-between text-slate-400 mb-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Registration Section</span>
-            <Users className="w-4 h-4 text-purple-600" />
-          </div>
-          <div className="flex items-baseline gap-2">
+      {/* Weekly register pulse */}
+      <section aria-label="Week summary" className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+        <div className="bg-white border border-slate-200/90 p-3.5 sm:p-4 rounded-2xl shadow-sm">
+          <div className="flex items-start justify-between gap-2">
             <div>
-              <span className="text-2xl font-black text-slate-900">{weekSummary.studentCount}</span>
-              <span className="text-[10px] text-slate-500 ml-1 font-bold">Students</span>
+              <span className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Attendance</span>
+              <div className="flex items-baseline gap-1.5 mt-1">
+                <span className="text-2xl sm:text-3xl font-black text-slate-950">{weekSummary.totalAttendance}</span>
+                <span className="text-xs sm:text-sm font-bold text-slate-400">of {members.length}</span>
+              </div>
             </div>
-            <span className="text-slate-300">/</span>
-            <div>
-              <span className="text-xl font-black text-purple-600">{weekSummary.visitorCount}</span>
-              <span className="text-[10px] text-slate-500 ml-1 font-bold">Visitors</span>
+            <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-800 flex items-center justify-center shrink-0">
+              <Users className="w-4.5 h-4.5" />
             </div>
           </div>
-          <p className="text-[10px] text-slate-500 mt-1 font-semibold">
-            Ratio: {weekSummary.totalAttendance > 0 ? Math.round((weekSummary.studentCount / weekSummary.totalAttendance) * 100) : 0}% Students
-          </p>
+          <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden mt-3">
+            <div className="h-full rounded-full bg-blue-700 transition-all" style={{ width: `${Math.min(100, attendanceRate)}%` }} />
+          </div>
+          <p className="text-[10px] text-slate-500 mt-1.5 font-semibold">{attendanceRate}% present · Avg {weekSummary.classAverageScore}/50</p>
         </div>
 
-        {/* Visitor Retention */}
-        <div className="bg-white border border-slate-200 border-l-4 border-l-emerald-600 p-4 rounded-xl shadow-xs">
-          <div className="flex items-center justify-between text-slate-400 mb-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Visitors (Today)</span>
-            <UserPlus className="w-4 h-4 text-emerald-600" />
+        <div className="bg-white border border-slate-200/90 p-3.5 sm:p-4 rounded-2xl shadow-sm">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Register progress</span>
+              <div className="flex items-baseline gap-1.5 mt-1">
+                <span className="text-2xl sm:text-3xl font-black text-slate-950">{recordedCount}</span>
+                <span className="text-xs sm:text-sm font-bold text-slate-400">of {members.length}</span>
+              </div>
+            </div>
+            <div className="w-9 h-9 rounded-xl bg-violet-50 text-violet-700 flex items-center justify-center shrink-0">
+              <ClipboardCheck className="w-4.5 h-4.5" />
+            </div>
           </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-black text-slate-900">{weekSummary.visitorCount}</span>
-            <span className="text-sm font-normal text-slate-500">({weekSummary.newVisitorCount} New)</span>
+          <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden mt-3">
+            <div className="h-full rounded-full bg-violet-600 transition-all" style={{ width: `${Math.min(100, registerCompletionRate)}%` }} />
           </div>
-          <p className="text-[10px] text-emerald-700 mt-1 font-bold">
-            {weekSummary.returningVisitorCount > 0 ? `${weekSummary.returningVisitorCount} Returning (Progression Ready)` : 'Welcoming new souls'}
+          <p className="text-[10px] text-slate-500 mt-1.5 font-semibold">{registerCompletionRate}% of roster recorded</p>
+        </div>
+
+        <div className="bg-white border border-slate-200/90 p-3.5 sm:p-4 rounded-2xl shadow-sm">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Visitors today</span>
+              <div className="flex items-baseline gap-1.5 mt-1">
+                <span className="text-2xl sm:text-3xl font-black text-slate-950">{weekSummary.visitorCount}</span>
+                <span className="text-xs font-bold text-emerald-700">{weekSummary.newVisitorCount} new</span>
+              </div>
+            </div>
+            <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0">
+              <UserPlus className="w-4.5 h-4.5" />
+            </div>
+          </div>
+          <p className="text-[10px] text-slate-500 mt-4 font-semibold">
+            {weekSummary.returningVisitorCount > 0 ? `${weekSummary.returningVisitorCount} returning visitor${weekSummary.returningVisitorCount === 1 ? '' : 's'}` : `${weekSummary.studentCount} students present`}
           </p>
         </div>
 
         {/* Total Weekly Offering Input (Nigerian Naira ₦) & Remittance Engine */}
-        <div className="bg-white border border-slate-200 border-l-4 border-l-amber-500 p-4 rounded-xl shadow-xs space-y-2">
+        <div className="bg-white border border-amber-200/90 p-3.5 sm:p-4 rounded-2xl shadow-sm space-y-2">
           <div className="flex items-center justify-between text-slate-400">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Weekly Offering</span>
-            <span className="text-xs font-black text-amber-700">₦ Offering</span>
+            <span className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Weekly offering</span>
+            <span className="text-[10px] font-black text-amber-800 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg">Week {selectedWeek}</span>
           </div>
 
           <div className="flex items-center gap-1.5">
@@ -1520,7 +1299,7 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
           </div>
         </div>
 
-      </div>
+      </section>
 
       {/* Remit Notification Feedback Banner */}
       {remitSuccessMsg && (
@@ -1539,31 +1318,44 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
       )}
 
       {/* Roster Table Filter & Reorder Controls */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
-        <div className="flex items-center gap-2 flex-1">
-          <input
-            type="text"
-            placeholder="Search member by name, phone, occupation..."
-            value={searchFilter}
-            onChange={(e) => setSearchFilter(e.target.value)}
-            className="w-full sm:w-80 bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:border-blue-600"
-          />
+      <section aria-labelledby="weekly-roster-heading" className="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/90 shadow-sm space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 id="weekly-roster-heading" className="text-sm sm:text-base font-black text-slate-950">Weekly roster</h3>
+            <p className="text-[11px] text-slate-500 font-semibold mt-0.5">
+              Showing {filteredMembers.length} of {members.length} people · Week {selectedWeek}
+            </p>
+          </div>
           {lastSavedTimestamp && (
-            <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 shrink-0 animate-fade-in" title="Latest grade entry saved to local database">
+            <span className="inline-flex items-center gap-1 text-[10px] sm:text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 shrink-0 animate-fade-in" title="Latest grade entry saved to local database">
               <Check className="w-3 h-3 text-emerald-600" />
-              <span>Saved locally</span>
+              <span>Saved</span>
             </span>
           )}
         </div>
 
-        <div className="flex items-center gap-2 self-end sm:self-center">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+            <input
+              type="search"
+              aria-label="Search class members"
+              placeholder="Search by name, phone, or occupation"
+              value={searchFilter}
+              onChange={(e) => setSearchFilter(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-9 pr-3 py-2.5 text-xs font-semibold text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+            />
+          </div>
+
+          <div className="flex items-center gap-2 self-end sm:self-center">
           {/* Compact Filter Dropdown */}
           <div className="relative">
             <button
               type="button"
               id="btn-filter-dropdown"
               onClick={() => setIsFilterDropdownOpen(!isFilterDropdownOpen)}
-              className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold border border-slate-300 flex items-center gap-1.5 transition cursor-pointer"
+              aria-expanded={isFilterDropdownOpen}
+              className="min-h-[42px] px-3 py-2 bg-white hover:bg-slate-50 text-slate-800 rounded-xl text-xs font-bold border border-slate-300 flex items-center gap-1.5 transition cursor-pointer"
             >
               <Filter className="w-3.5 h-3.5 text-slate-600" />
               <span>Filter: {typeFilter === 'ALL' ? 'All' : typeFilter === 'STUDENT' ? 'Students' : 'Visitors'} ▾</span>
@@ -1619,15 +1411,16 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
               type="button"
               id="btn-start-reorder"
               onClick={handleStartReorder}
-              className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold border border-slate-300 flex items-center gap-1.5 transition cursor-pointer"
+              className="min-h-[42px] px-3 py-2 bg-white hover:bg-slate-50 text-slate-800 rounded-xl text-xs font-bold border border-slate-300 flex items-center gap-1.5 transition cursor-pointer"
               title="Rearrange members to match the physical handwritten register"
             >
               <ArrowUpDown className="w-3.5 h-3.5 text-slate-600" />
               <span>REORDER</span>
             </button>
           )}
+          </div>
         </div>
-      </div>
+      </section>
 
       {isReorderMode ? (
         <div className="bg-white border-2 border-blue-600 rounded-xl p-4 sm:p-5 shadow-lg space-y-4 animate-fade-in">
@@ -1723,7 +1516,7 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
         </div>
       ) : (
       /* 12-Lesson Member Grading Cards List */
-      <div className="space-y-3">
+      <div className="space-y-3.5">
         {filteredMembers.length === 0 ? (
           <div className="bg-white border border-slate-200 p-8 rounded-xl text-center text-slate-400 shadow-xs">
             <Users className="w-10 h-10 mx-auto mb-2 text-slate-400" />
@@ -1753,19 +1546,21 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
               <div
                 key={member.id}
                 id={`grading-card-${member.id}`}
-                className={`bg-white border rounded-xl p-4 sm:p-5 transition shadow-xs ${
+                className={`group bg-white border rounded-2xl p-3.5 sm:p-5 transition-all shadow-sm hover:shadow-md ${
                   grade.attendance === 'PRESENT'
                     ? 'border-slate-200 border-l-4 border-l-emerald-600'
                     : grade.attendance === 'ABSENT'
-                    ? 'border-slate-200 border-l-4 border-l-[#5c2c16] opacity-90'
-                    : 'border-slate-200 border-l-4 border-l-red-600'
+                    ? 'border-slate-200 border-l-4 border-l-[#8b451f]'
+                    : 'border-slate-200 border-l-4 border-l-rose-600'
                 }`}
               >
-                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div className="grid grid-cols-1 xl:grid-cols-[minmax(250px,1fr)_minmax(310px,auto)_minmax(360px,1.1fr)] xl:items-center gap-4">
                   
                   {/* Member Profile Avatar & Info */}
-                  <div className="flex items-center gap-3.5 min-w-[240px]">
-                    <div className="w-11 h-11 rounded-xl bg-slate-100 border border-slate-300 flex items-center justify-center overflow-hidden shrink-0 shadow-xs">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={`w-11 h-11 sm:w-12 sm:h-12 rounded-2xl border flex items-center justify-center overflow-hidden shrink-0 shadow-sm ${
+                      member.memberType === 'VISITOR' ? 'bg-violet-50 border-violet-200' : 'bg-blue-50 border-blue-200'
+                    }`}>
                       {member.photoBase64 ? (
                         <img
                           src={member.photoBase64}
@@ -1773,15 +1568,15 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                           className="w-full h-full object-cover"
                         />
                       ) : (
-                        <span className="text-sm font-black text-slate-700">
+                          <span className={`text-sm font-black ${member.memberType === 'VISITOR' ? 'text-violet-700' : 'text-blue-800'}`}>
                           {member.fullName.charAt(0)}
                         </span>
                       )}
                     </div>
 
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-bold text-slate-900 text-sm sm:text-base">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                        <h4 className="font-black text-slate-950 text-sm sm:text-base leading-tight truncate max-w-full">
                           {member.fullName}
                         </h4>
                         <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded ${
@@ -1812,12 +1607,12 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
 
                   {/* Attendance Selector Buttons with Specific Color Coding */}
                   {/* Present: Emerald Green | Absent: Deep Brown | Exempt: Red */}
-                  <div className="flex items-center gap-1.5">
+                  <div className="grid grid-cols-3 gap-1.5 w-full xl:w-auto bg-slate-100/80 p-1 rounded-xl border border-slate-200">
                     <button
                       id={`att-present-${member.id}`}
                       onClick={() => handleAttendanceChange(member, 'PRESENT')}
                       disabled={isWeekLocked}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 border active:scale-95 duration-150 disabled:opacity-50 disabled:cursor-not-allowed ${
+                      className={`min-h-[40px] px-2 sm:px-3 py-2 rounded-lg text-[10px] sm:text-xs font-black transition flex items-center justify-center gap-1 sm:gap-1.5 border active:scale-95 duration-150 disabled:opacity-50 disabled:cursor-not-allowed ${
                         grade.attendance === 'PRESENT'
                           ? 'bg-emerald-600 border-emerald-600 text-white shadow-xs'
                           : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
@@ -1831,7 +1626,7 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                       id={`att-absent-${member.id}`}
                       onClick={() => handleAttendanceChange(member, 'ABSENT')}
                       disabled={isWeekLocked}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 border active:scale-95 duration-150 disabled:opacity-50 disabled:cursor-not-allowed ${
+                      className={`min-h-[40px] px-2 sm:px-3 py-2 rounded-lg text-[10px] sm:text-xs font-black transition flex items-center justify-center gap-1 sm:gap-1.5 border active:scale-95 duration-150 disabled:opacity-50 disabled:cursor-not-allowed ${
                         grade.attendance === 'ABSENT'
                           ? 'bg-[#5c2c16] border-[#5c2c16] text-white shadow-xs'
                           : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
@@ -1845,7 +1640,7 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                       id={`att-exempt-${member.id}`}
                       onClick={() => handleAttendanceChange(member, 'EXEMPT')}
                       disabled={isWeekLocked}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 border active:scale-95 duration-150 disabled:opacity-50 disabled:cursor-not-allowed ${
+                      className={`min-h-[40px] px-2 sm:px-3 py-2 rounded-lg text-[10px] sm:text-xs font-black transition flex items-center justify-center gap-1 sm:gap-1.5 border active:scale-95 duration-150 disabled:opacity-50 disabled:cursor-not-allowed ${
                         grade.attendance === 'EXEMPT'
                           ? 'bg-red-600 border-red-600 text-white shadow-xs'
                           : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
@@ -1857,11 +1652,11 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                   </div>
 
                   {/* 4-Tier Grading Inputs (Punctuality 0-15, M Vars 0-15, C Participation 0-20, Total 50) */}
-                  <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                  <div className="grid grid-cols-4 gap-1.5 sm:gap-2 w-full xl:w-auto">
                     
                     {/* Punctuality (0-15) */}
-                    <div className="bg-slate-50 p-2 sm:p-2.5 rounded-lg border border-slate-200 text-center min-w-[76px]">
-                      <span className="text-[10px] font-bold text-slate-500 block mb-0.5">Punctuality</span>
+                    <div className="bg-slate-50 p-2 rounded-xl border border-slate-200 text-center min-w-0">
+                      <span className="text-[9px] sm:text-[10px] font-bold text-slate-500 block mb-1 truncate">Punctuality</span>
                       <div className="flex items-center justify-center gap-1">
                         <ScoreInput
                           id={`score-punctuality-${member.id}`}
@@ -1870,15 +1665,15 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                           disabled={grade.attendance !== 'PRESENT' || isWeekLocked}
                           value={grade.attendance === 'PRESENT' ? grade.punctuality : 0}
                           onChange={(val) => handleScoreChange(member.id, 'punctuality', val, 15)}
-                          className="w-12 h-10 bg-white border-2 border-slate-300 rounded-lg text-center text-sm font-black text-slate-900 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                          className="w-10 sm:w-12 h-10 bg-white border-2 border-slate-300 rounded-lg text-center text-sm font-black text-slate-900 focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                         />
                         <span className="text-[10px] text-slate-400 font-bold">/15</span>
                       </div>
                     </div>
 
                     {/* M Vars (0-15) */}
-                    <div className="bg-slate-50 p-2 sm:p-2.5 rounded-lg border border-slate-200 text-center min-w-[76px]">
-                      <span className="text-[10px] font-bold text-slate-500 block mb-0.5">M Vars</span>
+                    <div className="bg-slate-50 p-2 rounded-xl border border-slate-200 text-center min-w-0">
+                      <span className="text-[9px] sm:text-[10px] font-bold text-slate-500 block mb-1 truncate">Memory</span>
                       <div className="flex items-center justify-center gap-1">
                         <ScoreInput
                           id={`score-memoryverse-${member.id}`}
@@ -1887,15 +1682,15 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                           disabled={grade.attendance !== 'PRESENT' || isWeekLocked}
                           value={grade.attendance === 'PRESENT' ? grade.memoryVerse : 0}
                           onChange={(val) => handleScoreChange(member.id, 'memoryVerse', val, 15)}
-                          className="w-12 h-10 bg-white border-2 border-slate-300 rounded-lg text-center text-sm font-black text-slate-900 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                          className="w-10 sm:w-12 h-10 bg-white border-2 border-slate-300 rounded-lg text-center text-sm font-black text-slate-900 focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                         />
                         <span className="text-[10px] text-slate-400 font-bold">/15</span>
                       </div>
                     </div>
 
                     {/* C Participation (0-20) */}
-                    <div className="bg-slate-50 p-2 sm:p-2.5 rounded-lg border border-slate-200 text-center min-w-[76px]">
-                      <span className="text-[10px] font-bold text-slate-500 block mb-0.5">C Part.</span>
+                    <div className="bg-slate-50 p-2 rounded-xl border border-slate-200 text-center min-w-0">
+                      <span className="text-[9px] sm:text-[10px] font-bold text-slate-500 block mb-1 truncate">Participation</span>
                       <div className="flex items-center justify-center gap-1">
                         <ScoreInput
                           id={`score-participation-${member.id}`}
@@ -1904,20 +1699,20 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                           disabled={grade.attendance !== 'PRESENT' || isWeekLocked}
                           value={grade.attendance === 'PRESENT' ? grade.classParticipation : 0}
                           onChange={(val) => handleScoreChange(member.id, 'classParticipation', val, 20)}
-                          className="w-12 h-10 bg-white border-2 border-slate-300 rounded-lg text-center text-sm font-black text-slate-900 focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                          className="w-10 sm:w-12 h-10 bg-white border-2 border-slate-300 rounded-lg text-center text-sm font-black text-slate-900 focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-100 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                         />
                         <span className="text-[10px] text-slate-400 font-bold">/20</span>
                       </div>
                     </div>
 
                     {/* Auto-Calculated Total (Max 50) */}
-                    <div className="bg-blue-50 p-2 sm:p-2.5 rounded-lg border border-blue-200 text-center min-w-[80px]">
-                      <span className="text-[10px] font-bold text-blue-900 block mb-0.5">Total Score</span>
-                      <div className="flex items-baseline justify-center gap-0.5">
-                        <span className="text-base font-black text-blue-900">
+                    <div className="bg-blue-950 p-2 rounded-xl border border-blue-900 text-center min-w-0 flex flex-col justify-center">
+                      <span className="text-[9px] sm:text-[10px] font-bold text-blue-200 block mb-1 truncate">Total</span>
+                      <div className="flex items-baseline justify-center gap-0.5 min-h-[40px]">
+                        <span className="text-xl font-black text-white self-center">
                           {grade.attendance === 'PRESENT' ? grade.lessonTotal : 0}
                         </span>
-                        <span className="text-[10px] text-blue-600 font-bold">/50</span>
+                        <span className="text-[10px] text-blue-300 font-bold self-center">/50</span>
                       </div>
                     </div>
 
@@ -1927,16 +1722,16 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
 
                 {/* Quick Score Presets & Absent Care Action Bar */}
                 {/* 50: Deep Purple | 40: Royal Blue | 30: Sky Blue */}
-                <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div className="mt-3 p-2.5 sm:p-3 bg-slate-50/90 border border-slate-100 rounded-xl flex flex-col lg:flex-row lg:items-center justify-between gap-3 text-xs">
                   
                   {/* Left: Quick Score Presets with Required Colors */}
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase">Quick Score:</span>
+                  <div className="flex items-center gap-1.5 sm:gap-2 w-full lg:w-auto">
+                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider mr-auto lg:mr-0">Quick score</span>
                     <button
                       id={`btn-score-50-${member.id}`}
                       onClick={() => handleMemberQuickPreset(member.id, 15, 15, 20)}
                       disabled={isWeekLocked || grade.attendance !== 'PRESENT'}
-                      className="px-3 py-1.5 min-h-[36px] min-w-[44px] bg-[#3b0764] hover:bg-[#2e0854] disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 text-white border border-purple-900 rounded-lg text-xs font-black shadow-xs transition duration-150 flex items-center justify-center cursor-pointer"
+                      className="px-3 py-1.5 min-h-[38px] min-w-[44px] bg-[#3b0764] hover:bg-[#2e0854] disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 text-white border border-purple-900 rounded-lg text-xs font-black shadow-xs transition duration-150 flex items-center justify-center cursor-pointer"
                       title="Set 15 + 15 + 20 = 50 pts"
                     >
                       🌟 50
@@ -1994,7 +1789,7 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                   )}
 
                   {/* Right: Spiritual Checklist or Absent WhatsApp Care */}
-                  <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 w-full lg:w-auto justify-between lg:justify-end">
                     {grade.attendance === 'ABSENT' ? (
                       <button
                         onClick={() => handleSendDirectCareWhatsApp(member)}
@@ -2005,8 +1800,8 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                         <span>Send WhatsApp Pastoral Follow-Up</span>
                       </button>
                     ) : (
-                      <div className="flex flex-wrap items-center gap-3 text-slate-600">
-                        <label className={`flex items-center gap-1.5 ${isWeekLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:text-slate-900'}`}>
+                      <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-slate-600">
+                        <label className={`min-h-[36px] px-2.5 bg-white border border-slate-200 rounded-lg flex items-center gap-1.5 ${isWeekLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:text-slate-900 hover:border-slate-300'}`}>
                           <input
                             type="checkbox"
                             disabled={isWeekLocked}
@@ -2017,7 +1812,7 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                           <span className="font-semibold text-[11px]">Prayer Mtg</span>
                         </label>
 
-                        <label className={`flex items-center gap-1.5 ${isWeekLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:text-slate-900'}`}>
+                        <label className={`min-h-[36px] px-2.5 bg-white border border-slate-200 rounded-lg flex items-center gap-1.5 ${isWeekLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:text-slate-900 hover:border-slate-300'}`}>
                           <input
                             type="checkbox"
                             disabled={isWeekLocked}
@@ -2028,7 +1823,7 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                           <span className="font-semibold text-[11px]">WhatsApp Status</span>
                         </label>
 
-                        <label className={`flex items-center gap-1.5 ${isWeekLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:text-slate-900'}`}>
+                        <label className={`min-h-[36px] px-2.5 bg-white border border-slate-200 rounded-lg flex items-center gap-1.5 ${isWeekLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:text-slate-900 hover:border-slate-300'}`}>
                           <input
                             type="checkbox"
                             disabled={isWeekLocked}
@@ -2063,66 +1858,6 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
           })
         )}
       </div>
-      )}
-
-      {/* Weekly Return Share Modal */}
-      {showReturnModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-xs animate-fade-in">
-          <div className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-              <div className="flex items-center gap-2">
-                <Share2 className="w-5 h-5 text-blue-900" />
-                <h3 className="text-base font-black text-slate-900 uppercase tracking-wide font-['Cinzel',serif]">
-                  Weekly Secretary Return — Week {selectedWeek}
-                </h3>
-              </div>
-              <button
-                onClick={() => setShowReturnModal(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-md"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <p className="text-xs text-slate-600">
-              Formatted official return ready to be sent to your Sunday School Superintendent, Church Pastor, or Sunday School WhatsApp group:
-            </p>
-
-            <div className="bg-slate-900 text-slate-100 rounded-xl p-4 font-mono text-xs max-h-64 overflow-y-auto leading-relaxed whitespace-pre-wrap select-all">
-              {generateReturnText()}
-            </div>
-
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
-              <button
-                onClick={() => {
-                  setShowReturnModal(false);
-                  setShowOfficialPrintModal(true);
-                }}
-                className="w-full sm:w-auto px-4 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 text-slate-950 font-black rounded-xl text-xs flex items-center justify-center gap-2 shadow-xs transition"
-              >
-                <Printer className="w-4 h-4" />
-                <span>Open Printable Official Return (A4)</span>
-              </button>
-
-              <div className="flex items-center gap-2 w-full sm:w-auto">
-                <button
-                  onClick={handleCopyReturn}
-                  className="flex-1 sm:flex-none px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition"
-                >
-                  {copiedReturn ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
-                  <span>{copiedReturn ? 'Copied!' : 'Copy Text'}</span>
-                </button>
-                <button
-                  onClick={handleShareWhatsApp}
-                  className="flex-1 sm:flex-none px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition"
-                >
-                  <MessageCircle className="w-4 h-4 text-white" />
-                  <span>Send via WhatsApp</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
       )}
 
       {/* Official Return Printable Modal */}
