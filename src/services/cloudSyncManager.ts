@@ -101,6 +101,7 @@ import {
   QuarterNumber,
   EnrollmentCertificationRecord
 } from '../types';
+import { ScopedTaskCoordinator } from '../utils/scopedTaskCoordinator';
 
 /**
  * SCOPED CLOUD SYNCHRONIZATION & REAL-TIME EVENT STREAMING
@@ -118,8 +119,8 @@ export interface SyncScope {
   targetOversightClassId?: string;
 }
 
-let isHydrating = false;
 let lastHydrationError: string | null = null;
+const hydrationCoordinator = new ScopedTaskCoordinator<{ ok: boolean; error?: string }>();
 let activeUnsubscribes: (() => void)[] = [];
 let currentActiveScopeKey: string | null = null;
 let syncDebounceTimer: number | null = null;
@@ -150,15 +151,27 @@ export async function seedCloudFromLocalIfEmpty(): Promise<void> {
  * Hydrates local IndexedDB from Supabase scoped strictly to the
  * authenticated user's role and classId.
  */
-export async function hydrateLocalFromCloud(scope?: SyncScope): Promise<{ ok: boolean; error?: string }> {
-  if (isHydrating) return { ok: true };
-  isHydrating = true;
+function getScopeKey(scope?: SyncScope): string {
+  return [
+    scope?.roleType || 'anon',
+    scope?.classId || 'noclass',
+    scope?.targetOversightPortal || 'no-oversight',
+    scope?.targetOversightClassId || 'no-oversight-class',
+  ].join(':');
+}
+
+export function hydrateLocalFromCloud(scope?: SyncScope): Promise<{ ok: boolean; error?: string }> {
+  const scopeKey = getScopeKey(scope);
+  return hydrationCoordinator.run(scopeKey, () => performHydration(scope, scopeKey));
+}
+
+async function performHydration(scope: SyncScope | undefined, scopeKey: string): Promise<{ ok: boolean; error?: string }> {
   const role = scope?.roleType || '';
   const classId = scope?.classId;
   const oversightPortal = scope?.targetOversightPortal;
   const oversightClassId = scope?.targetOversightClassId;
 
-  logSyncDiagnostic('HYDRATION_START', { role, classId, oversightPortal, oversightClassId });
+  logSyncDiagnostic('HYDRATION_START', { role, classId, oversightPortal, oversightClassId, scopeKey });
 
   try {
     // 1. Shared core configuration (Lightweight, common to all users)
@@ -364,15 +377,13 @@ export async function hydrateLocalFromCloud(scope?: SyncScope): Promise<{ ok: bo
 
     localStorage.removeItem('gofamint_scratch_mode');
     lastHydrationError = null;
-    logSyncDiagnostic('HYDRATION_COMPLETE', { role, classId });
+    logSyncDiagnostic('HYDRATION_COMPLETE', { role, classId, scopeKey });
     return { ok: true };
   } catch (err: any) {
     const message = err?.message || 'Unknown cloud sync error';
     console.error('[cloud hydration] failed:', err);
     lastHydrationError = message;
     return { ok: false, error: message };
-  } finally {
-    isHydrating = false;
   }
 }
 
@@ -410,7 +421,7 @@ export function stopRealtimeCloudSync(): void {
  * Starts Supabase Realtime listeners scoped strictly to the current user's role.
  * Avoids duplicate listeners if already active for the same role and class scope.
  */
-export function startRealtimeCloudSync(scope: SyncScope, onSyncCallback: () => void): () => void {
+export function startRealtimeCloudSync(scope: SyncScope, onSyncCallback: (stores: string[]) => void): () => void {
   const scopeKey = `${scope.roleType || 'anon'}_${scope.classId || 'noclass'}_${scope.targetOversightPortal || 'noov'}_${scope.targetOversightClassId || 'noovclass'}`;
 
   // Singleton check: If listeners are already active for this exact scope, do not recreate!
@@ -428,10 +439,10 @@ export function startRealtimeCloudSync(scope: SyncScope, onSyncCallback: () => v
       window.clearTimeout(syncDebounceTimer);
     }
     syncDebounceTimer = window.setTimeout(() => {
+      const stores = Array.from(pendingSyncStores);
+      pendingSyncStores.clear();
       try {
         if (typeof window !== 'undefined') {
-          const stores = Array.from(pendingSyncStores);
-          pendingSyncStores.clear();
           const detail = { store: stores.length === 1 ? stores[0] : undefined, stores, source: 'remote' };
           window.dispatchEvent(new CustomEvent('gofamint:sync-update', { detail }));
           if (stores.length === 0 || stores.some(changedStore => ['workers', 'workerAttendance', 'workerPrepAttendance', 'specialEvents', 'specialEventAttendance', 'workerCategories', 'clockInConfig'].includes(changedStore))) {
@@ -441,7 +452,7 @@ export function startRealtimeCloudSync(scope: SyncScope, onSyncCallback: () => v
       } catch (error) {
         console.error('[RealtimeSync] Failed to notify the active views:', error);
       }
-      onSyncCallback();
+      onSyncCallback(stores);
     }, 80);
   };
 

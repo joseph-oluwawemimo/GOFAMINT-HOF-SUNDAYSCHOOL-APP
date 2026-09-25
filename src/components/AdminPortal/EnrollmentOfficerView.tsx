@@ -248,17 +248,34 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
     return matchesDept && matchesSearch;
   });
 
-  // Filtered Totals (Phase 33 Single Source of Truth)
-  const totalEnrolledStudents = filteredRows.reduce((s, r) => s + r.previouslyEnrolledStudents, 0);
-  const totalNewlyEnrolled = filteredRows.reduce((s, r) => s + r.newlyEnrolled, 0);
-  const totalStudents = totalEnrolledStudents + totalNewlyEnrolled;
+  // Canonical Totals across filteredRows for Master Equations
+  // 1. ONBOARDING (Intake History)
+  const filteredNewlyOnboarded = filteredRows.reduce((s, r) => s + (r.newlyOnboarded ?? r.newVisitors), 0);
+  const filteredPreviouslyOnboarded = filteredRows.reduce((s, r) => s + (r.previouslyOnboarded ?? r.onboarded), 0);
+  const filteredTotalOnboarded = filteredNewlyOnboarded + filteredPreviouslyOnboarded;
 
-  const totalVisitorsOnboarded = filteredRows.reduce((s, r) => s + r.onboarded, 0);
-  const totalNewlyOnboarded = filteredRows.reduce((s, r) => s + r.newVisitors, 0);
-  const totalVisitors = totalVisitorsOnboarded + totalNewlyOnboarded;
+  // 2. STATUS - VISITORS
+  const filteredNewVisitors = filteredRows.reduce((s, r) => s + r.newVisitors, 0);
+  const filteredCurrentVisitors = filteredRows.reduce((s, r) => s + (r.currentVisitors ?? (r.currentVisitorCount - r.newVisitors)), 0);
+  const filteredTotalVisitors = filteredNewVisitors + filteredCurrentVisitors;
 
-  const totalClassMembers = totalStudents + totalVisitors;
+  // 3. STATUS - ENROLLMENT
+  const filteredNewlyEnrolled = filteredRows.reduce((s, r) => s + r.newlyEnrolled, 0);
+  const filteredPreviouslyEnrolled = filteredRows.reduce((s, r) => s + (r.previouslyEnrolled ?? r.previouslyEnrolledStudents), 0);
+  const filteredTotalEnrolled = filteredNewlyEnrolled + filteredPreviouslyEnrolled;
+
+  // Master Data-Integrity Verification
+  const isEquationBalanced = filteredTotalOnboarded === (filteredTotalVisitors + filteredTotalEnrolled);
   const totalVisitorToStudent = filteredRows.reduce((s, r) => s + r.visitorToStudent, 0);
+
+  // Backward compatibility aliases
+  const totalEnrolledStudents = filteredPreviouslyEnrolled;
+  const totalNewlyEnrolled = filteredNewlyEnrolled;
+  const totalStudents = filteredTotalEnrolled;
+  const totalVisitorsOnboarded = filteredPreviouslyOnboarded;
+  const totalNewlyOnboarded = filteredNewlyOnboarded;
+  const totalVisitors = filteredTotalVisitors;
+  const totalClassMembers = filteredTotalOnboarded;
 
   // Group Eligible Candidates by Department -> Class (Phase 12 & 34)
   const groupedCandidates = useMemo(() => {
@@ -289,42 +306,62 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
       'Week Number',
       'Class Name',
       'Department',
-      'Previously Enrolled Students',
-      'Onboarded',
+      'Newly Onboarded',
+      'Previously Onboarded',
+      'TOTAL ONBOARDED',
       'New Visitors',
-      'Newly Enrolled (Students)',
-      'Visitor to Student Conversions',
-      'Current Students',
       'Current Visitors',
-      'Total Active Members'
+      'TOTAL VISITORS',
+      'Newly Enrolled (Students)',
+      'Previously Enrolled',
+      'TOTAL ENROLLED',
+      'Visitor to Student Conversions'
     ];
 
-    const dataRows = filteredRows.map(r => [
-      r.weekNumber,
-      `"${r.className}"`,
-      `"${r.department}"`,
-      r.previouslyEnrolledStudents,
-      r.onboarded,
-      r.newVisitors,
-      r.newlyEnrolled,
-      r.visitorToStudent,
-      r.currentStudentCount,
-      r.currentVisitorCount,
-      r.totalActiveClassMembers
-    ]);
+    const dataRows = filteredRows.map(r => {
+      const rowNewOnb = r.newlyOnboarded ?? r.newVisitors;
+      const rowPrevOnb = r.previouslyOnboarded ?? r.onboarded;
+      const rowTotOnb = r.totalOnboarded ?? (rowNewOnb + rowPrevOnb);
+
+      const rowNewVis = r.newVisitors;
+      const rowCurVis = r.currentVisitors ?? (r.currentVisitorCount - r.newVisitors);
+      const rowTotVis = r.totalVisitors ?? (rowNewVis + rowCurVis);
+
+      const rowNewEnr = r.newlyEnrolled;
+      const rowPrevEnr = r.previouslyEnrolled ?? r.previouslyEnrolledStudents;
+      const rowTotEnr = r.totalEnrolled ?? (rowNewEnr + rowPrevEnr);
+
+      return [
+        r.weekNumber,
+        `"${r.className}"`,
+        `"${r.department}"`,
+        rowNewOnb,
+        rowPrevOnb,
+        rowTotOnb,
+        rowNewVis,
+        rowCurVis,
+        rowTotVis,
+        rowNewEnr,
+        rowPrevEnr,
+        rowTotEnr,
+        r.visitorToStudent
+      ];
+    });
 
     const totalsRow = [
       `"Week ${selectedWeek} Totals"`,
       `"ALL CLASSES (${filteredRows.length})"`,
       '""',
-      totalEnrolledStudents,
-      totalVisitorsOnboarded,
-      totalNewlyOnboarded,
-      totalNewlyEnrolled,
-      totalVisitorToStudent,
-      totalStudents,
-      totalVisitors,
-      totalClassMembers
+      filteredNewlyOnboarded,
+      filteredPreviouslyOnboarded,
+      filteredTotalOnboarded,
+      filteredNewVisitors,
+      filteredCurrentVisitors,
+      filteredTotalVisitors,
+      filteredNewlyEnrolled,
+      filteredPreviouslyEnrolled,
+      filteredTotalEnrolled,
+      totalVisitorToStudent
     ];
 
     const csvContent = [headers.join(','), ...dataRows.map(r => r.join(',')), totalsRow.join(',')].join('\n');
@@ -564,42 +601,175 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
         </div>
       </div>
 
-      {/* Primary KPI Highlights Card (Phase 33 Clear Distinctions) */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        <div className="bg-white p-4 rounded-2xl border-2 border-teal-600 shadow-xs">
-          <span className="text-[10px] font-black text-teal-900 uppercase tracking-wider block">Total Students</span>
-          <h3 className="text-xl sm:text-2xl font-black text-teal-950 mt-1">{totalStudents}</h3>
-          <p className="text-[10px] text-teal-700 mt-0.5 font-bold">
-            Enrolled ({totalEnrolledStudents}) + Newly Enrolled ({totalNewlyEnrolled})
-          </p>
+      {/* ========================================================= */}
+      {/* ENROLLMENT / MEMBERSHIP PROGRESSION (PART 4 & PART 10)    */}
+      {/* LEFT = ONBOARDING  |  RIGHT = STATUS                     */}
+      {/* ========================================================= */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        {/* LEFT SIDE: ONBOARDING (INTAKE HISTORY) */}
+        <div className="lg:col-span-5 bg-gradient-to-br from-slate-900 to-teal-950 text-white rounded-3xl p-5 border-2 border-teal-500/40 shadow-lg flex flex-col justify-between space-y-4">
+          <div>
+            <div className="flex items-center justify-between pb-3 border-b border-teal-500/30">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-teal-400 animate-pulse" />
+                <span className="text-xs font-black uppercase tracking-wider text-teal-300">
+                  ONBOARDING (INTAKE HISTORY)
+                </span>
+              </div>
+              <span className="text-[10px] font-bold bg-teal-400/20 text-teal-200 px-2.5 py-0.5 rounded-full border border-teal-400/30">
+                Left Side • Intake Event
+              </span>
+            </div>
+            <p className="text-[11px] text-teal-200/80 mt-2 leading-relaxed">
+              Cumulative intake history of people brought into Sunday Bible School classes. Onboarding never decreases when visitors qualify as students.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-3.5 backdrop-blur-xs">
+              <span className="text-[10px] font-bold text-teal-300 uppercase tracking-wider block">
+                Newly Onboarded
+              </span>
+              <h4 className="text-2xl font-black text-white mt-1">
+                +{filteredNewlyOnboarded}
+              </h4>
+              <p className="text-[10px] text-slate-300 mt-0.5">
+                Added Week {selectedWeek}
+              </p>
+            </div>
+
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-3.5 backdrop-blur-xs">
+              <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider block">
+                Previously Onboarded
+              </span>
+              <h4 className="text-2xl font-black text-white mt-1">
+                {filteredPreviouslyOnboarded}
+              </h4>
+              <p className="text-[10px] text-slate-300 mt-0.5">
+                Prior to Week {selectedWeek}
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-teal-500/20 border-2 border-teal-400/60 rounded-2xl p-4 flex items-center justify-between shadow-inner">
+            <div>
+              <span className="text-[11px] font-black uppercase tracking-wider text-amber-300 block">
+                TOTAL ONBOARDED
+              </span>
+              <span className="text-[10px] text-teal-200 font-medium">
+                Newly ({filteredNewlyOnboarded}) + Previously ({filteredPreviouslyOnboarded})
+              </span>
+            </div>
+            <div className="text-3xl font-black text-white font-mono tracking-tight">
+              {filteredTotalOnboarded}
+            </div>
+          </div>
         </div>
 
-        <div className="bg-white p-4 rounded-2xl border-2 border-purple-500 shadow-xs">
-          <span className="text-[10px] font-black text-purple-900 uppercase tracking-wider block">Total Visitors</span>
-          <h3 className="text-xl sm:text-2xl font-black text-purple-950 mt-1">{totalVisitors}</h3>
-          <p className="text-[10px] text-purple-700 mt-0.5 font-bold">
-            Onboarded ({totalVisitorsOnboarded}) + Newly Onboarded ({totalNewlyOnboarded})
-          </p>
-        </div>
+        {/* RIGHT SIDE: STATUS (CURRENT MEMBERSHIP) */}
+        <div className="lg:col-span-7 bg-white rounded-3xl p-5 border-2 border-slate-200 shadow-lg flex flex-col justify-between space-y-4">
+          <div>
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-purple-600" />
+                <span className="text-xs font-black uppercase tracking-wider text-slate-900">
+                  STATUS (CURRENT CLASSIFICATION)
+                </span>
+              </div>
+              <span className="text-[10px] font-bold bg-slate-100 text-slate-700 px-2.5 py-0.5 rounded-full border border-slate-200">
+                Right Side • Current Population
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-500 mt-2 leading-relaxed">
+              Current active classification of class members split between pre-studentship Visitors and qualified Students.
+            </p>
+          </div>
 
-        <div className="bg-teal-950 text-white p-4 rounded-2xl border-2 border-amber-400 shadow-xs">
-          <span className="text-[10px] font-black text-amber-300 uppercase tracking-wider block">Total Class Members</span>
-          <h3 className="text-xl sm:text-2xl font-black text-amber-300 mt-1">{totalClassMembers}</h3>
-          <p className="text-[10px] text-teal-200 mt-0.5 font-medium">
-            Total Students ({totalStudents}) + Total Visitors ({totalVisitors})
-          </p>
-        </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Visitors Section */}
+            <div className="bg-purple-50/60 rounded-2xl p-4 border border-purple-200/80 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black uppercase tracking-wider text-purple-900">
+                  VISITORS
+                </span>
+                <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-2 py-0.5 rounded-full">
+                  Pre-Studentship
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-center">
+                <div className="bg-white p-2.5 rounded-xl border border-purple-100">
+                  <span className="text-[9px] font-bold text-slate-500 uppercase block">New Visitors</span>
+                  <span className="text-lg font-black text-purple-950">+{filteredNewVisitors}</span>
+                </div>
+                <div className="bg-white p-2.5 rounded-xl border border-purple-100">
+                  <span className="text-[9px] font-bold text-slate-500 uppercase block">Current Visitors</span>
+                  <span className="text-lg font-black text-purple-950">{filteredCurrentVisitors}</span>
+                </div>
+              </div>
+              <div className="bg-purple-900 text-white rounded-xl p-2.5 flex items-center justify-between px-3">
+                <span className="text-[10px] font-black uppercase tracking-wider text-purple-200">
+                  TOTAL VISITORS
+                </span>
+                <span className="text-xl font-black font-mono">{filteredTotalVisitors}</span>
+              </div>
+            </div>
 
-        <div className="bg-amber-400 text-slate-950 p-4 rounded-2xl border border-amber-500 shadow-xs">
-          <span className="text-[10px] font-black uppercase tracking-wider block text-slate-900">Visitor → Student</span>
-          <h3 className="text-xl sm:text-2xl font-black mt-1 text-slate-950">{totalVisitorToStudent}</h3>
-          <p className="text-[10px] font-bold text-slate-800 mt-0.5">Conversions in W{selectedWeek}</p>
+            {/* Enrollment Section */}
+            <div className="bg-emerald-50/60 rounded-2xl p-4 border border-emerald-200/80 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black uppercase tracking-wider text-emerald-900">
+                  ENROLLMENT
+                </span>
+                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                  Qualified Students
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-center">
+                <div className="bg-white p-2.5 rounded-xl border border-emerald-100">
+                  <span className="text-[9px] font-bold text-slate-500 uppercase block">Newly Enrolled</span>
+                  <span className="text-lg font-black text-emerald-900">+{filteredNewlyEnrolled}</span>
+                </div>
+                <div className="bg-white p-2.5 rounded-xl border border-emerald-100">
+                  <span className="text-[9px] font-bold text-slate-500 uppercase block">Previously Enrolled</span>
+                  <span className="text-lg font-black text-slate-800">{filteredPreviouslyEnrolled}</span>
+                </div>
+              </div>
+              <div className="bg-emerald-900 text-white rounded-xl p-2.5 flex items-center justify-between px-3">
+                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-200">
+                  TOTAL ENROLLED
+                </span>
+                <span className="text-xl font-black font-mono">{filteredTotalEnrolled}</span>
+              </div>
+            </div>
+          </div>
         </div>
+      </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Reporting Classes</span>
-          <h3 className="text-xl sm:text-2xl font-black text-slate-800 mt-1">{filteredRows.length}</h3>
-          <p className="text-[10px] text-slate-500 mt-0.5">Week {selectedWeek}, Quarter {selectedQuarter}</p>
+      {/* MASTER DATA-INTEGRITY BALANCING BANNER (PART 5) */}
+      <div className={`p-4 rounded-2xl border text-xs flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs ${
+        isEquationBalanced ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-950' : 'bg-rose-500/10 border-rose-500/30 text-rose-950'
+      }`}>
+        <div className="flex items-center gap-2.5">
+          {isEquationBalanced ? (
+            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+          ) : (
+            <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
+          )}
+          <div>
+            <span className="font-black uppercase tracking-wider text-[11px] block">
+              {isEquationBalanced ? '✓ Master Data-Integrity Balancing Verified' : '⚠ Data Integrity Discrepancy Detected'}
+            </span>
+            <p className="text-[11px] opacity-90 mt-0.5">
+              TOTAL ONBOARDED (<strong>{filteredTotalOnboarded}</strong>) = TOTAL VISITORS (<strong>{filteredTotalVisitors}</strong>) + TOTAL ENROLLED (<strong>{filteredTotalEnrolled}</strong>)
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-[10px] font-mono font-bold bg-white/90 py-1.5 px-3 rounded-xl border border-slate-200 shrink-0 shadow-2xs">
+          <span className="text-teal-900">Onboarding: {filteredNewlyOnboarded} + {filteredPreviouslyOnboarded} = {filteredTotalOnboarded}</span>
+          <span className="text-slate-300">|</span>
+          <span className="text-purple-900">Visitors: {filteredNewVisitors} + {filteredCurrentVisitors} = {filteredTotalVisitors}</span>
+          <span className="text-slate-300">|</span>
+          <span className="text-emerald-900">Enrolled: {filteredNewlyEnrolled} + {filteredPreviouslyEnrolled} = {filteredTotalEnrolled}</span>
         </div>
       </div>
 
@@ -621,7 +791,7 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
                   <span>Weekly Enrollment Table (Week {selectedWeek}, Quarter {selectedQuarter})</span>
                 </h2>
                 <p className="text-xs text-slate-500">
-                  Tracking progression: Enrolled Students, Visitors Onboarded, Newly Enrolled, and Newly Onboarded.
+                  Arranged in two canonical sides: LEFT = Onboarding (Intake History) | RIGHT = Status (Visitors & Enrollment Progression).
                 </p>
               </div>
 
@@ -646,62 +816,94 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
-                    <tr className="bg-slate-900 text-white text-[11px] font-black uppercase tracking-wider">
-                      <th className="p-3.5 pl-4 border-b border-slate-800">Class & Department</th>
-                      <th className="p-3.5 text-center border-b border-slate-800 bg-slate-800/80">Enrolled Students</th>
-                      <th className="p-3.5 text-center border-b border-slate-800 text-teal-300">Visitors Onboarded</th>
-                      <th className="p-3.5 text-center border-b border-slate-800 text-emerald-300">Newly Enrolled</th>
-                      <th className="p-3.5 text-center border-b border-slate-800 text-purple-300">Newly Onboarded</th>
-                      <th className="p-3.5 text-center border-b border-slate-800 text-amber-300">Total Class Members</th>
-                      <th className="p-3.5 pr-4 text-center border-b border-slate-800">Actions</th>
+                    {/* Super Header: Left (Onboarding) vs Right (Status: Visitors + Enrollment) */}
+                    <tr className="bg-slate-900 text-white text-[10px] font-black uppercase tracking-wider border-b border-slate-800">
+                      <th rowSpan={2} className="p-3 pl-4 border-r border-slate-800 align-bottom w-56">Class & Department</th>
+                      <th colSpan={3} className="p-2 text-center border-r border-teal-800 bg-teal-950/80 text-teal-300">
+                        ONBOARDING (INTAKE HISTORY)
+                      </th>
+                      <th colSpan={3} className="p-2 text-center border-r border-purple-800 bg-purple-950/80 text-purple-300">
+                        STATUS: VISITORS
+                      </th>
+                      <th colSpan={3} className="p-2 text-center border-r border-indigo-800 bg-indigo-950/80 text-emerald-300">
+                        STATUS: ENROLLMENT (STUDENTS)
+                      </th>
+                      <th rowSpan={2} className="p-3 pr-4 text-center align-bottom w-28">Actions</th>
+                    </tr>
+                    {/* Sub Headers */}
+                    <tr className="bg-slate-800 text-slate-200 text-[10px] font-bold uppercase tracking-wider border-b border-slate-700">
+                      {/* Onboarding columns */}
+                      <th className="p-2 text-center border-r border-slate-700">Newly Onb</th>
+                      <th className="p-2 text-center border-r border-slate-700">Prev Onb</th>
+                      <th className="p-2 text-center border-r border-slate-700 bg-teal-900/60 text-amber-300 font-black">TOTAL ONB</th>
+                      {/* Visitors columns */}
+                      <th className="p-2 text-center border-r border-slate-700">New Vis</th>
+                      <th className="p-2 text-center border-r border-slate-700">Current Vis</th>
+                      <th className="p-2 text-center border-r border-slate-700 bg-purple-900/60 text-purple-200 font-black">TOTAL VIS</th>
+                      {/* Enrollment columns */}
+                      <th className="p-2 text-center border-r border-slate-700">Newly Enr</th>
+                      <th className="p-2 text-center border-r border-slate-700">Prev Enr</th>
+                      <th className="p-2 text-center border-r border-slate-700 bg-indigo-900/60 text-emerald-300 font-black">TOTAL ENR</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-slate-700">
                     {filteredRows.map((row, idx) => {
-                      const rowTotalStudents = (row.previouslyEnrolledStudents || 0) + (row.newlyEnrolled || 0);
-                      const rowTotalVisitors = (row.onboarded || 0) + (row.newVisitors || 0);
-                      const rowTotalMembers = rowTotalStudents + rowTotalVisitors;
+                      const rowNewOnb = row.newlyOnboarded ?? row.newVisitors;
+                      const rowPrevOnb = row.previouslyOnboarded ?? row.onboarded;
+                      const rowTotOnb = row.totalOnboarded ?? (rowNewOnb + rowPrevOnb);
+
+                      const rowNewVis = row.newVisitors;
+                      const rowCurVis = row.currentVisitors ?? (row.currentVisitorCount - row.newVisitors);
+                      const rowTotVis = row.totalVisitors ?? (rowNewVis + rowCurVis);
+
+                      const rowNewEnr = row.newlyEnrolled;
+                      const rowPrevEnr = row.previouslyEnrolled ?? row.previouslyEnrolledStudents;
+                      const rowTotEnr = row.totalEnrolled ?? (rowNewEnr + rowPrevEnr);
 
                       return (
-                        <tr key={row.classId || idx} className="hover:bg-teal-50/40 transition">
-                          <td className="p-3.5 pl-4">
+                        <tr key={row.classId || idx} className="hover:bg-slate-50/80 transition">
+                          <td className="p-3 pl-4 border-r border-slate-100">
                             <div className="font-black text-slate-900 text-xs">{row.className}</div>
                             <div className="text-[10px] text-slate-400 font-semibold">{row.department}</div>
                           </td>
-                          <td className="p-3.5 text-center font-bold text-slate-800 bg-slate-50/50">
-                            {row.previouslyEnrolledStudents}
+                          {/* Onboarding */}
+                          <td className="p-3 text-center border-r border-slate-100 font-semibold text-slate-700">
+                            {rowNewOnb > 0 ? <span className="text-teal-700 font-bold">+{rowNewOnb}</span> : '0'}
                           </td>
-                          <td className="p-3.5 text-center font-bold text-teal-700">
-                            {row.onboarded > 0 ? (
-                              <span className="bg-teal-100 text-teal-800 px-2.5 py-1 rounded-full font-black">
-                                {row.onboarded}
+                          <td className="p-3 text-center border-r border-slate-100 text-slate-600 font-medium">
+                            {rowPrevOnb}
+                          </td>
+                          <td className="p-3 text-center border-r border-slate-200 font-black bg-teal-50/50 text-teal-950">
+                            {rowTotOnb}
+                          </td>
+                          {/* Visitors */}
+                          <td className="p-3 text-center border-r border-slate-100 font-semibold text-slate-700">
+                            {rowNewVis > 0 ? <span className="text-purple-700 font-bold">+{rowNewVis}</span> : '0'}
+                          </td>
+                          <td className="p-3 text-center border-r border-slate-100 text-slate-600 font-medium">
+                            {rowCurVis}
+                          </td>
+                          <td className="p-3 text-center border-r border-slate-200 font-black bg-purple-50/50 text-purple-950">
+                            {rowTotVis}
+                          </td>
+                          {/* Enrollment */}
+                          <td className="p-3 text-center border-r border-slate-100 font-semibold">
+                            {rowNewEnr > 0 ? (
+                              <span className="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-black text-[11px]">
+                                +{rowNewEnr}
                               </span>
                             ) : (
-                              '0'
+                              <span className="text-slate-400">0</span>
                             )}
                           </td>
-                          <td className="p-3.5 text-center font-black text-emerald-700">
-                            {row.newlyEnrolled > 0 ? (
-                              <span className="bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full font-black">
-                                +{row.newlyEnrolled}
-                              </span>
-                            ) : (
-                              '0'
-                            )}
+                          <td className="p-3 text-center border-r border-slate-100 text-slate-600 font-medium">
+                            {rowPrevEnr}
                           </td>
-                          <td className="p-3.5 text-center font-bold text-purple-700">
-                            {row.newVisitors > 0 ? (
-                              <span className="bg-purple-100 text-purple-800 px-2.5 py-1 rounded-full font-black">
-                                +{row.newVisitors}
-                              </span>
-                            ) : (
-                              '0'
-                            )}
+                          <td className="p-3 text-center border-r border-slate-200 font-black bg-indigo-50/50 text-indigo-950">
+                            {rowTotEnr}
                           </td>
-                          <td className="p-3.5 text-center font-black text-teal-950 bg-teal-50/30">
-                            {rowTotalMembers}
-                          </td>
-                          <td className="p-3.5 pr-4 text-center">
+                          {/* Action */}
+                          <td className="p-3 pr-4 text-center">
                             <button
                               onClick={() => setDrillDownRow(row)}
                               className="px-2.5 py-1 bg-slate-100 hover:bg-teal-100 text-teal-900 rounded-lg font-bold text-[11px] transition inline-flex items-center gap-1 cursor-pointer"
@@ -714,29 +916,45 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
                       );
                     })}
                   </tbody>
-                  {/* Grand Totals Footer (Phase 33) */}
+                  {/* Grand Totals Footer */}
                   <tfoot>
                     <tr className="bg-slate-900 text-white font-black border-t-2 border-slate-700 text-xs">
-                      <td className="p-4 pl-4 uppercase tracking-wider text-amber-300">
-                        TOTAL ({filteredRows.length} Classes)
+                      <td className="p-3.5 pl-4 uppercase tracking-wider text-amber-300 border-r border-slate-800">
+                        GRAND TOTALS ({filteredRows.length})
                       </td>
-                      <td className="p-4 text-center bg-slate-800 text-white font-black">
-                        {totalEnrolledStudents}
+                      {/* Onboarding totals */}
+                      <td className="p-3.5 text-center border-r border-slate-800 text-teal-300">
+                        {filteredNewlyOnboarded}
                       </td>
-                      <td className="p-4 text-center text-teal-300 font-black">
-                        {totalVisitorsOnboarded}
+                      <td className="p-3.5 text-center border-r border-slate-800 text-slate-300">
+                        {filteredPreviouslyOnboarded}
                       </td>
-                      <td className="p-4 text-center text-emerald-300 font-black">
-                        {totalNewlyEnrolled}
+                      <td className="p-3.5 text-center border-r border-slate-700 bg-teal-950 text-amber-300 font-black text-sm">
+                        {filteredTotalOnboarded}
                       </td>
-                      <td className="p-4 text-center text-purple-300 font-black">
-                        {totalNewlyOnboarded}
+                      {/* Visitors totals */}
+                      <td className="p-3.5 text-center border-r border-slate-800 text-purple-300">
+                        {filteredNewVisitors}
                       </td>
-                      <td className="p-4 text-center bg-teal-950 text-amber-300 font-black text-sm">
-                        {totalClassMembers}
+                      <td className="p-3.5 text-center border-r border-slate-800 text-slate-300">
+                        {filteredCurrentVisitors}
                       </td>
-                      <td className="p-4 pr-4 text-center text-slate-400 text-[10px]">
-                        {totalVisitorToStudent} Converted
+                      <td className="p-3.5 text-center border-r border-slate-700 bg-purple-950 text-purple-200 font-black text-sm">
+                        {filteredTotalVisitors}
+                      </td>
+                      {/* Enrollment totals */}
+                      <td className="p-3.5 text-center border-r border-slate-800 text-emerald-300">
+                        {filteredNewlyEnrolled}
+                      </td>
+                      <td className="p-3.5 text-center border-r border-slate-800 text-slate-300">
+                        {filteredPreviouslyEnrolled}
+                      </td>
+                      <td className="p-3.5 text-center border-r border-slate-700 bg-indigo-950 text-emerald-300 font-black text-sm">
+                        {filteredTotalEnrolled}
+                      </td>
+                      {/* Reconciliation flag */}
+                      <td className="p-3.5 pr-4 text-center text-amber-300 font-mono text-[10px]">
+                        {isEquationBalanced ? '✓ Balanced' : '⚠ Discrepancy'}
                       </td>
                     </tr>
                   </tfoot>
@@ -1341,19 +1559,60 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
 
             <div className="p-5 overflow-y-auto space-y-4 text-xs">
               
-              {/* Quick Summary Chips */}
-              <div className="grid grid-cols-3 gap-3 bg-slate-50 p-3.5 rounded-2xl border border-slate-200 text-center">
-                <div>
-                  <span className="text-[10px] text-slate-500 uppercase font-bold block">Current Students</span>
-                  <span className="text-base font-black text-teal-800">{drillDownRow.currentStudentCount}</span>
+              {/* Quick Summary Chips: Two Conceptual Sides */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {/* Onboarding Side */}
+                <div className="bg-teal-50/60 p-3.5 rounded-2xl border border-teal-200">
+                  <span className="text-[10px] text-teal-800 uppercase font-black tracking-wider block mb-2">
+                    ONBOARDING (INTAKE HISTORY)
+                  </span>
+                  <div className="grid grid-cols-3 gap-1 text-center">
+                    <div>
+                      <span className="text-[9px] text-slate-500 font-bold block">Newly Onb</span>
+                      <span className="text-sm font-black text-teal-900">
+                        +{drillDownRow.newlyOnboarded ?? drillDownRow.newVisitors}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] text-slate-500 font-bold block">Prev Onb</span>
+                      <span className="text-sm font-black text-slate-700">
+                        {drillDownRow.previouslyOnboarded ?? drillDownRow.onboarded}
+                      </span>
+                    </div>
+                    <div className="bg-teal-900 text-white rounded-lg p-1">
+                      <span className="text-[8px] text-teal-200 font-bold block">TOTAL ONB</span>
+                      <span className="text-sm font-black">
+                        {drillDownRow.totalOnboarded ?? ((drillDownRow.newlyOnboarded ?? drillDownRow.newVisitors) + (drillDownRow.previouslyOnboarded ?? drillDownRow.onboarded))}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <span className="text-[10px] text-slate-500 uppercase font-bold block">Current Visitors</span>
-                  <span className="text-base font-black text-purple-800">{drillDownRow.currentVisitorCount}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-500 uppercase font-bold block">Total Class Members</span>
-                  <span className="text-base font-black text-slate-900">{drillDownRow.totalActiveClassMembers}</span>
+
+                {/* Status Side */}
+                <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
+                  <span className="text-[10px] text-slate-800 uppercase font-black tracking-wider block mb-2">
+                    STATUS (CURRENT MEMBERSHIP)
+                  </span>
+                  <div className="grid grid-cols-2 gap-2 text-center">
+                    <div className="bg-purple-50 p-2 rounded-xl border border-purple-200">
+                      <span className="text-[9px] text-purple-700 font-bold block">Visitors (Total)</span>
+                      <span className="text-sm font-black text-purple-950">
+                        {drillDownRow.totalVisitors ?? drillDownRow.currentVisitorCount}
+                      </span>
+                      <span className="text-[8px] text-purple-600 block">
+                        New: +{drillDownRow.newVisitors} | Cur: {drillDownRow.currentVisitors ?? (drillDownRow.currentVisitorCount - drillDownRow.newVisitors)}
+                      </span>
+                    </div>
+                    <div className="bg-emerald-50 p-2 rounded-xl border border-emerald-200">
+                      <span className="text-[9px] text-emerald-700 font-bold block">Students (Total)</span>
+                      <span className="text-sm font-black text-emerald-950">
+                        {drillDownRow.totalEnrolled ?? drillDownRow.currentStudentCount}
+                      </span>
+                      <span className="text-[8px] text-emerald-600 block">
+                        New: +{drillDownRow.newlyEnrolled} | Prev: {drillDownRow.previouslyEnrolled ?? drillDownRow.previouslyEnrolledStudents}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -1548,38 +1807,67 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
               <div className="space-y-2">
                 <table className="w-full text-left text-xs border border-slate-400 border-collapse">
                   <thead>
-                    <tr className="bg-slate-200 text-slate-900 font-black text-[10px] uppercase border-b border-slate-400">
-                      <th className="p-2 border-r border-slate-400 text-center">Week</th>
-                      <th className="p-2 border-r border-slate-400">Class & Department</th>
-                      <th className="p-2 border-r border-slate-400 text-center">Previously Enrolled</th>
-                      <th className="p-2 border-r border-slate-400 text-center">Onboarded</th>
-                      <th className="p-2 border-r border-slate-400 text-center">New Visitors</th>
-                      <th className="p-2 border-r border-slate-400 text-center">Newly Enrolled</th>
-                      <th className="p-2 text-center bg-slate-300 font-black">Visitor → Student</th>
+                    <tr className="bg-slate-200 text-slate-900 font-black text-[9px] uppercase border-b border-slate-400">
+                      <th rowSpan={2} className="p-1.5 border-r border-slate-400 text-center">Week</th>
+                      <th rowSpan={2} className="p-1.5 border-r border-slate-400">Class & Department</th>
+                      <th colSpan={3} className="p-1.5 border-r border-slate-400 text-center bg-slate-300">ONBOARDING (INTAKE)</th>
+                      <th colSpan={3} className="p-1.5 border-r border-slate-400 text-center bg-slate-250">STATUS: VISITORS</th>
+                      <th colSpan={3} className="p-1.5 text-center bg-slate-300">STATUS: ENROLLMENT</th>
+                    </tr>
+                    <tr className="bg-slate-100 text-slate-800 font-bold text-[8px] uppercase border-b border-slate-400">
+                      <th className="p-1 border-r border-slate-400 text-center">New Onb</th>
+                      <th className="p-1 border-r border-slate-400 text-center">Prev Onb</th>
+                      <th className="p-1 border-r border-slate-400 text-center font-black">Tot Onb</th>
+                      <th className="p-1 border-r border-slate-400 text-center">New Vis</th>
+                      <th className="p-1 border-r border-slate-400 text-center">Cur Vis</th>
+                      <th className="p-1 border-r border-slate-400 text-center font-black">Tot Vis</th>
+                      <th className="p-1 border-r border-slate-400 text-center">New Enr</th>
+                      <th className="p-1 border-r border-slate-400 text-center">Prev Enr</th>
+                      <th className="p-1 text-center font-black">Tot Enr</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-300">
-                    {filteredRows.map((r, idx) => (
-                      <tr key={idx}>
-                        <td className="p-2 border-r border-slate-300 text-center font-bold">W{r.weekNumber}</td>
-                        <td className="p-2 border-r border-slate-300 font-bold">{r.className} ({r.department})</td>
-                        <td className="p-2 border-r border-slate-300 text-center">{r.previouslyEnrolledStudents}</td>
-                        <td className="p-2 border-r border-slate-300 text-center">{r.onboarded}</td>
-                        <td className="p-2 border-r border-slate-300 text-center">{r.newVisitors}</td>
-                        <td className="p-2 border-r border-slate-300 text-center">{r.newlyEnrolled}</td>
-                        <td className="p-2 text-center font-black bg-slate-100">{r.visitorToStudent}</td>
-                      </tr>
-                    ))}
+                  <tbody className="divide-y divide-slate-300 text-[10px]">
+                    {filteredRows.map((r, idx) => {
+                      const rowNewOnb = r.newlyOnboarded ?? r.newVisitors;
+                      const rowPrevOnb = r.previouslyOnboarded ?? r.onboarded;
+                      const rowTotOnb = r.totalOnboarded ?? (rowNewOnb + rowPrevOnb);
+                      const rowNewVis = r.newVisitors;
+                      const rowCurVis = r.currentVisitors ?? (r.currentVisitorCount - r.newVisitors);
+                      const rowTotVis = r.totalVisitors ?? (rowNewVis + rowCurVis);
+                      const rowNewEnr = r.newlyEnrolled;
+                      const rowPrevEnr = r.previouslyEnrolled ?? r.previouslyEnrolledStudents;
+                      const rowTotEnr = r.totalEnrolled ?? (rowNewEnr + rowPrevEnr);
+
+                      return (
+                        <tr key={idx}>
+                          <td className="p-1.5 border-r border-slate-300 text-center font-bold">W{r.weekNumber}</td>
+                          <td className="p-1.5 border-r border-slate-300 font-bold">{r.className} ({r.department})</td>
+                          <td className="p-1.5 border-r border-slate-300 text-center">{rowNewOnb}</td>
+                          <td className="p-1.5 border-r border-slate-300 text-center">{rowPrevOnb}</td>
+                          <td className="p-1.5 border-r border-slate-300 text-center font-black bg-slate-100">{rowTotOnb}</td>
+                          <td className="p-1.5 border-r border-slate-300 text-center">{rowNewVis}</td>
+                          <td className="p-1.5 border-r border-slate-300 text-center">{rowCurVis}</td>
+                          <td className="p-1.5 border-r border-slate-300 text-center font-black bg-slate-100">{rowTotVis}</td>
+                          <td className="p-1.5 border-r border-slate-300 text-center font-bold text-emerald-800">+{rowNewEnr}</td>
+                          <td className="p-1.5 border-r border-slate-300 text-center">{rowPrevEnr}</td>
+                          <td className="p-1.5 text-center font-black bg-slate-100">{rowTotEnr}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                   <tfoot>
                     <tr className="bg-slate-200 font-black text-xs border-t-2 border-slate-900">
-                      <td className="p-2.5 text-center border-r border-slate-400">W{selectedWeek}</td>
-                      <td className="p-2.5 border-r border-slate-400 uppercase">Grand Totals</td>
-                      <td className="p-2.5 border-r border-slate-400 text-center">{totalEnrolledStudents}</td>
-                      <td className="p-2.5 border-r border-slate-400 text-center">{totalVisitorsOnboarded}</td>
-                      <td className="p-2.5 border-r border-slate-400 text-center">{totalNewlyOnboarded}</td>
-                      <td className="p-2.5 border-r border-slate-400 text-center">{totalNewlyEnrolled}</td>
-                      <td className="p-2.5 text-center bg-slate-300 font-black text-sm">{totalVisitorToStudent} Converted</td>
+                      <td className="p-2 text-center border-r border-slate-400">W{selectedWeek}</td>
+                      <td className="p-2 border-r border-slate-400 uppercase">Grand Totals</td>
+                      <td className="p-2 border-r border-slate-400 text-center">{filteredNewlyOnboarded}</td>
+                      <td className="p-2 border-r border-slate-400 text-center">{filteredPreviouslyOnboarded}</td>
+                      <td className="p-2 border-r border-slate-400 text-center bg-slate-300 font-black">{filteredTotalOnboarded}</td>
+                      <td className="p-2 border-r border-slate-400 text-center">{filteredNewVisitors}</td>
+                      <td className="p-2 border-r border-slate-400 text-center">{filteredCurrentVisitors}</td>
+                      <td className="p-2 border-r border-slate-400 text-center bg-slate-300 font-black">{filteredTotalVisitors}</td>
+                      <td className="p-2 border-r border-slate-400 text-center text-emerald-800 font-black">+{filteredNewlyEnrolled}</td>
+                      <td className="p-2 border-r border-slate-400 text-center">{filteredPreviouslyEnrolled}</td>
+                      <td className="p-2 text-center bg-slate-300 font-black">{filteredTotalEnrolled}</td>
                     </tr>
                   </tfoot>
                 </table>

@@ -88,6 +88,7 @@ import { getCurrentCalendarWeek, getLatestCompletedSundayWeek } from './utils/qu
 import { VisitorProfileCompletionView } from './views/VisitorProfileCompletionView';
 import { StandaloneReportCardView } from './views/StandaloneReportCardView';
 import { backgroundStateManager } from './utils/backgroundStateManager';
+import { shouldResolveProfileForAuthEvent } from './utils/authEventPolicy';
 
 const getVisitorTokenFromUrl = (): string | null => {
   if (typeof window === 'undefined') return null;
@@ -150,6 +151,7 @@ export default function App() {
   const [profileResolution, setProfileResolution] = useState<ProfileResolutionState>('idle');
   const [profileResolutionError, setProfileResolutionError] = useState<string | null>(null);
   const resolvingProfileUserRef = useRef<string | null>(null);
+  const resolvedProfileUserRef = useRef<string | null>(null);
 
   // Profile Lock State (survives page refresh via sessionStorage, preserves Supabase session)
   const [isProfileLocked, setIsProfileLocked] = useState<boolean>(() => {
@@ -165,14 +167,16 @@ export default function App() {
 
   const resolveAuthenticatedProfile = async (user: User) => {
     if (resolvingProfileUserRef.current === user.id) return;
+    const isIdentityChange = resolvedProfileUserRef.current !== user.id;
     resolvingProfileUserRef.current = user.id;
-    setProfileResolution('loading');
+    if (isIdentityChange) setProfileResolution('loading');
     setProfileResolutionError(null);
-    setCurrentUserProfile(null);
+    if (isIdentityChange) setCurrentUserProfile(null);
 
     try {
       let profile = await loadCurrentProfile(user.id);
       if (!profile) {
+        resolvedProfileUserRef.current = user.id;
         setProfileResolution('missing');
         setProfileResolutionError('Your signed-in account has not yet been provisioned with a Supabase application profile.');
         return;
@@ -181,12 +185,14 @@ export default function App() {
       const role = profile.role;
       const isRecognizedRole = ADMIN_PORTAL_ROLES.has(role) || WORKERS_MODULE_ROLES.has(role) || CLASS_PORTAL_ROLES.has(role);
       if (!isRecognizedRole) {
+        resolvedProfileUserRef.current = user.id;
         setProfileResolution('invalid');
         setProfileResolutionError(`Your account has an unsupported role configuration${role ? ` (${role})` : ''}.`);
         return;
       }
 
       setCurrentUserProfile(profile);
+      resolvedProfileUserRef.current = user.id;
       if (!profile.isApproved) {
         setProfileResolution('unapproved');
         setProfileResolutionError('Your account is awaiting approval from the Sunday School Directorate.');
@@ -283,13 +289,22 @@ export default function App() {
         if (isMounted) setIsCheckingAuth(false);
       });
 
-    const unsubscribe = watchAuthState((user) => {
+    const unsubscribe = watchAuthState((user, event) => {
       if (!isMounted) return;
       setCloudUser(user);
       setIsCheckingAuth(false);
       if (user) {
-        void resolveAuthenticatedProfile(user);
+        if (shouldResolveProfileForAuthEvent(
+          event,
+          user.id,
+          resolvedProfileUserRef.current,
+          resolvingProfileUserRef.current
+        )) {
+          void resolveAuthenticatedProfile(user);
+        }
       } else {
+        resolvedProfileUserRef.current = null;
+        resolvingProfileUserRef.current = null;
         setCurrentUserProfile(null);
         setProfileResolution('idle');
         setProfileResolutionError(null);
@@ -305,6 +320,7 @@ export default function App() {
   // Global App States
   const [isInitializing, setIsInitializing] = useState(true);
   const [isSystemInitialized, setIsSystemInitialized] = useState<boolean | null>(null);
+  const [appDataError, setAppDataError] = useState<string | null>(null);
   const [showOpeningPage, setShowOpeningPage] = useState(false);
   const [showAdminPortal, setShowAdminPortal] = useState(false);
   const [showWorkersModule, setShowWorkersModule] = useState(false);
@@ -557,11 +573,13 @@ export default function App() {
   // Supabase (see syncWithCloud below), so the screen reflects whatever is
   // currently the authoritative state — including changes made on other devices.
   const refreshStateFromLocalDB = async () => {
-    const profile = await getClassProfile();
-    const loadedQueue = await getSyncQueue();
-    const loadedLessons = await getAllLessons();
-    const loadedComments = await getAllAdminComments();
-    const loadedYear = await getSundaySchoolYear();
+    const [profile, loadedQueue, loadedLessons, loadedComments, loadedYear] = await Promise.all([
+      getClassProfile(),
+      getSyncQueue(),
+      getAllLessons(),
+      getAllAdminComments(),
+      getSundaySchoolYear(),
+    ]);
 
     setClassProfile(profile);
     setSyncQueue(loadedQueue);
@@ -595,18 +613,18 @@ export default function App() {
   // Initialize IndexedDB and load whatever is in the local cache immediately
   // (works instantly, even offline, even before Supabase Auth has resolved).
   const loadAppData = async () => {
-    // Check system initialization status from server
-    try {
-      const status = await getSystemStatus();
-      setIsSystemInitialized(status.initialized);
-    } catch (error) {
-      // Never expose first-run bootstrap merely because the status service is
-      // temporarily unreachable on an installation that may contain data.
-      console.error('Could not verify system initialization; using the normal sign-in flow:', error);
-      setIsSystemInitialized(true);
-    }
+    // The server status probe must never block cached IndexedDB rendering.
+    void getSystemStatus()
+      .then(status => setIsSystemInitialized(status.initialized))
+      .catch(error => {
+        // Never expose first-run bootstrap merely because the status service is
+        // temporarily unreachable on an installation that may contain data.
+        console.error('Could not verify system initialization; using the normal sign-in flow:', error);
+        setIsSystemInitialized(true);
+      });
 
     try {
+      setAppDataError(null);
       await initDB();
       const profile = await refreshStateFromLocalDB();
 
@@ -629,6 +647,7 @@ export default function App() {
       }
     } catch (err) {
       console.error('Failed to load application data:', err);
+      setAppDataError(err instanceof Error ? err.message : 'The local application database could not be opened.');
     } finally {
       setIsInitializing(false);
     }
@@ -718,14 +737,33 @@ export default function App() {
       targetOversightPortal: realtimeOversightPortal,
       targetOversightClassId: realtimeOversightClassId,
     };
-    const unsubscribeRealtime = startRealtimeCloudSync(scope, async () => {
+    const refreshChangedStores = async (stores: string[] = []) => {
+      if (stores.length === 0) {
+        await refreshStateFromLocalDB();
+        return;
+      }
+
+      const changed = new Set(stores);
+      const tasks: Promise<unknown>[] = [];
+      const classDataStores = ['members', 'grades', 'offerings', 'absenceLogs'];
+      if (classDataStores.some(store => changed.has(store))) {
+        const activeClassId = classProfile?.id || currentUserProfile?.classId;
+        if (activeClassId) tasks.push(loadClassQuarterData(activeClassId, selectedQuarterRef.current));
+      }
+      if (changed.has('lessons')) tasks.push(getAllLessons().then(setLessons));
+      if (changed.has('adminComments')) tasks.push(getAllAdminComments().then(setComments));
+      if (changed.has('sundaySchoolYear')) tasks.push(getSundaySchoolYear().then(setSundaySchoolYear));
+      if (changed.has('classProfile')) tasks.push(getClassProfile().then(setClassProfile));
+      if (changed.has('syncQueue')) tasks.push(getSyncQueue().then(setSyncQueue));
+
+      // Workers views consume their own store-scoped event; avoid re-reading the
+      // class register when only workers data changed.
+      await Promise.all(tasks);
+    };
+
+    const unsubscribeRealtime = startRealtimeCloudSync(scope, async (stores) => {
       try {
-        const freshProfile = await refreshStateFromLocalDB();
-        const activeClassId = freshProfile?.id || classProfile?.id;
-        const currentQ = selectedQuarterRef.current;
-        if (activeClassId) {
-          await loadClassQuarterData(activeClassId, currentQ);
-        }
+        await refreshChangedStores(stores);
         setSyncStatusText('Synced (Real-time Live)');
       } catch (err) {
         console.error('Error handling realtime update:', err);
@@ -739,34 +777,42 @@ export default function App() {
     const handleLocalStoreChange = (event: Event) => {
       const detail = (event as CustomEvent).detail;
       if (detail?.source !== 'local') return;
+      const stores = Array.isArray(detail?.stores)
+        ? detail.stores
+        : detail?.store
+          ? [detail.store]
+          : [];
       window.clearTimeout(localRefreshTimer);
       localRefreshTimer = window.setTimeout(() => {
-        void refreshStateFromLocalDB().catch(error => {
+        void refreshChangedStores(stores).catch(error => {
           console.error('Could not render a locally saved database change:', error);
         });
       }, 50);
     };
     window.addEventListener('gofamint:sync-update', handleLocalStoreChange);
 
-    // Throttled sync: Only sync on focus if at least 15 minutes have passed since last sync.
-    // Realtime WebSocket listeners already keep the app updated in real-time without constant refetches.
+    // Revalidate after meaningful background time. This covers suspended mobile
+    // WebSockets and delete events while keeping quick tab switches instant.
     let lastFocusSyncTime = Date.now();
-    const handleFocus = () => {
+    const handleReturnToApp = () => {
+      if (document.visibilityState === 'hidden') return;
       const now = Date.now();
-      if (now - lastFocusSyncTime > 15 * 60 * 1000) {
+      if (now - lastFocusSyncTime > 30 * 1000) {
         lastFocusSyncTime = now;
-        syncWithCloud(true);
+        void syncWithCloud(true);
       }
     };
-    const handleOnlineReconnect = () => syncWithCloud(true);
-    window.addEventListener('focus', handleFocus);
+    const handleOnlineReconnect = () => void syncWithCloud(true);
+    window.addEventListener('focus', handleReturnToApp);
+    document.addEventListener('visibilitychange', handleReturnToApp);
     window.addEventListener('online', handleOnlineReconnect);
 
     return () => {
       unsubscribeRealtime();
       window.clearTimeout(localRefreshTimer);
       window.removeEventListener('gofamint:sync-update', handleLocalStoreChange);
-      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('focus', handleReturnToApp);
+      document.removeEventListener('visibilitychange', handleReturnToApp);
       window.removeEventListener('online', handleOnlineReconnect);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1484,7 +1530,7 @@ export default function App() {
     );
   }
 
-  if (isCheckingAuth || isSystemInitialized === null) {
+  if (isCheckingAuth) {
     return (
       <div className="min-h-screen bg-blue-950 flex flex-col items-center justify-center text-slate-300 p-4 text-center">
         <div className="w-12 h-12 border-4 border-amber-400 border-t-transparent rounded-full animate-spin mb-4" />
@@ -1513,6 +1559,24 @@ export default function App() {
           THE GOSPEL FAITH MISSION INTL
         </h2>
         <p className="text-xs text-blue-200 mt-1">Initializing Offline IndexedDB Sunday School Secretary Engine...</p>
+      </div>
+    );
+  }
+
+  if (appDataError) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+        <div className="w-full max-w-md rounded-2xl border border-red-500/40 bg-slate-900 p-6 text-center text-white shadow-2xl">
+          <h1 className="text-lg font-black">Local data could not be opened</h1>
+          <p className="mt-2 text-sm text-slate-300">{appDataError}</p>
+          <button
+            type="button"
+            onClick={() => void loadAppData()}
+            className="mt-5 rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-bold text-slate-950 hover:bg-amber-400"
+          >
+            Retry loading data
+          </button>
+        </div>
       </div>
     );
   }

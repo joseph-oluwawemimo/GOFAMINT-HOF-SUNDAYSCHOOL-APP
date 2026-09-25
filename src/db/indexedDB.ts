@@ -3579,13 +3579,13 @@ export async function getRealRecordOfficerCollation(
   const rows: RecordOfficerClassRow[] = [];
 
   for (const cls of approvedClasses) {
-    // Phase 10.5 & 10.7: Retrieve members who belonged to this class historically at this weekNumber
+    // Resolve members who belonged to this class historically at this weekNumber
     const classMembers = allMembers.filter(m => {
       const hist = getStudentClassForWeek(m, weekNumber);
       return hist.classId === cls.id || (!hist.classId && m.classId === cls.id);
     });
 
-    // Phase 10.8 & 10.9: Check approved transfers affecting this class at this specific weekNumber
+    // Check approved transfers affecting this class at this specific weekNumber
     const approvedTransfers = allTransfers.filter(t => t.status === 'APPROVED');
     const transfersInList = approvedTransfers.filter(
       t => (t.destinationClassId === cls.id || t.toClassId === cls.id) &&
@@ -3608,13 +3608,13 @@ export async function getRealRecordOfficerCollation(
       return !!m.quarterEnrollments?.[quarterNumber as QuarterNumber];
     });
 
+    let studentsCount = 0;
+    let visitorsCount = 0;
     let studentPresent = 0;
-    let currentVisitorPresent = 0;
+    let visitorPresent = 0;
+    let studentAbsent = 0;
+    let visitorAbsent = 0;
     let newVisitors = 0;
-    let classMembersAbsent = 0;
-    let registeredCount = 0;
-    let onboardedCount = 0;
-    let exitedCount = 0;
 
     for (const mem of qMembers) {
       const qEnr = mem.quarterEnrollments?.[quarterNumber as QuarterNumber];
@@ -3634,17 +3634,17 @@ export async function getRealRecordOfficerCollation(
         g => g.classId === cls.id && g.quarterNumber === quarterNumber && g.memberId === mem.id && g.weekNumber === weekNumber
       );
 
-      // If explicitly marked EXEMPT for this week, exclude from this week's member calculations completely
+      // If explicitly marked EXEMPT for this week, exclude completely
       if (grade && grade.attendance === 'EXEMPT') {
         continue;
       }
 
       if (hasPermanentlyExitedBy(mem, quarterNumber, weekNumber, status)) {
-        exitedCount++;
         continue;
       }
 
-      // Determine member category at this specific weekNumber
+      // Determine member category at this specific weekNumber (historical integrity):
+      // A member is a STUDENT only if memberType is STUDENT and they did not convert at a LATER lesson.
       let isStudentAtThisWeek = false;
       if (mem.memberType === 'STUDENT') {
         if (convertedWeek && convertedWeek > weekNumber) {
@@ -3656,64 +3656,31 @@ export async function getRealRecordOfficerCollation(
         isStudentAtThisWeek = false;
       }
 
-      const isNewVisitorThisWeek = !isStudentAtThisWeek && (effectiveFirstWeek === weekNumber);
+      const isPresent = grade && !grade.isNoRecordWeek && grade.attendance === 'PRESENT';
 
       if (isStudentAtThisWeek) {
-        registeredCount++;
-        if (grade && !grade.isNoRecordWeek) {
-          if (grade.attendance === 'PRESENT') {
-            studentPresent++;
-          } else if (grade.attendance === 'ABSENT') {
-            classMembersAbsent++;
-          }
-        } else if (!grade) {
-          const hasAnyClassGrades = allGrades.some(g => g.classId === cls.id && g.quarterNumber === quarterNumber && g.weekNumber === weekNumber);
-          if (hasAnyClassGrades) {
-            classMembersAbsent++;
-          }
+        studentsCount++;
+        if (isPresent) {
+          studentPresent++;
+        } else {
+          studentAbsent++;
         }
       } else {
-        // Active Visitor in this week
-        onboardedCount++; // Visitors currently active in class for this week
-
-        if (isNewVisitorThisWeek) {
+        visitorsCount++;
+        if (effectiveFirstWeek === weekNumber) {
           newVisitors++;
-        } else {
-          registeredCount++; // Existing visitor prior to this week's intake
         }
-
-        if (grade && !grade.isNoRecordWeek) {
-          if (grade.attendance === 'PRESENT') {
-            if (isNewVisitorThisWeek) {
-              // New visitor present (counted in newVisitors)
-            } else {
-              currentVisitorPresent++;
-            }
-          } else if (grade.attendance === 'ABSENT') {
-            if (!isNewVisitorThisWeek) {
-              classMembersAbsent++;
-            }
-          }
-        } else if (!grade && !isNewVisitorThisWeek) {
-          const hasAnyClassGrades = allGrades.some(g => g.classId === cls.id && g.quarterNumber === quarterNumber && g.weekNumber === weekNumber);
-          if (hasAnyClassGrades) {
-            classMembersAbsent++;
-          }
+        if (isPresent) {
+          visitorPresent++;
+        } else {
+          visitorAbsent++;
         }
       }
     }
 
-    // New visitor present count is the count of new visitors who attended (or arrived this week)
-    const newVisitorPresent = newVisitors;
-
-    // Strict Formula: TOTAL PRESENT = STUDENTS PRESENT + CURRENT VISITORS PRESENT + NEW VISITORS
-    const totalPresent = studentPresent + currentVisitorPresent + newVisitorPresent;
-
-    // Registered Class Members = Students + Existing Visitors before this week's intake
-    const registeredClassMembers = registeredCount;
-
-    // Ending Active Class Members = Registered + New Visitors - Exited
-    const endingActiveClassMembers = registeredClassMembers + newVisitors - exitedCount;
+    const totalClassMembers = studentsCount + visitorsCount;
+    const totalPresent = studentPresent + visitorPresent;
+    const totalAbsent = studentAbsent + visitorAbsent;
 
     // Offering for this week
     const offeringRecord = allOfferings.find(
@@ -3729,15 +3696,23 @@ export async function getRealRecordOfficerCollation(
       className: cls.className,
       department: cls.department,
       teachersInCharge: cls.teachers?.[0]?.name || cls.secretaryName || 'Assigned Teacher',
+      studentsCount,
+      visitorsCount,
+      totalClassMembers,
       studentPresent,
-      currentVisitorPresent,
-      newVisitors,
-      classMembersAbsent,
+      visitorPresent,
       totalPresent,
-      registeredClassMembers,
-      onboarded: onboardedCount,
-      endingActiveClassMembers,
+      studentAbsent,
+      visitorAbsent,
+      totalAbsent,
       offering,
+      // Compatibility fields
+      currentVisitorPresent: visitorPresent,
+      newVisitors,
+      classMembersAbsent: totalAbsent,
+      registeredClassMembers: totalClassMembers,
+      onboarded: visitorsCount,
+      endingActiveClassMembers: totalClassMembers,
       transfersIn,
       transfersOut,
       transferNotes,
@@ -3746,29 +3721,37 @@ export async function getRealRecordOfficerCollation(
   }
 
   // Grand Totals across all Sunday Bible School classes
+  const totalStudentsCount = rows.reduce((s, r) => s + r.studentsCount, 0);
+  const totalVisitorsCount = rows.reduce((s, r) => s + r.visitorsCount, 0);
+  const totalClassMembers = rows.reduce((s, r) => s + r.totalClassMembers, 0);
   const totalStudentPresent = rows.reduce((s, r) => s + r.studentPresent, 0);
-  const totalCurrentVisitorPresent = rows.reduce((s, r) => s + r.currentVisitorPresent, 0);
-  const totalNewVisitors = rows.reduce((s, r) => s + r.newVisitors, 0);
-  const totalClassMembersAbsent = rows.reduce((s, r) => s + r.classMembersAbsent, 0);
+  const totalVisitorPresent = rows.reduce((s, r) => s + r.visitorPresent, 0);
   const grandTotalPresent = rows.reduce((s, r) => s + r.totalPresent, 0);
-  const totalRegisteredClassMembers = rows.reduce((s, r) => s + r.registeredClassMembers, 0);
-  const totalOnboarded = rows.reduce((s, r) => s + r.onboarded, 0);
+  const totalStudentAbsent = rows.reduce((s, r) => s + r.studentAbsent, 0);
+  const totalVisitorAbsent = rows.reduce((s, r) => s + r.visitorAbsent, 0);
+  const totalClassMembersAbsent = rows.reduce((s, r) => s + r.totalAbsent, 0);
   const totalOffering = rows.reduce((s, r) => s + r.offering, 0);
-  const totalEndingActiveClassMembers = rows.reduce((s, r) => s + r.endingActiveClassMembers, 0);
 
   return {
     quarterNumber,
     weekNumber,
     rows,
+    totalStudentsCount,
+    totalVisitorsCount,
+    totalClassMembers,
     totalStudentPresent,
-    totalCurrentVisitorPresent,
-    totalNewVisitors,
-    totalClassMembersAbsent,
+    totalVisitorPresent,
     grandTotalPresent,
-    totalRegisteredClassMembers,
-    totalOnboarded,
+    totalStudentAbsent,
+    totalVisitorAbsent,
+    totalClassMembersAbsent,
     totalOffering,
-    totalEndingActiveClassMembers
+    // Compatibility fields
+    totalCurrentVisitorPresent: totalVisitorPresent,
+    totalNewVisitors: rows.reduce((s, r) => s + r.newVisitors, 0),
+    totalRegisteredClassMembers: totalClassMembers,
+    totalOnboarded: totalVisitorsCount,
+    totalEndingActiveClassMembers: totalClassMembers
   };
 }
 
@@ -3776,8 +3759,17 @@ export async function getRealRecordOfficerCollation(
  * ENROLLMENT OFFICER REAL-TIME QUERY ENGINE
  * ------------------------------------------
  * Tracks movement from Visitor to Student and onboarding pipeline.
- * Formats weekly class table with:
- * | Week | Class | Previously Enrolled Students | Onboarded | New Visitors | Newly Enrolled | Visitor → Student |
+ * Formats weekly class table with two distinct conceptual sides:
+ * LEFT = ONBOARDING (Newly Onboarded, Previously Onboarded, TOTAL ONBOARDED)
+ * RIGHT = STATUS:
+ *   VISITORS (New Visitors, Current Visitors, TOTAL VISITORS)
+ *   ENROLLMENT (Newly Enrolled, Previously Enrolled, TOTAL ENROLLED)
+ *
+ * Master Data-Integrity Equations:
+ * 1. TOTAL ONBOARDED = NEWLY ONBOARDED + PREVIOUSLY ONBOARDED
+ * 2. TOTAL ENROLLED = NEWLY ENROLLED + PREVIOUSLY ENROLLED
+ * 3. TOTAL VISITORS = NEW VISITORS + CURRENT VISITORS
+ * 4. TOTAL ONBOARDED = TOTAL VISITORS + TOTAL ENROLLED
  */
 export async function getRealEnrollmentOfficerCollation(
   quarterNumber: number = 1,
@@ -3795,13 +3787,9 @@ export async function getRealEnrollmentOfficerCollation(
   }
 
   const rows: EnrollmentOfficerClassRow[] = [];
-  let cumulativeOnboardedAll = 0;
-  let cumulativeEnrollmentAll = 0;
-  let currentStudentsAll = 0;
-  let currentVisitorsAll = 0;
 
   for (const cls of approvedClasses) {
-    // Phase 10.5 & 10.7: Resolve members historically at selectedWeek
+    // Resolve members historically at selectedWeek
     const classMembers = allMembers.filter(m => {
       const hist = getStudentClassForWeek(m, selectedWeek);
       return hist.classId === cls.id || (!hist.classId && m.classId === cls.id);
@@ -3828,71 +3816,91 @@ export async function getRealEnrollmentOfficerCollation(
       return !!m.quarterEnrollments?.[quarterNumber as QuarterNumber];
     });
 
-    let broughtForwardStudents = 0;
-    let previouslyEnrolled = 0;
-    let onboarded = 0;
+    // Determine initial state before Week 1 of this quarter
+    // Members brought forward as students prior to Week 1
+    const broughtForwardStudents = qMembers.filter(m => {
+      const status = m.quarterEnrollments?.[quarterNumber as QuarterNumber]?.status || m.status || 'ACTIVE';
+      if (hasPermanentlyExitedBy(m, quarterNumber, 1, status)) return false;
+      const convertedWeek = m.convertedFromVisitorAtLesson;
+      return m.memberType === 'STUDENT' && (!convertedWeek || convertedWeek < 1);
+    }).length;
+
+    // Members brought forward as visitors prior to Week 1
+    const broughtForwardVisitors = qMembers.filter(m => {
+      const qEnr = m.quarterEnrollments?.[quarterNumber as QuarterNumber];
+      const status = qEnr?.status || m.status || 'ACTIVE';
+      if (hasPermanentlyExitedBy(m, quarterNumber, 1, status)) return false;
+      const firstWeek = qEnr?.firstLessonWeek || m.firstLessonWeek || 1;
+      return m.memberType === 'VISITOR' && firstWeek < 1;
+    }).length;
+
+    let prevTotalOnboarded = broughtForwardStudents + broughtForwardVisitors;
+    let prevTotalVisitors = broughtForwardVisitors;
+    let prevTotalEnrolled = broughtForwardStudents;
+
+    let newlyOnboarded = 0;
+    let previouslyOnboarded = 0;
+    let totalOnboarded = 0;
     let newVisitors = 0;
+    let currentVisitors = 0;
+    let totalVisitors = 0;
     let newlyEnrolled = 0;
+    let previouslyEnrolled = 0;
+    let totalEnrolled = 0;
     const convertedList: ConvertedStudentAudit[] = [];
 
-    let currentStudentCount = 0;
-    let currentVisitorCount = 0;
+    // Week-by-week canonical progression up to selectedWeek
+    for (let w = 1; w <= selectedWeek; w++) {
+      // Newly Onboarded in week w: people added to class during week w
+      const wNewlyOnboardedMembers = qMembers.filter(m => {
+        const qEnr = m.quarterEnrollments?.[quarterNumber as QuarterNumber];
+        const status = qEnr?.status || m.status || 'ACTIVE';
+        if (hasPermanentlyExitedBy(m, quarterNumber, w, status)) return false;
+        const firstWeek = qEnr?.firstLessonWeek || m.firstLessonWeek || 1;
+        return firstWeek === w;
+      });
+      const wNewlyOnboarded = wNewlyOnboardedMembers.length;
+      const wPreviouslyOnboarded = prevTotalOnboarded;
+      const wTotalOnboarded = wNewlyOnboarded + wPreviouslyOnboarded;
 
-    for (const mem of qMembers) {
-      const qEnr = mem.quarterEnrollments?.[quarterNumber as QuarterNumber];
-      const status = qEnr?.status || mem.status || 'ACTIVE';
-      const effectiveFirstWeek = qEnr?.firstLessonWeek || mem.firstLessonWeek || 1;
-      const convertedWeek = mem.convertedFromVisitorAtLesson;
+      // Newly Enrolled in week w: visitors who completed consistency and became students in week w
+      const wNewlyEnrolledMembers = qMembers.filter(m => {
+        const qEnr = m.quarterEnrollments?.[quarterNumber as QuarterNumber];
+        const status = qEnr?.status || m.status || 'ACTIVE';
+        if (hasPermanentlyExitedBy(m, quarterNumber, w, status)) return false;
+        return m.memberType === 'STUDENT' && m.convertedFromVisitorAtLesson === w;
+      });
+      const wNewlyEnrolled = wNewlyEnrolledMembers.length;
+      const wPreviouslyEnrolled = prevTotalEnrolled;
+      const wTotalEnrolled = wNewlyEnrolled + wPreviouslyEnrolled;
 
-      // EXEMPT CRITICAL RULE:
-      // If member entered in a later week, they are EXEMPT for selectedWeek.
-      // Exclude completely from this week's data.
-      if (selectedWeek < effectiveFirstWeek) {
-        continue;
-      }
+      // Visitors in week w:
+      // NEW VISITORS = NEWLY ONBOARDED (all intake enters as visitor)
+      const wNewVisitors = wNewlyOnboarded;
+      // CURRENT VISITORS = PREVIOUS WEEK TOTAL VISITORS - CURRENT WEEK NEWLY ENROLLED
+      const wCurrentVisitors = Math.max(0, prevTotalVisitors - wNewlyEnrolled);
+      // TOTAL VISITORS = NEW VISITORS + CURRENT VISITORS
+      const wTotalVisitors = wNewVisitors + wCurrentVisitors;
 
-      // If explicitly marked EXEMPT for this week, exclude completely
-      const grade = allGrades.find(
-        g => g.classId === cls.id && g.quarterNumber === quarterNumber && g.memberId === mem.id && g.weekNumber === selectedWeek
-      );
-      if (grade && grade.attendance === 'EXEMPT') {
-        continue;
-      }
+      // If this is selectedWeek, capture all values and audits
+      if (w === selectedWeek) {
+        newlyOnboarded = wNewlyOnboarded;
+        previouslyOnboarded = wPreviouslyOnboarded;
+        totalOnboarded = wTotalOnboarded;
+        newVisitors = wNewVisitors;
+        currentVisitors = wCurrentVisitors;
+        totalVisitors = wTotalVisitors;
+        newlyEnrolled = wNewlyEnrolled;
+        previouslyEnrolled = wPreviouslyEnrolled;
+        totalEnrolled = wTotalEnrolled;
 
-      if (hasPermanentlyExitedBy(mem, quarterNumber, selectedWeek, status)) {
-        continue;
-      }
-
-      // Member attendance history across quarter up to selectedWeek
-      const memberGrades = allGrades.filter(
-        g => g.classId === cls.id && g.quarterNumber === quarterNumber && g.memberId === mem.id && g.weekNumber <= selectedWeek && g.attendance === 'PRESENT'
-      );
-      const attendedWeeks = memberGrades.map(g => g.weekNumber).sort((a, b) => a - b);
-
-      // Determine Student vs Visitor status at selectedWeek
-      let isStudentAtSelectedWeek = false;
-      if (mem.memberType === 'STUDENT') {
-        if (convertedWeek && convertedWeek > selectedWeek) {
-          isStudentAtSelectedWeek = false; // had not yet converted at selectedWeek
-        } else {
-          isStudentAtSelectedWeek = true;
-        }
-      } else {
-        isStudentAtSelectedWeek = false;
-      }
-
-      if (isStudentAtSelectedWeek) {
-        currentStudentCount++;
-
-        if (!convertedWeek || convertedWeek < 1) {
-          // Started this quarter as a Student
-          broughtForwardStudents++;
-        } else if (convertedWeek < selectedWeek) {
-          // Previously enrolled in an earlier week of this quarter
-          previouslyEnrolled++;
-        } else if (convertedWeek === selectedWeek) {
-          // Newly enrolled in this current lesson
-          newlyEnrolled++;
+        for (const mem of wNewlyEnrolledMembers) {
+          const qEnr = mem.quarterEnrollments?.[quarterNumber as QuarterNumber];
+          const firstWeek = qEnr?.firstLessonWeek || mem.firstLessonWeek || 1;
+          const memberGrades = allGrades.filter(
+            g => g.classId === cls.id && g.quarterNumber === quarterNumber && g.memberId === mem.id && g.weekNumber <= selectedWeek && g.attendance === 'PRESENT'
+          );
+          const attendedWeeks = memberGrades.map(g => g.weekNumber).sort((a, b) => a - b);
 
           convertedList.push({
             memberId: mem.id,
@@ -3904,7 +3912,7 @@ export async function getRealEnrollmentOfficerCollation(
             conversionWeek: selectedWeek,
             previousStatus: 'VISITOR',
             currentStatus: 'STUDENT',
-            firstLessonWeek: effectiveFirstWeek,
+            firstLessonWeek: firstWeek,
             attendedWeeks,
             consecutiveVisits: memberGrades.length,
             attendanceRate: Math.round((memberGrades.length / selectedWeek) * 100),
@@ -3916,77 +3924,69 @@ export async function getRealEnrollmentOfficerCollation(
             address: mem.address
           });
         }
-      } else {
-        // Active Visitor at selectedWeek
-        currentVisitorCount++;
-        onboarded++; // Existing visitor in the class at selectedWeek
-
-        if (effectiveFirstWeek === selectedWeek) {
-          newVisitors++; // First-time arrival in this current lesson
-        }
       }
-    }
 
-    // Visitor to Student movement accounts for both previously enrolled and newly enrolled
-    const visitorToStudent = previouslyEnrolled + newlyEnrolled;
+      // Carry forward to next week iteration
+      prevTotalOnboarded = wTotalOnboarded;
+      prevTotalVisitors = wTotalVisitors;
+      prevTotalEnrolled = wTotalEnrolled;
+    }
 
     rows.push({
       weekNumber: selectedWeek,
       classId: cls.id,
       className: cls.className,
       department: cls.department,
+      // Canonical Left Side: Onboarding
+      newlyOnboarded,
+      previouslyOnboarded,
+      totalOnboarded,
+      // Canonical Right Side: Visitors
+      newVisitors,
+      currentVisitors,
+      totalVisitors,
+      // Canonical Right Side: Enrollment
+      newlyEnrolled,
+      previouslyEnrolled,
+      totalEnrolled,
+      convertedMembers: convertedList,
+      // Compatibility fields
       broughtForwardStudents,
       previouslyEnrolledStudents: previouslyEnrolled,
-      onboarded,
-      newVisitors,
-      newlyEnrolled,
-      visitorToStudent,
-      convertedMembers: convertedList,
-      currentStudentCount,
-      currentVisitorCount,
-      totalActiveClassMembers: currentStudentCount + currentVisitorCount,
+      onboarded: totalOnboarded,
+      visitorToStudent: newlyEnrolled,
+      currentStudentCount: totalEnrolled,
+      currentVisitorCount: totalVisitors,
+      totalActiveClassMembers: totalVisitors + totalEnrolled,
       transfersIn,
       transfersOut,
       transferNotes
     });
-
-    currentStudentsAll += currentStudentCount;
-    currentVisitorsAll += currentVisitorCount;
-  }
-
-  // Calculate cumulative stats strictly within this quarter up to selectedWeek
-  for (const m of allMembers) {
-    const qEnr = m.quarterEnrollments?.[quarterNumber as QuarterNumber];
-    if (quarterNumber > 1 && !qEnr) continue;
-
-    const firstWeek = qEnr?.firstLessonWeek || m.firstLessonWeek || 1;
-    const convertedWeek = m.convertedFromVisitorAtLesson;
-
-    if (firstWeek <= selectedWeek) {
-      if (m.memberType === 'VISITOR' || (convertedWeek && convertedWeek >= 1)) {
-        cumulativeOnboardedAll++;
-      }
-      if (convertedWeek && convertedWeek <= selectedWeek && convertedWeek >= 1) {
-        cumulativeEnrollmentAll++;
-      }
-    }
   }
 
   const weeklyTotals = {
+    newlyOnboarded: rows.reduce((s, r) => s + r.newlyOnboarded, 0),
+    previouslyOnboarded: rows.reduce((s, r) => s + r.previouslyOnboarded, 0),
+    totalOnboarded: rows.reduce((s, r) => s + r.totalOnboarded, 0),
+    newVisitors: rows.reduce((s, r) => s + r.newVisitors, 0),
+    currentVisitors: rows.reduce((s, r) => s + r.currentVisitors, 0),
+    totalVisitors: rows.reduce((s, r) => s + r.totalVisitors, 0),
+    newlyEnrolled: rows.reduce((s, r) => s + r.newlyEnrolled, 0),
+    previouslyEnrolled: rows.reduce((s, r) => s + r.previouslyEnrolled, 0),
+    totalEnrolled: rows.reduce((s, r) => s + r.totalEnrolled, 0),
+    // Compatibility fields
     broughtForwardStudents: rows.reduce((s, r) => s + r.broughtForwardStudents, 0),
     previouslyEnrolledStudents: rows.reduce((s, r) => s + r.previouslyEnrolledStudents, 0),
     onboarded: rows.reduce((s, r) => s + r.onboarded, 0),
-    newVisitors: rows.reduce((s, r) => s + r.newVisitors, 0),
-    newlyEnrolled: rows.reduce((s, r) => s + r.newlyEnrolled, 0),
     visitorToStudent: rows.reduce((s, r) => s + r.visitorToStudent, 0)
   };
 
   const cumulativeTotals = {
-    cumulativeOnboarded: cumulativeOnboardedAll,
-    cumulativeEnrollment: cumulativeEnrollmentAll,
-    currentStudentPopulation: currentStudentsAll,
-    currentVisitorPopulation: currentVisitorsAll,
-    totalActiveClassMembers: currentStudentsAll + currentVisitorsAll
+    cumulativeOnboarded: weeklyTotals.totalOnboarded,
+    cumulativeEnrollment: weeklyTotals.totalEnrolled,
+    currentStudentPopulation: weeklyTotals.totalEnrolled,
+    currentVisitorPopulation: weeklyTotals.totalVisitors,
+    totalActiveClassMembers: weeklyTotals.totalOnboarded
   };
 
   return {

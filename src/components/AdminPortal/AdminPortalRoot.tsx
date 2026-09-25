@@ -77,6 +77,29 @@ import { DatabaseBackupModal } from '../DatabaseBackupModal';
 import { approveStaffUser, logOversightAccess } from '../../services/adminUserApi';
 import type { ApplicationProfile } from '../../services/profileService';
 import { cloudGetSundaySchoolYear, cloudGetAllAdminProfiles } from '../../services/supabaseDatabase';
+import { usePersistedState } from '../../hooks/usePersistedState';
+
+function buildAdminProfile(authProfile: ApplicationProfile, matchedExisting?: AdminProfile): AdminProfile {
+  const role = authProfile.role as AdminRoleType;
+  return {
+    id: matchedExisting?.id || authProfile.id,
+    roleType: role,
+    title: matchedExisting?.title || (role === 'GENERAL_SECRETARY'
+      ? 'General Secretary ID'
+      : role === 'GENERAL_SUPERINTENDENT'
+        ? 'General Superintendent ID'
+        : `${role.replace(/_/g, ' ')} ID`),
+    profileName: matchedExisting?.profileName || authProfile.displayName || authProfile.email || 'Officer',
+    username: authProfile.email || matchedExisting?.username || 'officer',
+    photoBase64: matchedExisting?.photoBase64,
+    departmentId: authProfile.departmentId || matchedExisting?.departmentId || undefined,
+    isApproved: authProfile.isApproved || matchedExisting?.isApproved === true,
+    approvedBy: authProfile.approvedBy || matchedExisting?.approvedBy || undefined,
+    approvedAt: authProfile.approvedAt || matchedExisting?.approvedAt || undefined,
+    createdAt: matchedExisting?.createdAt || authProfile.createdAt,
+    updatedAt: matchedExisting?.updatedAt || authProfile.createdAt,
+  };
+}
 
 interface AdminPortalRootProps {
   authProfile: ApplicationProfile | null;
@@ -98,28 +121,29 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
   onEnterOversight
 }) => {
   const [adminProfiles, setAdminProfiles] = useState<AdminProfile[]>([]);
-  const [currentAdmin, setCurrentAdmin] = useState<AdminProfile | null>(null);
+  const [currentAdmin, setCurrentAdmin] = useState<AdminProfile | null>(() => authProfile ? buildAdminProfile(authProfile) : null);
   const [sundaySchoolYear, setSundaySchoolYear] = useState<SundaySchoolYear | null>(null);
   const [allClasses, setAllClasses] = useState<ClassProfile[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isPendingApproval, setIsPendingApproval] = useState(false);
+  const [isPendingApproval, setIsPendingApproval] = useState(() => authProfile ? !authProfile.isApproved : false);
   const [profileResolutionError, setProfileResolutionError] = useState<string | null>(null);
   const [oversightAdminProfile, setOversightAdminProfile] = useState<AdminProfile | null>(null);
 
   // GS Sub-tab Navigation state (Jobie active tab)
-  const [gsActiveTab, setGsActiveTab] = useState<'OVERVIEW' | 'PORTAL_OVERSIGHT' | 'CLASS_PORTAL_EXPLORER' | 'ADMIN_APPROVALS' | 'CLASS_APPROVALS' | 'ALL_CLASSES' | 'CLOUD_USERS'>('OVERVIEW');
+  const stateScope = authProfile?.id || 'unresolved';
+  const [gsActiveTab, setGsActiveTab] = usePersistedState<'OVERVIEW' | 'PORTAL_OVERSIGHT' | 'CLASS_PORTAL_EXPLORER' | 'ADMIN_APPROVALS' | 'CLASS_APPROVALS' | 'ALL_CLASSES' | 'CLOUD_USERS'>(`gofamint_admin_${stateScope}_gs_tab`, 'OVERVIEW');
 
   // GSEC Sub-tab Navigation state (Jobie active tab)
-  const [gsecActiveTab, setGsecActiveTab] = useState<'SUNDAY_SCHOOL_SETUP' | 'CLASS_PORTAL_EXPLORER' | 'DEPARTMENTS' | 'CLASS_APPROVALS'>('SUNDAY_SCHOOL_SETUP');
+  const [gsecActiveTab, setGsecActiveTab] = usePersistedState<'SUNDAY_SCHOOL_SETUP' | 'CLASS_PORTAL_EXPLORER' | 'DEPARTMENTS' | 'CLASS_APPROVALS'>(`gofamint_admin_${stateScope}_gsec_tab`, 'SUNDAY_SCHOOL_SETUP');
 
   // Treasurer Sub-tab Navigation state (Jobie active tab)
-  const [treasurerActiveTab, setTreasurerActiveTab] = useState<'OVERVIEW' | 'PENDING_AUDIT' | 'WEEKLY_AUDIT' | 'QUARTERLY_MATRIX' | 'EXPENDITURES' | 'AUDITED_TRAIL' | 'CHILDREN_ACCOUNT'>('OVERVIEW');
+  const [treasurerActiveTab, setTreasurerActiveTab] = usePersistedState<'OVERVIEW' | 'PENDING_AUDIT' | 'WEEKLY_AUDIT' | 'QUARTERLY_MATRIX' | 'EXPENDITURES' | 'AUDITED_TRAIL' | 'CHILDREN_ACCOUNT'>(`gofamint_admin_${stateScope}_treasurer_tab`, 'OVERVIEW');
 
   // Record Officer Sub-tab Navigation state (Jobie active tab)
-  const [recordOfficerActiveTab, setRecordOfficerActiveTab] = useState<'WEEKLY_COLLATION' | 'WEEKLY_ONBOARDED' | 'QUARTER_ANALYSIS' | 'DEPARTED_MEMBERS'>('WEEKLY_COLLATION');
+  const [recordOfficerActiveTab, setRecordOfficerActiveTab] = usePersistedState<'WEEKLY_COLLATION' | 'WEEKLY_ONBOARDED' | 'QUARTER_ANALYSIS' | 'DEPARTED_MEMBERS'>(`gofamint_admin_${stateScope}_record_tab`, 'WEEKLY_COLLATION');
 
   // Assistant General Secretary Sub-tab Navigation state (Jobie active tab)
-  const [asstGsecActiveTab, setAsstGsecActiveTab] = useState<'OVERVIEW' | 'CREATE_CLASSES' | 'CLASS_DIRECTORY' | 'TEACHER_ROSTER'>('OVERVIEW');
+  const [asstGsecActiveTab, setAsstGsecActiveTab] = usePersistedState<'OVERVIEW' | 'CREATE_CLASSES' | 'CLASS_DIRECTORY' | 'TEACHER_ROSTER'>(`gofamint_admin_${stateScope}_asst_tab`, 'OVERVIEW');
 
   // Data Backup / Restore Modal State
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
@@ -128,25 +152,30 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
   const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
 
   // Refresh and load all data from IndexedDB and Supabase.
-  const refreshAdminData = async (silent = false, forceCloudRefresh = true) => {
+  const refreshAdminData = async (silent = false, forceCloudRefresh = false) => {
     if (!silent) {
       setLoading(true);
-      setCurrentAdmin(null);
     }
     setProfileResolutionError(null);
     setIsPendingApproval(false);
     try {
-      let profiles = await getAllAdminProfiles();
-      let year = await getSundaySchoolYear();
-      const classes = await getAllClassesDirectory(forceCloudRefresh);
+      let [profiles, year, classes] = await Promise.all([
+        getAllAdminProfiles(),
+        getSundaySchoolYear(),
+        getAllClassesDirectory(forceCloudRefresh),
+      ]);
 
-      // Merge with cloud admin profiles if accessible
-      try {
-        const cloudProfs = await cloudGetAllAdminProfiles();
-        profiles = cloudProfs || [];
-        await replaceStoreContents('adminProfiles', profiles);
-      } catch (cloudErr) {
-        console.warn('Could not sync cloud admin profiles:', cloudErr);
+      // Normal portal entry is cache-first; the app-level hydration owns cloud
+      // revalidation. Explicit administrative refreshes can still force it.
+      if (forceCloudRefresh) {
+        try {
+          const cloudProfs = await cloudGetAllAdminProfiles();
+          profiles = cloudProfs || [];
+          await replaceStoreContents('adminProfiles', profiles);
+        } catch (cloudErr) {
+          console.error('Could not sync cloud admin profiles:', cloudErr);
+          throw cloudErr;
+        }
       }
 
       const supportedRoles: AdminRoleType[] = [
@@ -173,24 +202,7 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
           (uRole !== 'DEPARTMENT_SUPERINTENDENT' && p.roleType === uRole)
         );
 
-        const activeProfile: AdminProfile = {
-          id: matchedExisting?.id || authProfile.id,
-          roleType: uRole,
-          title: matchedExisting?.title || (uRole === 'GENERAL_SECRETARY'
-            ? 'General Secretary ID'
-            : uRole === 'GENERAL_SUPERINTENDENT'
-            ? 'General Superintendent ID'
-            : `${uRole.replace(/_/g, ' ')} ID`),
-          profileName: matchedExisting?.profileName || authProfile.displayName || authProfile.email || 'Officer',
-          username: authProfile.email || matchedExisting?.username || 'officer',
-          photoBase64: matchedExisting?.photoBase64,
-          departmentId: authProfile.departmentId || matchedExisting?.departmentId || undefined,
-          isApproved: authProfile.isApproved || matchedExisting?.isApproved === true,
-          approvedBy: authProfile.approvedBy || matchedExisting?.approvedBy || undefined,
-          approvedAt: authProfile.approvedAt || matchedExisting?.approvedAt || undefined,
-          createdAt: matchedExisting?.createdAt || authProfile.createdAt,
-          updatedAt: new Date().toISOString()
-        };
+        const activeProfile = buildAdminProfile(authProfile, matchedExisting);
 
         if (!profiles.some(p => p.id === activeProfile.id || p.roleType === uRole)) {
           profiles = [activeProfile, ...profiles];
@@ -291,7 +303,7 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
     }
   };
 
-  if (loading) {
+  if (loading && !currentAdmin) {
     return (
       <div className="min-h-screen bg-[#320b86] flex flex-col items-center justify-center text-white p-4">
         <div className="w-12 h-12 border-4 border-amber-400 border-t-transparent rounded-full animate-spin mb-4" />

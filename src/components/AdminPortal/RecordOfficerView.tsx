@@ -86,6 +86,7 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
   // Class Register Inspection Modal State
   const [inspectedClassRow, setInspectedClassRow] = useState<RecordOfficerClassRow | null>(null);
   const [inspectedClassMembers, setInspectedClassMembers] = useState<any[]>([]);
+  const [inspectFilter, setInspectFilter] = useState<'ALL' | 'PRESENT' | 'ABSENT'>('ALL');
   const [isInspecting, setIsInspecting] = useState(false);
 
   const activeQuarterObj = (safeYear.quarters || []).find(q => q.quarterNumber === selectedQuarter) || safeYear.quarters?.[0] || { totalLessonWeeks: 12, lessons: [] };
@@ -130,10 +131,11 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
   const handleInspectClass = async (row: RecordOfficerClassRow) => {
     setIsInspecting(true);
     setInspectedClassRow(row);
+    setInspectFilter('ALL');
     try {
       const allMems = await getAllMembers();
       const allGrades = await getAllGrades();
-      // Phase 10.5 & 10.7: Resolve membership historically at selectedWeek
+      // Resolve membership historically at selectedWeek
       const classMems = allMems.filter(m => {
         const hist = getStudentClassForWeek(m, selectedWeek);
         return hist.classId === row.classId || (!hist.classId && m.classId === row.classId);
@@ -149,15 +151,19 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
           g => g.classId === row.classId && g.quarterNumber === selectedQuarter && g.memberId === mem.id && g.weekNumber === selectedWeek
         );
 
-        let memberType = qEnr?.memberType || mem.memberType;
-        if (convertedWeek && convertedWeek > selectedWeek) {
-          memberType = 'VISITOR';
+        let memberType: 'STUDENT' | 'VISITOR' = 'VISITOR';
+        if (mem.memberType === 'STUDENT') {
+          if (convertedWeek && convertedWeek > selectedWeek) {
+            memberType = 'VISITOR'; // Still a visitor in earlier weeks
+          } else {
+            memberType = 'STUDENT';
+          }
         }
 
         const isNewVisitor = !isExempt && memberType === 'VISITOR' && firstWeek === selectedWeek;
         const gradeAttendance = isExempt
           ? 'EXEMPT'
-          : (grade ? grade.attendance : 'UNRECORDED');
+          : (grade && !grade.isNoRecordWeek && grade.attendance === 'PRESENT' ? 'PRESENT' : 'ABSENT');
 
         return {
           ...mem,
@@ -168,7 +174,7 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
           gradeAttendance,
           lessonTotal: isExempt ? 0 : (grade ? grade.lessonTotal : 0)
         };
-      });
+      }).filter(m => !m.isExempt);
 
       setInspectedClassMembers(enriched);
     } catch (err) {
@@ -190,16 +196,28 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
     return matchesDept && matchesSearch;
   });
 
-  // Calculate filtered totals
+  // Calculate filtered totals for Concise Record & Composition
+  const filteredStudentsCount = filteredRows.reduce((s, r) => s + (r.studentsCount ?? (r.studentPresent + (r.studentAbsent || 0))), 0);
+  const filteredVisitorsCount = filteredRows.reduce((s, r) => s + (r.visitorsCount ?? ((r.visitorPresent || r.currentVisitorPresent) + (r.visitorAbsent || 0))), 0);
+  const filteredTotalClassMembers = filteredStudentsCount + filteredVisitorsCount;
+
   const filteredStudentPresent = filteredRows.reduce((s, r) => s + r.studentPresent, 0);
-  const filteredCurrentVisitorPresent = filteredRows.reduce((s, r) => s + r.currentVisitorPresent, 0);
-  const filteredNewVisitors = filteredRows.reduce((s, r) => s + r.newVisitors, 0);
-  const filteredClassMembersAbsent = filteredRows.reduce((s, r) => s + r.classMembersAbsent, 0);
-  const filteredTotalPresent = filteredRows.reduce((s, r) => s + r.totalPresent, 0);
-  const filteredRegisteredClassMembers = filteredRows.reduce((s, r) => s + r.registeredClassMembers, 0);
-  const filteredOnboarded = filteredRows.reduce((s, r) => s + r.onboarded, 0);
-  const filteredEndingActive = filteredRows.reduce((s, r) => s + r.endingActiveClassMembers, 0);
+  const filteredVisitorPresent = filteredRows.reduce((s, r) => s + (r.visitorPresent ?? r.currentVisitorPresent), 0);
+  const filteredTotalPresent = filteredStudentPresent + filteredVisitorPresent;
+
+  const filteredStudentAbsent = filteredRows.reduce((s, r) => s + (r.studentAbsent ?? (r.studentsCount - r.studentPresent)), 0);
+  const filteredVisitorAbsent = filteredRows.reduce((s, r) => s + (r.visitorAbsent ?? (r.visitorsCount - (r.visitorPresent || r.currentVisitorPresent))), 0);
+  const filteredTotalAbsent = filteredStudentAbsent + filteredVisitorAbsent;
+
   const filteredOffering = filteredRows.reduce((s, r) => s + r.offering, 0);
+
+  // Compatibility aliases
+  const filteredCurrentVisitorPresent = filteredVisitorPresent;
+  const filteredNewVisitors = filteredRows.reduce((s, r) => s + r.newVisitors, 0);
+  const filteredClassMembersAbsent = filteredTotalAbsent;
+  const filteredRegisteredClassMembers = filteredTotalClassMembers;
+  const filteredOnboarded = filteredVisitorsCount;
+  const filteredEndingActive = filteredTotalClassMembers;
 
   interface DepartmentSummary {
     department: string;
@@ -445,45 +463,56 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
       'Class Name',
       'Department',
       'Teachers in Charge',
-      'Student Present',
-      'Current Visitor Present',
-      'New Visitors',
-      'Class Members Absent',
+      'Students',
+      'Visitors',
+      'Total Class Members',
       'Total Present',
-      'Registered Class Members',
-      'Onboarded',
-      'Ending Active Members',
+      'Students Present',
+      'Visitors Present',
+      'Total Absent',
+      'Students Absent',
+      'Visitors Absent',
       'Offering (NGN)'
     ];
 
-    const dataRows = filteredRows.map(r => [
-      `"${r.className}"`,
-      `"${r.department}"`,
-      `"${r.teachersInCharge}"`,
-      r.studentPresent,
-      r.currentVisitorPresent,
-      r.newVisitors,
-      r.classMembersAbsent,
-      r.totalPresent,
-      r.registeredClassMembers,
-      r.onboarded,
-      r.endingActiveClassMembers,
-      r.offering
-    ]);
+    const dataRows = filteredRows.map(r => {
+      const rowStudents = r.studentsCount ?? (r.studentPresent + (r.studentAbsent || 0));
+      const rowVisitors = r.visitorsCount ?? ((r.visitorPresent || r.currentVisitorPresent) + (r.visitorAbsent || 0));
+      const rowTotal = rowStudents + rowVisitors;
+      const rowPresent = r.totalPresent;
+      const rowAbsent = r.totalAbsent ?? (rowTotal - rowPresent);
+
+      return [
+        `"${r.className}"`,
+        `"${r.department}"`,
+        `"${r.teachersInCharge}"`,
+        rowStudents,
+        rowVisitors,
+        rowTotal,
+        rowPresent,
+        r.studentPresent,
+        r.visitorPresent ?? r.currentVisitorPresent,
+        rowAbsent,
+        r.studentAbsent ?? (rowStudents - r.studentPresent),
+        r.visitorAbsent ?? (rowVisitors - (r.visitorPresent ?? r.currentVisitorPresent)),
+        r.offering
+      ];
+    });
 
     // Grand Totals Row
     const totalsRow = [
       '"GRAND TOTAL (ALL CLASSES)"',
       '""',
       '""',
-      filteredStudentPresent,
-      filteredCurrentVisitorPresent,
-      filteredNewVisitors,
-      filteredClassMembersAbsent,
+      filteredStudentsCount,
+      filteredVisitorsCount,
+      filteredTotalClassMembers,
       filteredTotalPresent,
-      filteredRegisteredClassMembers,
-      filteredOnboarded,
-      filteredEndingActive,
+      filteredStudentPresent,
+      filteredVisitorPresent,
+      filteredTotalAbsent,
+      filteredStudentAbsent,
+      filteredVisitorAbsent,
       filteredOffering
     ];
 
@@ -643,222 +672,326 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
       {/* View Mode: WEEKLY_COLLATION */}
       {activeTab === 'WEEKLY_COLLATION' ? (
         <>
-          {/* Primary KPI Highlights Card */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            <div className="bg-white p-4 rounded-2xl border border-slate-100/80 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Student Present</span>
-                <div className="w-7 h-7 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600">
-                  <Users className="w-3.5 h-3.5" />
+          {/* ========================================================= */}
+          {/* RECORD OFFICER DUAL CONCEPTUAL PANELS (PART 11)           */}
+          {/* LEFT = CLASS SUMMARY  |  RIGHT = WEEKLY RECORD            */}
+          {/* ========================================================= */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+            
+            {/* LEFT PANEL: CLASS SUMMARY (MEMBERSHIP COMPOSITION) */}
+            <div className="lg:col-span-5 bg-gradient-to-br from-[#1e1b4b] via-[#28076e] to-[#3b0764] text-white rounded-3xl p-5 border-2 border-indigo-400/40 shadow-lg flex flex-col justify-between space-y-4">
+              <div>
+                <div className="flex items-center justify-between pb-3 border-b border-indigo-400/30">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-indigo-400 animate-pulse" />
+                    <span className="text-xs font-black uppercase tracking-wider text-indigo-200">
+                      CLASS SUMMARY (MEMBERSHIP)
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-bold bg-indigo-400/20 text-indigo-200 px-2.5 py-0.5 rounded-full border border-indigo-400/30">
+                    Dual Classification
+                  </span>
+                </div>
+                <p className="text-[11px] text-indigo-200/80 mt-2 leading-relaxed">
+                  Total class membership comprised of qualified Students and qualifying Visitors.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-white/10 border border-white/15 rounded-2xl p-3.5 backdrop-blur-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-blue-300 uppercase tracking-wider block">
+                      Students
+                    </span>
+                    <Users className="w-3.5 h-3.5 text-blue-300" />
+                  </div>
+                  <h4 className="text-2xl font-black text-white mt-1">
+                    {filteredStudentsCount}
+                  </h4>
+                  <p className="text-[10px] text-indigo-200 mt-0.5">
+                    Enrolled Students
+                  </p>
+                </div>
+
+                <div className="bg-white/10 border border-white/15 rounded-2xl p-3.5 backdrop-blur-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-purple-300 uppercase tracking-wider block">
+                      Visitors
+                    </span>
+                    <UserCheck className="w-3.5 h-3.5 text-purple-300" />
+                  </div>
+                  <h4 className="text-2xl font-black text-white mt-1">
+                    {filteredVisitorsCount}
+                  </h4>
+                  <p className="text-[10px] text-indigo-200 mt-0.5">
+                    Qualifying Learners
+                  </p>
                 </div>
               </div>
-              <h3 className="text-xl sm:text-2xl font-black text-slate-900 mt-2">{filteredStudentPresent}</h3>
-              <p className="text-[11px] text-slate-500 mt-0.5">Enrolled Learners</p>
-            </div>
 
-            <div className="bg-white p-4 rounded-2xl border border-slate-100/80 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Visitor Present</span>
-                <div className="w-7 h-7 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
-                  <UserCheck className="w-3.5 h-3.5" />
+              <div className="bg-white/10 border-2 border-amber-400/60 rounded-2xl p-4 flex items-center justify-between shadow-inner">
+                <div>
+                  <span className="text-[11px] font-black uppercase tracking-wider text-amber-300 block">
+                    TOTAL CLASS MEMBERS
+                  </span>
+                  <span className="text-[10px] text-indigo-200 font-medium">
+                    Students ({filteredStudentsCount}) + Visitors ({filteredVisitorsCount})
+                  </span>
+                </div>
+                <div className="text-3xl font-black text-amber-300 font-mono tracking-tight">
+                  {filteredTotalClassMembers}
                 </div>
               </div>
-              <h3 className="text-xl sm:text-2xl font-black text-indigo-700 mt-2">{filteredCurrentVisitorPresent}</h3>
-              <p className="text-[11px] text-indigo-500 mt-0.5">Existing Visitors</p>
             </div>
 
-            <div className="bg-white p-4 rounded-2xl border border-slate-100/80 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">New Visitors</span>
-                <div className="w-7 h-7 rounded-lg bg-purple-50 flex items-center justify-center text-[#320b86]">
-                  <UserPlus className="w-3.5 h-3.5" />
+            {/* RIGHT PANEL: WEEKLY RECORD (ATTENDANCE & RETURNS) */}
+            <div className="lg:col-span-7 bg-white rounded-3xl p-5 border-2 border-slate-200 shadow-lg flex flex-col justify-between space-y-4">
+              <div>
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-600" />
+                    <span className="text-xs font-black uppercase tracking-wider text-slate-900">
+                      WEEKLY RECORD (WEEK {selectedWeek} RETURN)
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-bold bg-slate-100 text-slate-700 px-2.5 py-0.5 rounded-full border border-slate-200">
+                    Live Register Returns
+                  </span>
                 </div>
+                <p className="text-[11px] text-slate-500 mt-2 leading-relaxed">
+                  Real-time collation of learners present, absentees, and weekly Sunday Bible School offering.
+                </p>
               </div>
-              <h3 className="text-xl sm:text-2xl font-black text-[#320b86] mt-2">{filteredNewVisitors}</h3>
-              <p className="text-[11px] text-purple-500 mt-0.5">First-Time Visitors</p>
-            </div>
 
-            <div className="bg-white p-4 rounded-2xl border border-slate-100/80 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Absent</span>
-                <div className="w-7 h-7 rounded-lg bg-rose-50 flex items-center justify-center text-rose-600">
-                  <UserX className="w-3.5 h-3.5" />
-                </div>
-              </div>
-              <h3 className="text-xl sm:text-2xl font-black text-rose-700 mt-2">{filteredClassMembersAbsent}</h3>
-              <p className="text-[11px] text-rose-500 mt-0.5">Existing Absentees</p>
-            </div>
-
-            <div className="bg-gradient-to-br from-[#20055b] to-[#320b86] text-white p-4 rounded-2xl shadow-md">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-black text-purple-200 uppercase tracking-wider block">Total Present</span>
-                <div className="w-7 h-7 rounded-lg bg-white/15 flex items-center justify-center text-amber-300">
-                  <Sparkles className="w-3.5 h-3.5" />
-                </div>
-              </div>
-              <h3 className="text-xl sm:text-2xl font-black text-amber-300 mt-2">{filteredTotalPresent}</h3>
-              <p className="text-[11px] text-purple-200 mt-0.5">Std + Vis + New</p>
-            </div>
-
-            <div className="bg-white p-4 rounded-2xl border border-emerald-100 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-black text-emerald-700 uppercase tracking-wider block">Total Offering</span>
-                <div className="w-7 h-7 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600">
-                  <Coins className="w-3.5 h-3.5" />
-                </div>
-              </div>
-              <h3 className="text-xl sm:text-2xl font-black text-emerald-700 mt-2">₦{filteredOffering.toLocaleString()}</h3>
-              <p className="text-[11px] text-emerald-600 mt-0.5">Week {selectedWeek} Offering</p>
-            </div>
-          </div>
-
-      {/* Main Weekly Collation Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        
-        <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
-          <div className="space-y-0.5">
-            <h2 className="text-base sm:text-lg font-black text-slate-900 flex items-center gap-2">
-              <FileSpreadsheet className="w-5 h-5 text-indigo-600" />
-              <span>Weekly Class Collation Table (Week {selectedWeek}, Q{selectedQuarter})</span>
-            </h2>
-            <p className="text-xs text-slate-500">
-              Direct live collation from individual Class Registers. Total Present = Student Present + Current Visitor Present + New Visitors.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-lg">
-              Reporting Classes: <strong>{filteredRows.length}</strong>
-            </span>
-          </div>
-        </div>
-
-        {isLoading ? (
-          <div className="p-12 text-center text-slate-400 text-xs">
-            <div className="inline-block w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-3"></div>
-            <p>Collating live Class Register returns...</p>
-          </div>
-        ) : filteredRows.length === 0 ? (
-          <div className="p-12 text-center text-slate-500 text-xs space-y-2">
-            <AlertCircle className="w-8 h-8 text-amber-500 mx-auto" />
-            <p className="font-bold text-slate-700">No class records found for Week {selectedWeek}, Quarter {selectedQuarter}.</p>
-            <p className="text-slate-400">Class secretaries submit their attendance and offering directly through their Class Registers.</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-slate-900 text-white text-[11px] font-black uppercase tracking-wider">
-                  <th className="p-3.5 pl-4 border-b border-slate-800">Class & Department</th>
-                  <th className="p-3.5 text-center border-b border-slate-800 bg-indigo-900/90 text-amber-300">TOTAL PRESENT</th>
-                  <th className="p-3.5 text-center border-b border-slate-800 text-rose-300">TOTAL ABSENT</th>
-                  <th className="p-3.5 text-center border-b border-slate-800">REGISTERED CLASS MEMBERS</th>
-                  <th className="p-3.5 text-center border-b border-slate-800 text-teal-300">TOTAL ONBOARDED</th>
-                  <th className="p-3.5 text-center border-b border-slate-800 bg-slate-800/80">ENROLLED</th>
-                  <th className="p-3.5 text-center border-b border-slate-800 text-amber-200">TOTAL CLASS MEMBERS</th>
-                  <th className="p-3.5 text-center border-b border-slate-800">CLASS COUNT</th>
-                  <th className="p-3.5 pr-4 text-center border-b border-slate-800">ACTIONS</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700">
-                {filteredRows.map((row, idx) => (
-                  <tr key={row.classId || idx} className="hover:bg-indigo-50/40 transition">
-                    <td className="p-3.5 pl-4">
-                      <div className="font-black text-slate-900 text-xs">{row.className}</div>
-                      <div className="text-[10px] text-slate-400 font-semibold">{row.department} • {row.teachersInCharge}</div>
-                      {/* Phase 10.8 & 10.9: Transfer stats and audit notes */}
-                      {Boolean(row.transfersIn) && (
-                        <span className="inline-block mt-1 px-1.5 py-0.2 bg-emerald-100 text-emerald-800 text-[10px] font-black rounded mr-1">
-                          +{row.transfersIn} transfer in
-                        </span>
-                      )}
-                      {Boolean(row.transfersOut) && (
-                        <span className="inline-block mt-1 px-1.5 py-0.2 bg-rose-100 text-rose-800 text-[10px] font-black rounded mr-1">
-                          -{row.transfersOut} transfer out
-                        </span>
-                      )}
-                      {row.transferNotes && row.transferNotes.length > 0 && (
-                        <div className="text-[9px] text-indigo-700 italic mt-0.5">
-                          {row.transferNotes.join(' • ')}
-                        </div>
-                      )}
-                    </td>
-                    <td className="p-3.5 text-center font-black text-indigo-950 bg-indigo-50/80 text-sm">
-                      {row.totalPresent}
-                    </td>
-                    <td className="p-3.5 text-center font-semibold text-rose-700">
-                      {row.classMembersAbsent}
-                    </td>
-                    <td className="p-3.5 text-center font-bold text-slate-800">
-                      {row.registeredClassMembers}
-                    </td>
-                    <td className="p-3.5 text-center font-bold text-teal-700">
-                      {row.onboarded > 0 ? (
-                        <span className="bg-teal-100 text-teal-800 px-2.5 py-1 rounded-full font-black">
-                          {row.onboarded}
-                        </span>
-                      ) : (
-                        '0'
-                      )}
-                    </td>
-                    <td className="p-3.5 text-center font-bold text-slate-800 bg-slate-50/50">
-                      {row.studentPresent}
-                    </td>
-                    <td className="p-3.5 text-center font-black text-slate-900 bg-amber-50/40">
-                      {row.endingActiveClassMembers || row.registeredClassMembers}
-                    </td>
-                    <td className="p-3.5 text-center text-slate-500 font-medium">
-                      Class {idx + 1} of {filteredRows.length}
-                    </td>
-                    <td className="p-3.5 pr-4 text-center">
-                      <button
-                        onClick={() => handleInspectClass(row)}
-                        className="px-2.5 py-1 bg-slate-100 hover:bg-indigo-100 text-indigo-900 rounded-lg font-bold text-[11px] transition inline-flex items-center gap-1 cursor-pointer"
-                        title="View Class Register Roster"
-                      >
-                        <Eye className="w-3 h-3" />
-                        <span>Inspect</span>
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              {/* Grand Totals Footer (Phase 40) */}
-              <tfoot>
-                <tr className="bg-slate-900 text-white font-black border-t-2 border-slate-700 text-xs">
-                  <td className="p-4 pl-4 uppercase tracking-wider text-amber-300">
-                    TOTALS
-                  </td>
-                  <td className="p-4 text-center bg-indigo-950 text-amber-300 text-sm font-black">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {/* Present Card */}
+                <div className="bg-emerald-50/70 rounded-2xl p-3.5 border border-emerald-200 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black text-emerald-900 uppercase tracking-wider">
+                      PRESENT
+                    </span>
+                    <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                  </div>
+                  <h4 className="text-2xl font-black text-emerald-950">
                     {filteredTotalPresent}
-                  </td>
-                  <td className="p-4 text-center text-rose-300">
-                    {filteredClassMembersAbsent}
-                  </td>
-                  <td className="p-4 text-center text-slate-200">
-                    {filteredRegisteredClassMembers}
-                  </td>
-                  <td className="p-4 text-center text-teal-300">
-                    {filteredOnboarded}
-                  </td>
-                  <td className="p-4 text-center bg-slate-800 text-white">
-                    {filteredStudentPresent}
-                  </td>
-                  <td className="p-4 text-center text-amber-200 font-black">
-                    {filteredEndingActive}
-                  </td>
-                  <td className="p-4 text-center text-slate-300">
-                    {filteredRows.length} Classes
-                  </td>
-                  <td className="p-4 pr-4 text-center text-slate-400 text-[10px]">
-                    Unified Record
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
+                  </h4>
+                  <div className="text-[10px] text-emerald-800 font-bold bg-white/80 p-1.5 rounded-lg border border-emerald-100 space-y-0.5">
+                    <div>Students: <strong className="text-emerald-950 font-black">{filteredStudentPresent}</strong></div>
+                    <div>Visitors: <strong className="text-emerald-950 font-black">{filteredVisitorPresent}</strong></div>
+                  </div>
+                </div>
+
+                {/* Absent Card */}
+                <div className="bg-rose-50/70 rounded-2xl p-3.5 border border-rose-200 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black text-rose-900 uppercase tracking-wider">
+                      ABSENT
+                    </span>
+                    <UserX className="w-3.5 h-3.5 text-rose-600" />
+                  </div>
+                  <h4 className="text-2xl font-black text-rose-950">
+                    {filteredTotalAbsent}
+                  </h4>
+                  <div className="text-[10px] text-rose-800 font-bold bg-white/80 p-1.5 rounded-lg border border-rose-100 space-y-0.5">
+                    <div>Students: <strong className="text-rose-950 font-black">{filteredStudentAbsent}</strong></div>
+                    <div>Visitors: <strong className="text-rose-950 font-black">{filteredVisitorAbsent}</strong></div>
+                  </div>
+                </div>
+
+                {/* Offering Card */}
+                <div className="bg-amber-50/70 rounded-2xl p-3.5 border border-amber-200 space-y-2 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black text-amber-900 uppercase tracking-wider">
+                        OFFERING
+                      </span>
+                      <Coins className="w-3.5 h-3.5 text-amber-600" />
+                    </div>
+                    <h4 className="text-xl sm:text-2xl font-black text-amber-950 mt-1">
+                      ₦{filteredOffering.toLocaleString()}
+                    </h4>
+                  </div>
+                  <div className="text-[10px] text-amber-800 font-semibold bg-white/80 p-1.5 rounded-lg border border-amber-100">
+                    Week {selectedWeek} Offering Recorded
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
-        )}
-      </div>
+
+          {/* Mathematical Validation Rules Bar */}
+          <div className="bg-slate-900 text-white rounded-2xl px-5 py-3 border border-slate-800 shadow-xs flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span className="font-bold text-slate-300">Master Record Equation:</span>
+              <span className="font-black text-amber-300 bg-white/10 px-2.5 py-1 rounded-lg">
+                Total Present ({filteredTotalPresent}) + Total Absent ({filteredTotalAbsent}) = Total Members ({filteredTotalClassMembers})
+              </span>
+            </div>
+            <div className="flex items-center gap-2 text-slate-300">
+              <span>Membership Composition:</span>
+              <span className="font-black text-teal-300 bg-white/10 px-2.5 py-1 rounded-lg">
+                Students ({filteredStudentsCount}) + Visitors ({filteredVisitorsCount}) = Total Members ({filteredTotalClassMembers})
+              </span>
+            </div>
+          </div>
+
+          {/* Concise Weekly Collation Table */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+              <div className="space-y-0.5">
+                <h2 className="text-base sm:text-lg font-black text-slate-900 flex items-center gap-2">
+                  <FileSpreadsheet className="w-5 h-5 text-indigo-600" />
+                  <span>Concise Record Table (Week {selectedWeek}, Quarter {selectedQuarter})</span>
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Total Class Members = Students + Visitors • Total Present + Total Absent = Total Class Members
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-lg">
+                  Reporting Classes: <strong>{filteredRows.length}</strong>
+                </span>
+              </div>
+            </div>
+
+            {isLoading ? (
+              <div className="p-12 text-center text-slate-400 text-xs">
+                <div className="inline-block w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-3"></div>
+                <p>Collating live Class Register returns...</p>
+              </div>
+            ) : filteredRows.length === 0 ? (
+              <div className="p-12 text-center text-slate-500 text-xs space-y-2">
+                <AlertCircle className="w-8 h-8 text-amber-500 mx-auto" />
+                <p className="font-bold text-slate-700">No class records found for Week {selectedWeek}, Quarter {selectedQuarter}.</p>
+                <p className="text-slate-400">Class secretaries submit their attendance and offering directly through their Class Registers.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    {/* Super Header: Class Summary vs Weekly Record */}
+                    <tr className="bg-slate-900 text-white text-[10px] font-black uppercase tracking-wider border-b border-slate-800">
+                      <th rowSpan={2} className="p-3 pl-4 border-r border-slate-800 align-bottom w-56">Class & Department</th>
+                      <th colSpan={3} className="p-2 text-center border-r border-indigo-800 bg-indigo-950/80 text-indigo-300">
+                        CLASS SUMMARY (MEMBERSHIP)
+                      </th>
+                      <th colSpan={3} className="p-2 text-center border-r border-slate-800 bg-slate-950 text-amber-300">
+                        WEEKLY RECORD (WEEK {selectedWeek})
+                      </th>
+                      <th rowSpan={2} className="p-3 pr-4 text-center align-bottom w-28">Inspection</th>
+                    </tr>
+                    {/* Sub Headers */}
+                    <tr className="bg-slate-800 text-slate-200 text-[10px] font-bold uppercase tracking-wider border-b border-slate-700">
+                      <th className="p-2 text-center border-r border-slate-700 text-blue-300">Students</th>
+                      <th className="p-2 text-center border-r border-slate-700 text-indigo-300">Visitors</th>
+                      <th className="p-2 text-center border-r border-slate-700 bg-indigo-900/60 text-amber-300 font-black">Total Members</th>
+                      <th className="p-2 text-center border-r border-slate-700 text-emerald-300">Total Present</th>
+                      <th className="p-2 text-center border-r border-slate-700 text-rose-300">Total Absent</th>
+                      <th className="p-2 text-right border-r border-slate-700 text-amber-200">Offering</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                    {filteredRows.map((row, idx) => {
+                      const rowStudents = row.studentsCount ?? (row.studentPresent + (row.studentAbsent || 0));
+                      const rowVisitors = row.visitorsCount ?? ((row.visitorPresent || row.currentVisitorPresent) + (row.visitorAbsent || 0));
+                      const rowTotalMembers = rowStudents + rowVisitors;
+                      const rowPresent = row.totalPresent;
+                      const rowAbsent = row.totalAbsent ?? (rowTotalMembers - rowPresent);
+
+                      return (
+                        <tr key={row.classId || idx} className="hover:bg-indigo-50/40 transition">
+                          <td className="p-3.5 pl-4">
+                            <div className="font-black text-slate-900 text-xs">{row.className}</div>
+                            <div className="text-[10px] text-slate-400 font-semibold">{row.department} • {row.teachersInCharge}</div>
+                            {Boolean(row.transfersIn) && (
+                              <span className="inline-block mt-1 px-1.5 py-0.2 bg-emerald-100 text-emerald-800 text-[10px] font-black rounded mr-1">
+                                +{row.transfersIn} transfer in
+                              </span>
+                            )}
+                            {Boolean(row.transfersOut) && (
+                              <span className="inline-block mt-1 px-1.5 py-0.2 bg-rose-100 text-rose-800 text-[10px] font-black rounded mr-1">
+                                -{row.transfersOut} transfer out
+                              </span>
+                            )}
+                            {row.transferNotes && row.transferNotes.length > 0 && (
+                              <div className="text-[9px] text-indigo-700 italic mt-0.5">
+                                {row.transferNotes.join(' • ')}
+                              </div>
+                            )}
+                          </td>
+                          <td className="p-3.5 text-center font-bold text-blue-900 bg-blue-50/30">
+                            {rowStudents}
+                          </td>
+                          <td className="p-3.5 text-center font-bold text-indigo-900 bg-indigo-50/30">
+                            {rowVisitors}
+                          </td>
+                          <td className="p-3.5 text-center font-black text-slate-950 bg-slate-100">
+                            {rowTotalMembers}
+                          </td>
+                          <td className="p-3.5 text-center font-black text-emerald-700 bg-emerald-50/30">
+                            <div>{rowPresent}</div>
+                            <div className="text-[9px] font-normal text-slate-400">
+                              {row.studentPresent} std • {row.visitorPresent ?? row.currentVisitorPresent} vis
+                            </div>
+                          </td>
+                          <td className="p-3.5 text-center font-bold text-rose-700 bg-rose-50/30">
+                            <div>{rowAbsent}</div>
+                            <div className="text-[9px] font-normal text-slate-400">
+                              {row.studentAbsent ?? (rowStudents - row.studentPresent)} std • {row.visitorAbsent ?? (rowVisitors - (row.visitorPresent ?? row.currentVisitorPresent))} vis
+                            </div>
+                          </td>
+                          <td className="p-3.5 text-right font-black text-slate-900">
+                            ₦{row.offering.toLocaleString()}
+                          </td>
+                          <td className="p-3.5 pr-4 text-center">
+                            <button
+                              onClick={() => handleInspectClass(row)}
+                              className="px-3 py-1.5 bg-indigo-900 hover:bg-indigo-800 text-amber-300 rounded-lg font-black text-[11px] transition inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
+                              title="Inspect Class: People Behind the Numbers"
+                            >
+                              <Eye className="w-3.5 h-3.5 text-amber-300" />
+                              <span>Inspect</span>
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  {/* Grand Totals Footer */}
+                  <tfoot>
+                    <tr className="bg-slate-900 text-white font-black border-t-2 border-slate-700 text-xs">
+                      <td className="p-4 pl-4 uppercase tracking-wider text-amber-300">
+                        TOTALS ({filteredRows.length} Classes)
+                      </td>
+                      <td className="p-4 text-center text-blue-300">
+                        {filteredStudentsCount}
+                      </td>
+                      <td className="p-4 text-center text-indigo-300">
+                        {filteredVisitorsCount}
+                      </td>
+                      <td className="p-4 text-center bg-slate-800 text-amber-300 font-black text-sm">
+                        {filteredTotalClassMembers}
+                      </td>
+                      <td className="p-4 text-center text-emerald-300 font-black text-sm">
+                        {filteredTotalPresent}
+                      </td>
+                      <td className="p-4 text-center text-rose-300 font-black text-sm">
+                        {filteredTotalAbsent}
+                      </td>
+                      <td className="p-4 text-right text-amber-300 font-black text-sm">
+                        ₦{filteredOffering.toLocaleString()}
+                      </td>
+                      <td className="p-4 pr-4 text-center text-emerald-400 text-[10px] font-black">
+                        ✓ Balanced
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
 
       {/* Growth & Membership Movement Summary Panel */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1463,33 +1596,139 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
             </div>
 
             {/* Modal Content */}
-            <div className="p-5 overflow-y-auto space-y-4 text-xs">
+            <div className="p-5 overflow-y-auto space-y-5 text-xs">
               
-              {/* Quick KPI stats for this class */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-slate-50 p-3 rounded-2xl border border-slate-200 text-center">
-                <div>
-                  <span className="text-[10px] text-slate-500 uppercase font-bold block">Student Present</span>
-                  <span className="text-base font-black text-slate-900">{inspectedClassRow.studentPresent}</span>
+              {/* Part 1-C: Elaborate Inspection Summary */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {/* Panel 1: MEMBERS */}
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2">
+                  <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
+                    <span className="text-[11px] font-black uppercase text-indigo-900 tracking-wider">Class Membership</span>
+                    <span className="text-[10px] text-slate-500 font-bold">Dual Classification</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-center pt-1">
+                    <div>
+                      <span className="text-[10px] text-slate-500 uppercase font-bold block">Students</span>
+                      <span className="text-base font-black text-blue-900">{inspectedClassRow.studentsCount}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 uppercase font-bold block">Visitors</span>
+                      <span className="text-base font-black text-indigo-700">{inspectedClassRow.visitorsCount}</span>
+                    </div>
+                    <div className="bg-white rounded-xl p-1 border border-indigo-200">
+                      <span className="text-[10px] text-indigo-900 uppercase font-black block">Total Members</span>
+                      <span className="text-base font-black text-indigo-950">{inspectedClassRow.totalClassMembers}</span>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <span className="text-[10px] text-slate-500 uppercase font-bold block">Visitor Present</span>
-                  <span className="text-base font-black text-indigo-700">{inspectedClassRow.currentVisitorPresent + inspectedClassRow.newVisitors}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-500 uppercase font-bold block">Absent</span>
-                  <span className="text-base font-black text-rose-700">{inspectedClassRow.classMembersAbsent}</span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-500 uppercase font-bold block">Offering</span>
-                  <span className="text-base font-black text-emerald-700">₦{inspectedClassRow.offering.toLocaleString()}</span>
+
+                {/* Panel 2: THIS WEEK */}
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2">
+                  <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
+                    <span className="text-[11px] font-black uppercase text-emerald-900 tracking-wider">This Week's Record</span>
+                    <span className="text-[10px] text-slate-500 font-bold">Week {selectedWeek} Return</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-center pt-1">
+                    <div>
+                      <span className="text-[10px] text-emerald-800 uppercase font-bold block">Present</span>
+                      <span className="text-base font-black text-emerald-700">{inspectedClassRow.totalPresent}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-rose-800 uppercase font-bold block">Absent</span>
+                      <span className="text-base font-black text-rose-700">{inspectedClassRow.totalAbsent}</span>
+                    </div>
+                    <div className="bg-white rounded-xl p-1 border border-amber-200">
+                      <span className="text-[10px] text-amber-900 uppercase font-black block">Offering</span>
+                      <span className="text-base font-black text-amber-900">₦{inspectedClassRow.offering.toLocaleString()}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              {/* Members Roster */}
-              <div className="space-y-2">
-                <h4 className="font-black text-slate-900 uppercase tracking-wider text-[11px]">
-                  Individual Member Attendance ({inspectedClassMembers.length} Members in Register)
-                </h4>
+              {/* Elaborate Inspection Cards (Part 1-C) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* PRESENT INSPECTION */}
+                <div className="bg-emerald-50/70 p-4 rounded-2xl border-2 border-emerald-300 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black uppercase tracking-wider text-emerald-950 flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      <span>PRESENT ({inspectedClassRow.totalPresent})</span>
+                    </span>
+                    <span className="text-[10px] font-bold bg-emerald-200/70 text-emerald-900 px-2 py-0.5 rounded-full">
+                      {Math.round((inspectedClassRow.totalPresent / (inspectedClassRow.totalClassMembers || 1)) * 100)}% attendance
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <div className="bg-white p-2.5 rounded-xl border border-emerald-200">
+                      <span className="text-[10px] text-slate-500 font-bold block">Students Present</span>
+                      <span className="text-lg font-black text-emerald-900">{inspectedClassRow.studentPresent}</span>
+                    </div>
+                    <div className="bg-white p-2.5 rounded-xl border border-emerald-200">
+                      <span className="text-[10px] text-slate-500 font-bold block">Visitors Present</span>
+                      <span className="text-lg font-black text-emerald-900">{inspectedClassRow.visitorPresent}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ABSENT INSPECTION */}
+                <div className="bg-rose-50/70 p-4 rounded-2xl border-2 border-rose-300 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black uppercase tracking-wider text-rose-950 flex items-center gap-1.5">
+                      <UserX className="w-4 h-4 text-rose-600" />
+                      <span>ABSENT ({inspectedClassRow.totalAbsent})</span>
+                    </span>
+                    <span className="text-[10px] font-bold bg-rose-200/70 text-rose-900 px-2 py-0.5 rounded-full">
+                      {Math.round((inspectedClassRow.totalAbsent / (inspectedClassRow.totalClassMembers || 1)) * 100)}% absence
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <div className="bg-white p-2.5 rounded-xl border border-rose-200">
+                      <span className="text-[10px] text-slate-500 font-bold block">Students Absent</span>
+                      <span className="text-lg font-black text-rose-900">{inspectedClassRow.studentAbsent}</span>
+                    </div>
+                    <div className="bg-white p-2.5 rounded-xl border border-rose-200">
+                      <span className="text-[10px] text-slate-500 font-bold block">Visitors Absent</span>
+                      <span className="text-lg font-black text-rose-900">{inspectedClassRow.visitorAbsent}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Members Roster with Filters */}
+              <div className="space-y-3 pt-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2">
+                  <h4 className="font-black text-slate-900 uppercase tracking-wider text-[11px]">
+                    People Behind the Numbers ({inspectedClassMembers.length} Members)
+                  </h4>
+
+                  {/* Filter tabs */}
+                  <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+                    <button
+                      onClick={() => setInspectFilter('ALL')}
+                      className={`px-2.5 py-1 rounded-lg text-[10px] font-black cursor-pointer transition ${
+                        inspectFilter === 'ALL' ? 'bg-indigo-900 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      All ({inspectedClassMembers.length})
+                    </button>
+                    <button
+                      onClick={() => setInspectFilter('PRESENT')}
+                      className={`px-2.5 py-1 rounded-lg text-[10px] font-black cursor-pointer transition ${
+                        inspectFilter === 'PRESENT' ? 'bg-emerald-700 text-white shadow-xs' : 'text-slate-600 hover:text-emerald-700'
+                      }`}
+                    >
+                      Present ({inspectedClassRow.totalPresent})
+                    </button>
+                    <button
+                      onClick={() => setInspectFilter('ABSENT')}
+                      className={`px-2.5 py-1 rounded-lg text-[10px] font-black cursor-pointer transition ${
+                        inspectFilter === 'ABSENT' ? 'bg-rose-700 text-white shadow-xs' : 'text-slate-600 hover:text-rose-700'
+                      }`}
+                    >
+                      Absent ({inspectedClassRow.totalAbsent})
+                    </button>
+                  </div>
+                </div>
 
                 {inspectedClassMembers.length === 0 ? (
                   <p className="text-slate-400 py-4 text-center">No member records recorded in this class.</p>
@@ -1500,21 +1739,21 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
                         <tr className="bg-slate-100 text-slate-700 font-black text-[10px] uppercase">
                           <th className="p-2.5 pl-3">Member Name</th>
                           <th className="p-2.5">Category</th>
-                          <th className="p-2.5 text-center">First Week</th>
                           <th className="p-2.5 text-center">Week {selectedWeek} Attendance</th>
                           <th className="p-2.5 text-right pr-3">Score</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {inspectedClassMembers.map((m, idx) => (
+                        {inspectedClassMembers
+                          .filter(m => {
+                            if (inspectFilter === 'PRESENT') return m.gradeAttendance === 'PRESENT';
+                            if (inspectFilter === 'ABSENT') return m.gradeAttendance === 'ABSENT';
+                            return true;
+                          })
+                          .map((m, idx) => (
                           <tr key={m.id || idx} className="hover:bg-slate-50">
                             <td className="p-2.5 pl-3 font-bold text-slate-900">
                               {m.fullName}
-                              {m.isNewVisitor && (
-                                <span className="ml-2 text-[9px] bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded-full font-black uppercase">
-                                  New Visitor
-                                </span>
-                              )}
                               {m.transferHistory && m.transferHistory.length > 0 && (
                                 <span className="ml-2 text-[9px] bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded-full font-bold">
                                   Transferred
@@ -1530,24 +1769,17 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
                                 {m.memberType}
                               </span>
                             </td>
-                            <td className="p-2.5 text-center text-slate-500 font-semibold">
-                              Week {m.firstWeek || 1}
-                            </td>
                             <td className="p-2.5 text-center">
                               <span className={`px-2 py-0.5 rounded-full font-black text-[10px] ${
                                 m.gradeAttendance === 'PRESENT'
                                   ? 'bg-emerald-100 text-emerald-800'
-                                  : m.gradeAttendance === 'ABSENT'
-                                  ? 'bg-rose-100 text-rose-800'
-                                  : m.gradeAttendance === 'EXEMPT'
-                                  ? 'bg-amber-100 text-amber-900 border border-amber-300'
-                                  : 'bg-slate-100 text-slate-600'
+                                  : 'bg-rose-100 text-rose-800'
                               }`}>
                                 {m.gradeAttendance}
                               </span>
                             </td>
                             <td className="p-2.5 text-right pr-3 font-black text-slate-700">
-                              {m.gradeAttendance === 'EXEMPT' ? '—' : `${m.lessonTotal || 0}/50`}
+                              {m.gradeAttendance === 'PRESENT' ? `${m.lessonTotal || 0}/50` : '—'}
                             </td>
                           </tr>
                         ))}
@@ -1632,41 +1864,43 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
                   <thead>
                     <tr className="bg-slate-200 text-slate-900 font-black text-[10px] uppercase border-b border-slate-400">
                       <th className="p-2 border-r border-slate-400">Class Name</th>
-                      <th className="p-2 border-r border-slate-400 text-center">Std Present</th>
-                      <th className="p-2 border-r border-slate-400 text-center">Vis Present</th>
-                      <th className="p-2 border-r border-slate-400 text-center">New Vis</th>
-                      <th className="p-2 border-r border-slate-400 text-center">Absent</th>
-                      <th className="p-2 border-r border-slate-400 text-center bg-slate-300 font-black">Total Present</th>
-                      <th className="p-2 border-r border-slate-400 text-center">Reg Members</th>
-                      <th className="p-2 border-r border-slate-400 text-center">Onboarded</th>
+                      <th className="p-2 border-r border-slate-400 text-center">Students</th>
+                      <th className="p-2 border-r border-slate-400 text-center">Visitors</th>
+                      <th className="p-2 border-r border-slate-400 text-center bg-slate-300 font-black">Total Members</th>
+                      <th className="p-2 border-r border-slate-400 text-center">Total Present</th>
+                      <th className="p-2 border-r border-slate-400 text-center">Total Absent</th>
                       <th className="p-2 text-right">Offering (₦)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-300">
-                    {filteredRows.map((r, idx) => (
-                      <tr key={idx}>
-                        <td className="p-2 border-r border-slate-300 font-bold">{r.className} ({r.department})</td>
-                        <td className="p-2 border-r border-slate-300 text-center">{r.studentPresent}</td>
-                        <td className="p-2 border-r border-slate-300 text-center">{r.currentVisitorPresent}</td>
-                        <td className="p-2 border-r border-slate-300 text-center">{r.newVisitors}</td>
-                        <td className="p-2 border-r border-slate-300 text-center">{r.classMembersAbsent}</td>
-                        <td className="p-2 border-r border-slate-300 text-center font-black bg-slate-100">{r.totalPresent}</td>
-                        <td className="p-2 border-r border-slate-300 text-center">{r.registeredClassMembers}</td>
-                        <td className="p-2 border-r border-slate-300 text-center">{r.onboarded}</td>
-                        <td className="p-2 text-right font-bold">₦{r.offering.toLocaleString()}</td>
-                      </tr>
-                    ))}
+                    {filteredRows.map((r, idx) => {
+                      const rowStudents = r.studentsCount ?? (r.studentPresent + (r.studentAbsent || 0));
+                      const rowVisitors = r.visitorsCount ?? ((r.visitorPresent || r.currentVisitorPresent) + (r.visitorAbsent || 0));
+                      const rowTotal = rowStudents + rowVisitors;
+                      const rowPresent = r.totalPresent;
+                      const rowAbsent = r.totalAbsent ?? (rowTotal - rowPresent);
+
+                      return (
+                        <tr key={idx}>
+                          <td className="p-2 border-r border-slate-300 font-bold">{r.className} ({r.department})</td>
+                          <td className="p-2 border-r border-slate-300 text-center">{rowStudents}</td>
+                          <td className="p-2 border-r border-slate-300 text-center">{rowVisitors}</td>
+                          <td className="p-2 border-r border-slate-300 text-center font-black bg-slate-100">{rowTotal}</td>
+                          <td className="p-2 border-r border-slate-300 text-center font-bold text-emerald-800">{rowPresent}</td>
+                          <td className="p-2 border-r border-slate-300 text-center font-bold text-rose-800">{rowAbsent}</td>
+                          <td className="p-2 text-right font-bold">₦{r.offering.toLocaleString()}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                   <tfoot>
                     <tr className="bg-slate-200 font-black text-xs border-t-2 border-slate-900">
                       <td className="p-2.5 border-r border-slate-400 uppercase">Grand Totals</td>
-                      <td className="p-2.5 border-r border-slate-400 text-center">{filteredStudentPresent}</td>
-                      <td className="p-2.5 border-r border-slate-400 text-center">{filteredCurrentVisitorPresent}</td>
-                      <td className="p-2.5 border-r border-slate-400 text-center">{filteredNewVisitors}</td>
-                      <td className="p-2.5 border-r border-slate-400 text-center">{filteredClassMembersAbsent}</td>
-                      <td className="p-2.5 border-r border-slate-400 text-center bg-slate-300 text-sm">{filteredTotalPresent}</td>
-                      <td className="p-2.5 border-r border-slate-400 text-center">{filteredRegisteredClassMembers}</td>
-                      <td className="p-2.5 border-r border-slate-400 text-center">{filteredOnboarded}</td>
+                      <td className="p-2.5 border-r border-slate-400 text-center">{filteredStudentsCount}</td>
+                      <td className="p-2.5 border-r border-slate-400 text-center">{filteredVisitorsCount}</td>
+                      <td className="p-2.5 border-r border-slate-400 text-center bg-slate-300 text-sm font-black">{filteredTotalClassMembers}</td>
+                      <td className="p-2.5 border-r border-slate-400 text-center text-sm font-black text-emerald-800">{filteredTotalPresent}</td>
+                      <td className="p-2.5 border-r border-slate-400 text-center text-sm font-black text-rose-800">{filteredTotalAbsent}</td>
                       <td className="p-2.5 text-right text-sm">₦{filteredOffering.toLocaleString()}</td>
                     </tr>
                   </tfoot>

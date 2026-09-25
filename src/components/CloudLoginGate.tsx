@@ -58,16 +58,6 @@ export const CloudLoginGate: React.FC<CloudLoginGateProps> = ({ onSignedIn, isSy
     }
   };
 
-  // If system initialization is still being probed, show a brief loader
-  if (isSystemInitialized === null) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-300 p-6 text-center">
-        <div className="w-12 h-12 border-4 border-amber-400 border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="text-sm text-amber-200/90 font-medium">Checking system configuration...</p>
-      </div>
-    );
-  }
-
   // Bootstrap is available when uninitialized
   if (isSystemInitialized === false) {
     return (
@@ -123,6 +113,12 @@ export const CloudLoginGate: React.FC<CloudLoginGateProps> = ({ onSignedIn, isSy
 
           {/* Sign In Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
+            {isSystemInitialized === null && (
+              <div role="status" className="flex items-center gap-2 rounded-xl border border-blue-400/20 bg-blue-500/10 px-3 py-2 text-[11px] text-blue-100">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Checking system configuration in the background…
+              </div>
+            )}
             {/* Identifier Input */}
             <div>
               <div className="flex items-center justify-between mb-1.5">

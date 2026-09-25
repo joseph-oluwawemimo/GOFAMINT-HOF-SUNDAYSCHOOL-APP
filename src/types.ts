@@ -287,6 +287,7 @@ export interface StudentTransferRecord {
 }
 
 // =============================================================
+// =============================================================
 // RECORD OFFICER & ENROLLMENT OFFICER REPORTING INTERFACES
 // =============================================================
 
@@ -295,15 +296,25 @@ export interface RecordOfficerClassRow {
   className: string;
   department: string;
   teachersInCharge: string;
+  // Class Membership Breakdown: TOTAL CLASS MEMBERS = STUDENTS + VISITORS
+  studentsCount: number;
+  visitorsCount: number;
+  totalClassMembers: number;
+  // Concise Weekly Attendance: TOTAL PRESENT + TOTAL ABSENT = TOTAL CLASS MEMBERS
   studentPresent: number;
+  visitorPresent: number;
+  totalPresent: number; // studentPresent + visitorPresent
+  studentAbsent: number;
+  visitorAbsent: number;
+  totalAbsent: number; // studentAbsent + visitorAbsent
+  offering: number;
+  // Compatibility & inspection fields
   currentVisitorPresent: number;
   newVisitors: number;
   classMembersAbsent: number;
-  totalPresent: number; // STUDENTS PRESENT + CURRENT VISITORS PRESENT + NEW VISITORS
   registeredClassMembers: number; // Students + Existing Visitors before this week's new intake
   onboarded: number; // New Visitors formally onboarded into class this week
   endingActiveClassMembers: number; // Registered Class Members + Onboarded - Exited
-  offering: number;
   transfersIn?: number;
   transfersOut?: number;
   transferNotes?: string[];
@@ -314,15 +325,22 @@ export interface RecordOfficerWeeklyCollation {
   quarterNumber: number;
   weekNumber: number;
   rows: RecordOfficerClassRow[];
+  totalStudentsCount: number;
+  totalVisitorsCount: number;
+  totalClassMembers: number;
   totalStudentPresent: number;
-  totalCurrentVisitorPresent: number;
-  totalNewVisitors: number;
-  totalClassMembersAbsent: number;
+  totalVisitorPresent: number;
   grandTotalPresent: number;
-  totalRegisteredClassMembers: number;
-  totalOnboarded: number;
+  totalStudentAbsent: number;
+  totalVisitorAbsent: number;
+  totalClassMembersAbsent: number;
   totalOffering: number;
-  totalEndingActiveClassMembers: number;
+  // Compatibility fields
+  totalCurrentVisitorPresent?: number;
+  totalNewVisitors?: number;
+  totalRegisteredClassMembers?: number;
+  totalOnboarded?: number;
+  totalEndingActiveClassMembers?: number;
 }
 
 export interface ConvertedStudentAudit {
@@ -366,13 +384,25 @@ export interface EnrollmentOfficerClassRow {
   classId: string;
   className: string;
   department: string;
+  // LEFT SIDE — ONBOARDING (Intake History)
+  newlyOnboarded: number;
+  previouslyOnboarded: number;
+  totalOnboarded: number; // newlyOnboarded + previouslyOnboarded
+  // RIGHT SIDE — STATUS: VISITORS
+  newVisitors: number; // = newlyOnboarded
+  currentVisitors: number; // prev. total visitors - newly enrolled
+  totalVisitors: number; // newVisitors + currentVisitors
+  // RIGHT SIDE — STATUS: ENROLLMENT
+  newlyEnrolled: number;
+  previouslyEnrolled: number;
+  totalEnrolled: number; // newlyEnrolled + previouslyEnrolled
+  // Converted Audit Records
+  convertedMembers: ConvertedStudentAudit[];
+  // Compatibility fields
   broughtForwardStudents: number;
   previouslyEnrolledStudents: number;
   onboarded: number;
-  newVisitors: number;
-  newlyEnrolled: number;
   visitorToStudent: number;
-  convertedMembers: ConvertedStudentAudit[];
   currentStudentCount: number;
   currentVisitorCount: number;
   totalActiveClassMembers: number;
@@ -386,11 +416,22 @@ export interface EnrollmentOfficerWeeklyCollation {
   selectedWeek: number;
   rows: EnrollmentOfficerClassRow[];
   weeklyTotals: {
+    // Left side: Onboarding
+    newlyOnboarded: number;
+    previouslyOnboarded: number;
+    totalOnboarded: number;
+    // Right side: Status - Visitors
+    newVisitors: number;
+    currentVisitors: number;
+    totalVisitors: number;
+    // Right side: Status - Enrollment
+    newlyEnrolled: number;
+    previouslyEnrolled: number;
+    totalEnrolled: number;
+    // Compatibility fields
     broughtForwardStudents: number;
     previouslyEnrolledStudents: number;
     onboarded: number;
-    newVisitors: number;
-    newlyEnrolled: number;
     visitorToStudent: number;
   };
   cumulativeTotals: {

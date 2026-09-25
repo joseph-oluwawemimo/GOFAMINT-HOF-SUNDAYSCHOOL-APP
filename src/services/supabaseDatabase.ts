@@ -19,8 +19,11 @@ import {
   Member,
   AbsenceLogRecord,
 } from '../types';
+import { collectAllPages } from '../utils/paginatedRead';
 
 type Filter = { field: string; op: string; value: unknown };
+
+export const SUPABASE_READ_PAGE_SIZE = 500;
 
 type TableConfig = {
   table: string;
@@ -140,20 +143,58 @@ function applyFilter(query: any, filter: Filter, column: string) {
   }
 }
 
-export async function fetchCollection<T>(collectionName: string): Promise<T[]> {
+async function fetchRowsPaginated(collectionName: string, filters: Filter[] = []): Promise<Record<string, any>[]> {
   const config = configFor(collectionName);
   const client = getSupabaseClient();
-  const { data, error } = await client.from(config.table).select('*');
-  if (error) {
-    console.error(`Supabase fetchCollection error [${collectionName}]:`, error);
-    throw error;
-  }
+
+  return collectAllPages<Record<string, any>>(
+    async (from, to, pageIndex) => {
+      let query: any = client
+        .from(config.table)
+        .select('*', pageIndex === 0 ? { count: 'exact' } : {})
+        .order('id', { ascending: true })
+        .range(from, to);
+
+      for (const filter of filters) {
+        if (filter.value !== undefined && filter.value !== null) {
+          query = applyFilter(query, filter, columnFor(collectionName, filter.field));
+        }
+      }
+
+      const { data, error, count } = await query;
+      if (error) {
+        console.error(`Supabase paginated read failed [${collectionName}] page ${pageIndex + 1}:`, error);
+        throw error;
+      }
+
+      return { rows: data || [], totalCount: pageIndex === 0 ? count : undefined };
+    },
+    {
+      pageSize: SUPABASE_READ_PAGE_SIZE,
+      getId: row => row?.id ? String(row.id) : undefined,
+      label: `Supabase ${collectionName}`,
+    }
+  );
+}
+
+export async function fetchCollection<T>(collectionName: string): Promise<T[]> {
+  const client = getSupabaseClient();
+  const data = await fetchRowsPaginated(collectionName);
   if (collectionName === 'adminProfiles') {
     const ids = (data || []).map((row: Record<string, any>) => row.profile_id).filter(Boolean);
-    const { data: profiles, error: profileError } = ids.length
-      ? await client.from('profiles').select('id,is_approved,approved_by,approved_at').in('id', ids)
-      : { data: [], error: null };
-    if (profileError) throw profileError;
+    const profiles: Record<string, any>[] = [];
+    for (let index = 0; index < ids.length; index += SUPABASE_READ_PAGE_SIZE) {
+      const idBatch = ids.slice(index, index + SUPABASE_READ_PAGE_SIZE);
+      const { data: profileBatch, error: profileError } = await client
+        .from('profiles')
+        .select('id,is_approved,approved_by,approved_at')
+        .in('id', idBatch);
+      if (profileError) {
+        console.error(`Supabase profile-status read failed for adminProfiles batch ${Math.floor(index / SUPABASE_READ_PAGE_SIZE) + 1}:`, profileError);
+        throw profileError;
+      }
+      profiles.push(...(profileBatch || []));
+    }
     const statusById = new Map((profiles || []).map((profile: Record<string, any>) => [profile.id, profile]));
     return (data || []).map((row: Record<string, any>) => {
       const profile = statusById.get(row.profile_id);
@@ -236,18 +277,7 @@ export async function saveBatchDocuments<T extends { id: string }>(collectionNam
 }
 
 export async function fetchCollectionScoped<T>(collectionName: string, filters: Filter[] = []): Promise<T[]> {
-  const config = configFor(collectionName);
-  let query: any = getSupabaseClient().from(config.table).select('*');
-  for (const filter of filters) {
-    if (filter.value !== undefined && filter.value !== null) {
-      query = applyFilter(query, filter, columnFor(collectionName, filter.field));
-    }
-  }
-  const { data, error } = await query;
-  if (error) {
-    console.error(`Supabase fetchCollectionScoped error [${collectionName}]:`, error);
-    throw error;
-  }
+  const data = await fetchRowsPaginated(collectionName, filters);
   return (data || []).map((row: Record<string, any>) => fromRow<T>(collectionName, row));
 }
 

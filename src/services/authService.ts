@@ -1,4 +1,5 @@
 import {
+  AuthChangeEvent,
   User,
 } from '@supabase/supabase-js';
 import { getSupabaseClient, isSupabaseConfigured } from './supabase';
@@ -13,13 +14,13 @@ export { normalizeLoginIdentifier } from '../utils/loginIdentifier';
  * - If class identifier (e.g. YOUTHA, AdultBibleA), translated internally to
  *   class_youtha@gofamint-hof.internal so teachers/secretaries do not need personal Gmails.
  */
-export function watchAuthState(callback: (user: User | null) => void) {
+export function watchAuthState(callback: (user: User | null, event: AuthChangeEvent) => void) {
   if (!isSupabaseConfigured) {
-    callback(null);
+    callback(null, 'INITIAL_SESSION');
     return () => {};
   }
-  const { data } = getSupabaseClient().auth.onAuthStateChange((_event, session) => {
-    callback(session?.user ?? null);
+  const { data } = getSupabaseClient().auth.onAuthStateChange((event, session) => {
+    callback(session?.user ?? null, event);
   });
   return () => data.subscription.unsubscribe();
 }
