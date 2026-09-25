@@ -335,6 +335,63 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
     }
   };
 
+  const getMemberGrade = (memberId: string): WeeklyGradeRecord => {
+    const existing = grades.find(g => g.memberId === memberId && g.weekNumber === selectedWeek);
+    const drafts = backgroundStateManager.getScoreDrafts(classProfile?.id || 'default_class', selectedWeek);
+    const memberDraft = drafts[memberId];
+    const member = members.find(m => m.id === memberId);
+
+    const isAutoExempt = member && (
+      selectedWeek < (member.firstLessonWeek || 1) || 
+      member.status === 'LEFT_CLASS'
+    );
+
+    const baseRecord: WeeklyGradeRecord = existing || (() => {
+      return {
+        id: `${memberId}_week_${selectedWeek}`,
+        memberId,
+        weekNumber: selectedWeek,
+        attendance: isAutoExempt ? 'EXEMPT' : 'ABSENT',
+        punctuality: 0,
+        memoryVerse: 0,
+        classParticipation: 0,
+        lessonTotal: 0,
+        joinedPrayerMeeting: false,
+        postedStatusInsight: false,
+        invitedSomeone: false,
+        updatedAt: new Date().toISOString()
+      };
+    })();
+
+    let resolvedAttendance = baseRecord.attendance;
+    if (member?.status === 'LEFT_CLASS' && baseRecord.attendance !== 'PRESENT') {
+      resolvedAttendance = 'EXEMPT';
+    } else if (member && selectedWeek < (member.firstLessonWeek || 1) && baseRecord.attendance !== 'PRESENT') {
+      resolvedAttendance = 'EXEMPT';
+    }
+
+    if (!memberDraft) {
+      return {
+        ...baseRecord,
+        attendance: resolvedAttendance
+      };
+    }
+
+    const punct = memberDraft.punctuality !== undefined ? memberDraft.punctuality : baseRecord.punctuality;
+    const verse = memberDraft.memoryVerse !== undefined ? memberDraft.memoryVerse : baseRecord.memoryVerse;
+    const part = memberDraft.classParticipation !== undefined ? memberDraft.classParticipation : baseRecord.classParticipation;
+    const att = (memberDraft.attendance as AttendanceStatus) || resolvedAttendance;
+
+    return {
+      ...baseRecord,
+      attendance: att,
+      punctuality: punct,
+      memoryVerse: verse,
+      classParticipation: part,
+      lessonTotal: punct + verse + part
+    };
+  };
+
   const weekSummary = calculateWeekSummary(selectedWeek, members, grades, offerings);
 
   // Eligible members for selectedWeek: EXEMPT members (joined later, archived, or explicitly exempt)
@@ -499,63 +556,6 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
     } finally {
       setIsSavingOrder(false);
     }
-  };
-
-  const getMemberGrade = (memberId: string): WeeklyGradeRecord => {
-    const existing = grades.find(g => g.memberId === memberId && g.weekNumber === selectedWeek);
-    const drafts = backgroundStateManager.getScoreDrafts(classProfile?.id || 'default_class', selectedWeek);
-    const memberDraft = drafts[memberId];
-    const member = members.find(m => m.id === memberId);
-
-    const isAutoExempt = member && (
-      selectedWeek < (member.firstLessonWeek || 1) || 
-      member.status === 'LEFT_CLASS'
-    );
-
-    const baseRecord: WeeklyGradeRecord = existing || (() => {
-      return {
-        id: `${memberId}_week_${selectedWeek}`,
-        memberId,
-        weekNumber: selectedWeek,
-        attendance: isAutoExempt ? 'EXEMPT' : 'ABSENT',
-        punctuality: 0,
-        memoryVerse: 0,
-        classParticipation: 0,
-        lessonTotal: 0,
-        joinedPrayerMeeting: false,
-        postedStatusInsight: false,
-        invitedSomeone: false,
-        updatedAt: new Date().toISOString()
-      };
-    })();
-
-    let resolvedAttendance = baseRecord.attendance;
-    if (member?.status === 'LEFT_CLASS' && baseRecord.attendance !== 'PRESENT') {
-      resolvedAttendance = 'EXEMPT';
-    } else if (member && selectedWeek < (member.firstLessonWeek || 1) && baseRecord.attendance !== 'PRESENT') {
-      resolvedAttendance = 'EXEMPT';
-    }
-
-    if (!memberDraft) {
-      return {
-        ...baseRecord,
-        attendance: resolvedAttendance
-      };
-    }
-
-    const punct = memberDraft.punctuality !== undefined ? memberDraft.punctuality : baseRecord.punctuality;
-    const verse = memberDraft.memoryVerse !== undefined ? memberDraft.memoryVerse : baseRecord.memoryVerse;
-    const part = memberDraft.classParticipation !== undefined ? memberDraft.classParticipation : baseRecord.classParticipation;
-    const att = (memberDraft.attendance as AttendanceStatus) || resolvedAttendance;
-
-    return {
-      ...baseRecord,
-      attendance: att,
-      punctuality: punct,
-      memoryVerse: verse,
-      classParticipation: part,
-      lessonTotal: punct + verse + part
-    };
   };
 
   const handleRestoreAndMarkPresent = async (member: Member) => {
