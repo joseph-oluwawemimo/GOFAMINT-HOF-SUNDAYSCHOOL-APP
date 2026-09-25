@@ -107,7 +107,7 @@ export const OpeningFlowView: React.FC<OpeningFlowViewProps> = ({
   // Admin and authorization flags
   const userRole = currentUserProfile?.role || '';
   const isAdmin = ADMIN_ROLES.includes(userRole);
-  const isWorker = ['WORKER', 'ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY', 'GENERAL_SECRETARY', 'GENERAL_SUPERINTENDENT', 'SUPER_ADMIN'].includes(userRole);
+  const isWorker = ['WORKER', 'RECORD_OFFICER', 'ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY', 'GENERAL_SECRETARY', 'GENERAL_SUPERINTENDENT', 'SUPER_ADMIN'].includes(userRole);
 
   // Format user display name and portfolio title
   const userName =

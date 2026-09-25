@@ -1980,8 +1980,8 @@ export async function getAllWorkers(forceCloudRefresh = false): Promise<WorkerPr
         await replaceStoreContents('workers', res.workers);
         list = await getAllFromStore<WorkerProfile>('workers');
       } catch (err) {
-        console.warn('Could not fetch workers from server API:', err);
-        if (forceCloudRefresh) throw err;
+        console.warn('Could not fetch workers from server API, falling back to local store:', err);
+        list = await getAllFromStore<WorkerProfile>('workers');
       }
     }
 

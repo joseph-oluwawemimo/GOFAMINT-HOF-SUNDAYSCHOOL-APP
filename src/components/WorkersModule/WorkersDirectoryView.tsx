@@ -7,7 +7,7 @@ import {
   Search, Plus, Upload, Filter, QrCode, Phone, MessageSquare, 
   MapPin, Edit, Trash2, CheckCircle2, XCircle, Printer, Sparkles,
   Users, Check, ExternalLink, ChevronRight, Download, BookOpen, Tag, Hash,
-  Archive, ArchiveRestore, AlertTriangle, RefreshCw
+  Archive, ArchiveRestore, AlertTriangle, RefreshCw, Lock, Unlock
 } from 'lucide-react';
 import { BatchWorkerQrPrintModal } from './BatchWorkerQrPrintModal';
 import { calculateWorkerProfileCompleteness } from '../../utils/workerProfileUtils';
@@ -99,8 +99,8 @@ export const WorkersDirectoryView: React.FC<WorkersDirectoryViewProps> = ({
         (w.assignedClass ? w.assignedClass.toLowerCase().includes(q) : false) ||
         (w.duty ? w.duty.toLowerCase().includes(q) : false) ||
         (w.archiveReason ? w.archiveReason.toLowerCase().includes(q) : false) ||
-        (w.phone || '').includes(searchQuery || '') ||
-        (w.whatsappNumber || '').includes(searchQuery || '') ||
+        String(w.phone || '').includes(searchQuery || '') ||
+        String(w.whatsappNumber || '').includes(searchQuery || '') ||
         (w.address || '').toLowerCase().includes(q) ||
         (w.qrCodeToken || '').toLowerCase().includes(q) ||
         (w.categories || []).some(c => (c || '').toLowerCase().includes(q));
@@ -195,11 +195,11 @@ export const WorkersDirectoryView: React.FC<WorkersDirectoryViewProps> = ({
   };
 
   const getWhatsAppLink = (phone: string, name: string) => {
-    let clean = phone.replace(/\D/g, '');
+    let clean = String(phone || '').replace(/\D/g, '');
     if (clean.startsWith('0')) {
       clean = '234' + clean.slice(1);
     }
-    const message = encodeURIComponent(`Calvary greetings ${name}, from GOFAMINT_HOF Sunday School & Workers Directorate.`);
+    const message = encodeURIComponent(`Calvary greetings ${name || 'Worker'}, from GOFAMINT_HOF Sunday School & Workers Directorate.`);
     return `https://wa.me/${clean}?text=${message}`;
   };
 
@@ -495,7 +495,7 @@ export const WorkersDirectoryView: React.FC<WorkersDirectoryViewProps> = ({
           <>
           <div className="grid grid-cols-1 gap-3 md:hidden" aria-label="Workers directory cards">
             {filteredWorkers.map(worker => {
-              const initials = worker.fullName.split(' ').filter(Boolean).map(name => name[0]).slice(0, 2).join('') || 'W';
+              const initials = (worker.fullName || 'W').split(' ').filter(Boolean).map(name => name[0]).slice(0, 2).join('') || 'W';
               return (
                 <button
                   type="button"
@@ -509,7 +509,7 @@ export const WorkersDirectoryView: React.FC<WorkersDirectoryViewProps> = ({
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="flex items-start justify-between gap-2">
-                        <span className="min-w-0"><strong className="block truncate text-sm text-blue-950">{worker.fullName}</strong><span className="mt-0.5 block truncate text-[10px] font-bold text-slate-500">{worker.department}</span></span>
+                        <span className="min-w-0"><strong className="block truncate text-sm text-blue-950">{worker.fullName || 'Unnamed Worker'}</strong><span className="mt-0.5 block truncate text-[10px] font-bold text-slate-500">{worker.department || 'General'}</span></span>
                         <span className={`rounded-full px-2 py-1 text-[8px] font-black uppercase ${worker.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-800' : worker.status === 'ARCHIVED' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>{worker.status}</span>
                       </span>
                       <span className="mt-3 grid grid-cols-3 gap-2">
@@ -788,14 +788,14 @@ export const WorkersDirectoryView: React.FC<WorkersDirectoryViewProps> = ({
 
       {selectedMobileWorker && createPortal((
         <div className="fixed inset-0 z-[80] flex items-end bg-slate-950/70 p-0 backdrop-blur-sm md:items-center md:justify-center md:p-5" onClick={() => setSelectedMobileWorker(null)}>
-          <section role="dialog" aria-modal="true" aria-label={`${selectedMobileWorker.fullName} worker profile`} className="max-h-[92dvh] w-full overflow-y-auto rounded-t-[2rem] bg-white p-5 shadow-2xl md:max-w-lg md:rounded-3xl md:p-6" onClick={event => event.stopPropagation()}>
+          <section role="dialog" aria-modal="true" aria-label={`${selectedMobileWorker.fullName || 'Worker'} worker profile`} className="max-h-[92dvh] w-full overflow-y-auto rounded-t-[2rem] bg-white p-5 shadow-2xl md:max-w-lg md:rounded-3xl md:p-6" onClick={event => event.stopPropagation()}>
             <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-slate-200 md:hidden" />
             <div className="flex items-start justify-between gap-3">
               <div className="flex min-w-0 items-center gap-3">
                 <span className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-blue-950 text-base font-black text-white ring-2 ring-amber-300">
-                  {selectedMobileWorker.photoBase64 ? <img src={selectedMobileWorker.photoBase64} alt="" className="h-full w-full object-cover" /> : selectedMobileWorker.fullName.split(' ').filter(Boolean).map(name => name[0]).slice(0, 2).join('')}
+                  {selectedMobileWorker.photoBase64 ? <img src={selectedMobileWorker.photoBase64} alt="" className="h-full w-full object-cover" /> : (selectedMobileWorker.fullName || 'W').split(' ').filter(Boolean).map(name => name[0]).slice(0, 2).join('') || 'W'}
                 </span>
-                <div className="min-w-0"><span className="text-[9px] font-black uppercase tracking-wider text-red-600">Worker profile</span><h2 className="truncate text-lg font-black text-blue-950">{selectedMobileWorker.fullName}</h2><p className="truncate text-xs font-bold text-slate-500">{selectedMobileWorker.department}</p></div>
+                <div className="min-w-0"><span className="text-[9px] font-black uppercase tracking-wider text-red-600">Worker profile</span><h2 className="truncate text-lg font-black text-blue-950">{selectedMobileWorker.fullName || 'Worker'}</h2><p className="truncate text-xs font-bold text-slate-500">{selectedMobileWorker.department || 'General'}</p></div>
               </div>
               <button type="button" onClick={() => setSelectedMobileWorker(null)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600" aria-label="Close worker profile"><XCircle className="h-5 w-5" /></button>
             </div>

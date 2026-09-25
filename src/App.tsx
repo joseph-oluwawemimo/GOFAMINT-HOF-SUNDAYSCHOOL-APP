@@ -1668,7 +1668,7 @@ export default function App() {
               setShowOpeningPage(true);
             }
           }}
-          onEnterWorkersModule={['SUPER_ADMIN', 'GENERAL_SUPERINTENDENT', 'GENERAL_SECRETARY', 'ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY'].includes(currentUserProfile?.role || '') ? () => {
+          onEnterWorkersModule={['SUPER_ADMIN', 'GENERAL_SUPERINTENDENT', 'GENERAL_SECRETARY', 'ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY', 'RECORD_OFFICER'].includes(currentUserProfile?.role || '') ? () => {
             void handleEnterOversight('WORKERS');
           } : undefined}
           onLockProfile={() => {

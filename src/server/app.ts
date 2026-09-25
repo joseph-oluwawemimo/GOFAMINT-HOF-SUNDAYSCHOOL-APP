@@ -14,7 +14,7 @@ const CLASS_CREATORS: GofamintRole[] = ['ASST_GENERAL_SECRETARY', 'ASSISTANT_GEN
 const CLASS_PORTAL_ROLES: GofamintRole[] = ['TEACHER', 'CLASS_SECRETARY', 'TEACHER / CLASS_SECRETARY'];
 const WORKER_MANAGERS = new Set<GofamintRole>([...EXEC, 'ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY']);
 const WORKER_EVENT_READERS = new Set<GofamintRole>([...WORKER_MANAGERS, 'RECORD_OFFICER', 'WORKER']);
-const WORKER_DIRECTORY_READERS = new Set<GofamintRole>([...WORKER_EVENT_READERS, ...CLASS_PORTAL_ROLES]);
+const WORKER_DIRECTORY_READERS = new Set<GofamintRole>([...ADMIN_PROFILES, 'WORKER', ...CLASS_PORTAL_ROLES]);
 type Caller = { id: string; email: string | null; role: GofamintRole; classId: string | null; departmentId: string | null };
 
 function limitedText(value: unknown, maxLength: number): string {
