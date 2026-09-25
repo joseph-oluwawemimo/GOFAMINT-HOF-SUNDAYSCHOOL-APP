@@ -113,7 +113,7 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
   const [gsecActiveTab, setGsecActiveTab] = useState<'SUNDAY_SCHOOL_SETUP' | 'CLASS_PORTAL_EXPLORER' | 'DEPARTMENTS' | 'CLASS_APPROVALS'>('SUNDAY_SCHOOL_SETUP');
 
   // Treasurer Sub-tab Navigation state (Jobie active tab)
-  const [treasurerActiveTab, setTreasurerActiveTab] = useState<'OVERVIEW' | 'PENDING_AUDIT' | 'WEEKLY_AUDIT' | 'EXPENDITURES' | 'AUDITED_TRAIL' | 'CHILDREN_ACCOUNT'>('OVERVIEW');
+  const [treasurerActiveTab, setTreasurerActiveTab] = useState<'OVERVIEW' | 'PENDING_AUDIT' | 'WEEKLY_AUDIT' | 'QUARTERLY_MATRIX' | 'EXPENDITURES' | 'AUDITED_TRAIL' | 'CHILDREN_ACCOUNT'>('OVERVIEW');
 
   // Record Officer Sub-tab Navigation state (Jobie active tab)
   const [recordOfficerActiveTab, setRecordOfficerActiveTab] = useState<'WEEKLY_COLLATION' | 'WEEKLY_ONBOARDED' | 'QUARTER_ANALYSIS' | 'DEPARTED_MEMBERS'>('WEEKLY_COLLATION');
@@ -390,6 +390,7 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
     { id: 'OVERVIEW', label: 'Financial Overview', icon: TrendingUp },
     { id: 'PENDING_AUDIT', label: 'Pending Remittances', icon: Receipt },
     { id: 'WEEKLY_AUDIT', label: 'Weekly Collation', icon: Coins },
+    { id: 'QUARTERLY_MATRIX', label: '12-Week Matrix', icon: FileSpreadsheet },
     { id: 'EXPENDITURES', label: 'Disbursements', icon: ArrowUpRight },
     { id: 'CHILDREN_ACCOUNT', label: 'Children Account', icon: Layers },
     { id: 'AUDITED_TRAIL', label: 'Audited Ledger', icon: ShieldCheck },

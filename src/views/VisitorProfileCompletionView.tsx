@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Camera, CheckCircle2, AlertCircle, Heart, Shield, Lock, User, Phone, MapPin, Briefcase, Copy, Check, GraduationCap } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Camera, CheckCircle2, AlertCircle, Heart, Shield, Lock, User, Phone, MapPin, Briefcase, Copy, Check, GraduationCap, Upload, Download } from 'lucide-react';
 import QRCode from 'qrcode';
 import { Member } from '../types';
 import { CameraModal } from '../components/CameraModal';
@@ -37,6 +37,7 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
   const [ageGroup, setAgeGroup] = useState('');
   const [prayerRequests, setPrayerRequests] = useState('');
   const [photoBase64, setPhotoBase64] = useState<string | undefined>(undefined);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load member by token
   useEffect(() => {
@@ -96,9 +97,31 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
           setAddress(data.address || '');
           setOccupation(data.occupation || '');
           setGender(data.gender || '');
-          setAgeGroup(data.ageGroup || '');
+
+          // Pre-select department based on class or existing department (Adult, Youth, Children)
+          let defaultDept = 'Adult';
+          const rawDept = (data.department || data.className || '').toLowerCase();
+          if (rawDept.includes('youth') || rawDept.includes('teen')) {
+            defaultDept = 'Youth';
+          } else if (rawDept.includes('child') || rawDept.includes('junior') || rawDept.includes('primary') || rawDept.includes('toddler')) {
+            defaultDept = 'Children';
+          }
+          const initialDept = data.ageGroup && ['Children', 'Youth', 'Adult'].includes(data.ageGroup) 
+            ? data.ageGroup 
+            : defaultDept;
+          setAgeGroup(initialDept);
+
           setPrayerRequests(data.prayerRequests || '');
           setPhotoBase64(data.photoBase64);
+
+          // If already completed or has report card token, preload QR code
+          if (data.reportCardToken?.token) {
+            const exUrl = `${window.location.origin}/#report-card/${data.reportCardToken.token}`;
+            setReportCardUrl(exUrl);
+            QRCode.toDataURL(exUrl, { width: 220, margin: 2, color: { dark: '#0f172a', light: '#ffffff' } })
+              .then(setReportCardQr)
+              .catch(() => {});
+          }
         }
       } catch (err: any) {
         if (isMounted) {
@@ -124,6 +147,26 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
   const handlePhotoCapture = async (base64: string) => {
     const compressed = await compressImage(base64);
     setPhotoBase64(compressed);
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        try {
+          const rawBase64 = reader.result as string;
+          const compressed = await compressImage(rawBase64);
+          setPhotoBase64(compressed);
+        } catch (cErr) {
+          console.error('Failed to compress image:', cErr);
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      console.error('Error reading image file:', err);
+    }
   };
 
   const handleFormSubmit = (e: React.FormEvent) => {
@@ -212,9 +255,16 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
 
       const generatedUrl = `${window.location.origin}/#report-card/${rcToken}`;
       setReportCardUrl(generatedUrl);
-      QRCode.toDataURL(generatedUrl, { width: 180, margin: 1, color: { dark: '#0f172a', light: '#ffffff' } }, (err, dataUrl) => {
-        if (!err && dataUrl) setReportCardQr(dataUrl);
-      });
+      try {
+        const qrData = await QRCode.toDataURL(generatedUrl, {
+          width: 240,
+          margin: 2,
+          color: { dark: '#0f172a', light: '#ffffff' }
+        });
+        setReportCardQr(qrData);
+      } catch (qrErr) {
+        console.error('Failed to generate QR code:', qrErr);
+      }
 
       setIsSuccess(true);
       if (onProfileCompleted) onProfileCompleted();
@@ -229,7 +279,7 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
     return (
       <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-6 text-center font-sans">
         <div className="w-12 h-12 border-4 border-amber-400 border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="text-sm font-bold text-slate-300">Loading your visitor welcome card...</p>
+        <p className="text-sm font-bold text-slate-300">Loading your Sunday School profile...</p>
       </div>
     );
   }
@@ -238,6 +288,7 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
     const existingRcToken = member?.reportCardToken?.token;
     const existingUrl = existingRcToken ? `${window.location.origin}/#report-card/${existingRcToken}` : '';
 
+    const isStudent = member?.memberType === 'STUDENT';
     return (
       <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center font-sans">
         <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-2xl space-y-4">
@@ -245,26 +296,39 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
             <Lock className="w-8 h-8" />
           </div>
           <h2 className="text-xl font-black font-['Cinzel',serif] text-amber-400">
-            One-Time Link Completed
+            Profile Link Completed
           </h2>
           <p className="text-xs text-slate-300 leading-relaxed">
-            This secure one-time link has already been used to complete the visitor profile.
+            This secure one-time link has already been used to complete the Sunday School profile.
           </p>
           {existingRcToken && (
-            <div className="bg-slate-800/90 border border-slate-700 rounded-2xl p-4 text-left space-y-2">
+            <div className="bg-slate-800/90 border border-slate-700 rounded-2xl p-4 text-left space-y-3">
               <span className="text-xs font-bold text-amber-400 uppercase tracking-wider block">
-                Your Report Card Access
+                Your Score Pass & Report Card
               </span>
               <p className="text-[11px] text-slate-300">
-                You can view your private Sunday School report card anytime:
+                You can view your private Sunday School score pass and report card anytime:
               </p>
+              {reportCardQr && (
+                <div className="flex flex-col items-center justify-center my-2 space-y-2">
+                  <img src={reportCardQr} alt="Score Pass QR Code" className="w-36 h-36 rounded-xl border border-white/20 shadow-md bg-white p-1" />
+                  <a
+                    href={reportCardQr}
+                    download={`${(member?.fullName || 'member').trim()}_SundaySchool_Pass.png`}
+                    className="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-amber-300 rounded-lg text-[10px] font-bold transition flex items-center gap-1"
+                  >
+                    <Download className="w-3 h-3" />
+                    <span>Download QR Code</span>
+                  </a>
+                </div>
+              )}
               <button
                 type="button"
                 onClick={() => { window.location.hash = `#report-card/${existingRcToken}`; }}
                 className="w-full py-2 bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-bold text-xs rounded-xl shadow transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 <GraduationCap className="w-4 h-4" />
-                View My Report Card
+                Open My Score Pass
               </button>
             </div>
           )}
@@ -291,6 +355,7 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
   }
 
   if (isSuccess) {
+    const isStudent = member?.memberType === 'STUDENT';
     return (
       <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center font-sans">
         <div className="max-w-md w-full bg-slate-900 border border-emerald-800/50 rounded-3xl p-8 shadow-2xl animate-fade-in space-y-4">
@@ -298,13 +363,15 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
             <CheckCircle2 className="w-8 h-8" />
           </div>
           <h2 className="text-2xl font-black font-['Cinzel',serif] text-amber-400">
-            Welcome to GOFAMINT HOF!
+            {isStudent ? 'Profile Verified & Synced!' : 'Welcome to GOFAMINT HOF!'}
           </h2>
           <p className="text-sm font-semibold text-emerald-300">
             Your profile has been saved successfully.
           </p>
           <p className="text-xs text-slate-300 leading-relaxed">
-            We are joyful and blessed to have you worship with us in the Lord's House. Your details have been delivered to your Sunday School class leadership.
+            {isStudent
+              ? 'Your Sunday School student profile is active and up to date. Keep your personal score pass and QR code to monitor your attendance and grades each week.'
+              : "We are joyful and blessed to have you worship with us in the Lord's House. Your details have been delivered to your Sunday School class leadership."}
           </p>
 
           {/* Secure Report Card Access (Phase 7) */}
@@ -312,18 +379,28 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
             <div className="bg-slate-800/90 border border-slate-700 rounded-2xl p-4 text-left space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold uppercase tracking-wider text-amber-400">
-                  Your Sunday School Report Card
+                  Your Live Score Pass & Report Card
                 </span>
                 <span className="text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-800/60 px-2 py-0.5 rounded-full font-semibold">
                   Private & Read-Only
                 </span>
               </div>
               <p className="text-[11px] text-slate-300 leading-normal">
-                Use your private access link below to track your lessons, attendance, and scores anytime:
+                Use your private access link and QR code below to track your lessons, attendance, and scores anytime:
               </p>
               {reportCardQr && (
-                <div className="flex justify-center my-2">
-                  <img src={reportCardQr} alt="Report Card QR Code" className="w-36 h-36 rounded-xl border border-white/20 shadow-md bg-white p-1" />
+                <div className="flex flex-col items-center justify-center my-3 space-y-2">
+                  <div className="p-2 bg-white rounded-2xl shadow-lg border border-slate-700">
+                    <img src={reportCardQr} alt="Score Pass QR Code" className="w-44 h-44 rounded-xl" />
+                  </div>
+                  <a
+                    href={reportCardQr}
+                    download={`${fullName.trim() || 'member'}_SundaySchool_Pass.png`}
+                    className="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download QR Code Pass</span>
+                  </a>
                 </div>
               )}
               <div className="flex items-center gap-2 bg-slate-900/90 rounded-xl p-2 border border-slate-700">
@@ -354,7 +431,7 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
                 className="w-full py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 <GraduationCap className="w-4 h-4" />
-                Open My Report Card
+                Open My Score Pass
               </button>
             </div>
           )}
@@ -368,6 +445,8 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
     );
   }
 
+  const isStudent = member?.memberType === 'STUDENT';
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-blue-600 selection:text-white pb-12">
       {/* Top Banner */}
@@ -377,10 +456,12 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
             GOFAMINT HOUSE OF FAVOUR • SUNDAY SCHOOL
           </span>
           <h1 className="text-xl sm:text-2xl font-black font-['Cinzel',serif] text-white">
-            Honored Visitor Welcome Card
+            {isStudent ? 'Student Profile & Score Pass' : 'Honored Visitor Welcome Card'}
           </h1>
           <p className="text-xs text-slate-400">
-            Please complete or update your details below. This is a secure one-time link.
+            {isStudent
+              ? 'Verify and complete your student profile below to generate your personal Sunday School Score Pass and QR Code.'
+              : 'Please complete or update your details below. Once saved, you can access your live Sunday School Score Pass anytime via QR code.'}
           </p>
         </div>
       </header>
@@ -390,32 +471,53 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
         <form onSubmit={handleFormSubmit} className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl space-y-5">
           {/* Portrait Photo Section */}
           <div className="flex flex-col items-center justify-center text-center space-y-2 pb-2">
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept="image/*"
+              className="hidden"
+              onChange={handleFileUpload}
+            />
             <div className="relative group">
               <div className="w-24 h-24 rounded-full overflow-hidden border-2 border-amber-400/80 bg-slate-800 flex items-center justify-center shadow-lg">
                 {photoBase64 ? (
-                  <img src={photoBase64} alt={fullName || 'Visitor'} className="w-full h-full object-cover" />
+                  <img src={photoBase64} alt={fullName || (isStudent ? 'Student' : 'Visitor')} className="w-full h-full object-cover" />
+                ) : isStudent ? (
+                  <GraduationCap className="w-10 h-10 text-amber-400/70" />
                 ) : (
                   <User className="w-10 h-10 text-slate-500" />
                 )}
               </div>
               <button
                 type="button"
-                onClick={() => setIsCameraOpen(true)}
+                onClick={() => fileInputRef.current?.click()}
                 className="absolute bottom-0 right-0 p-2 bg-amber-400 hover:bg-amber-300 text-slate-950 rounded-full shadow-md cursor-pointer transition active:scale-95"
-                title="Upload or take photo"
+                title="Upload photo from device gallery/files"
               >
-                <Camera className="w-4 h-4" />
+                <Upload className="w-4 h-4" />
               </button>
             </div>
-            <button
-              type="button"
-              onClick={() => setIsCameraOpen(true)}
-              className="text-xs text-amber-400 hover:underline font-bold cursor-pointer"
-            >
-              {photoBase64 ? 'Change Photo (Camera / Upload)' : 'Add Photo (Camera / Upload)'}
-            </button>
+            
+            <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="px-3 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black rounded-xl text-xs transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>Upload Photo (Gallery / File)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsCameraOpen(true)}
+                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl text-xs transition flex items-center gap-1.5 cursor-pointer border border-slate-700"
+              >
+                <Camera className="w-3.5 h-3.5 text-amber-400" />
+                <span>Camera</span>
+              </button>
+            </div>
             <span className="text-[10px] text-slate-400">
-              Photos are automatically compressed to ≤ 500 KB for optimal speed.
+              Photos automatically compress to ≤ 500 KB for rapid synchronization.
             </span>
           </div>
 
@@ -466,19 +568,15 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
             </div>
 
             <div className="space-y-1">
-              <label className="text-[11px] font-bold text-slate-300">Age Group / Dept</label>
+              <label className="text-[11px] font-bold text-slate-300">Department *</label>
               <select
                 value={ageGroup}
                 onChange={(e) => setAgeGroup(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-amber-400"
+                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-amber-400 font-bold"
               >
-                <option value="">Select...</option>
-                <option value="Children">Children</option>
-                <option value="Teenagers">Teenagers</option>
-                <option value="Youth">Youth</option>
-                <option value="Young Adults">Young Adults</option>
-                <option value="Adults">Adults</option>
-                <option value="Elders">Elders</option>
+                <option value="Adult">Adult Department</option>
+                <option value="Youth">Youth Department</option>
+                <option value="Children">Children Department</option>
               </select>
             </div>
           </div>
@@ -579,7 +677,7 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
         isOpen={isCameraOpen}
         onClose={() => setIsCameraOpen(false)}
         onCapture={handlePhotoCapture}
-        title="Visitor Portrait Photo"
+        title={isStudent ? "Student Portrait Photo" : "Visitor Portrait Photo"}
       />
     </div>
   );

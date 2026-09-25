@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { usePersistedState } from '../../hooks/usePersistedState';
 import { 
   WorkerProfile, 
   WorkerPrepAttendanceRecord, 
@@ -16,7 +17,8 @@ import {
 } from 'lucide-react';
 import { 
   getQuarterWeeklySchedule, 
-  computeQuarterWeeklyMetrics 
+  computeQuarterWeeklyMetrics,
+  getCurrentCalendarWeek
 } from '../../utils/quarterScheduleUtils';
 import { evaluateAttendanceAccess, getAttendanceWeekLockKey } from '../../utils/attendanceAccessSecurity';
 import { 
@@ -58,11 +60,15 @@ export const PreparatoryAttendanceView: React.FC<PreparatoryAttendanceViewProps>
   onNavigateToTab
 }) => {
   const todayStr = new Date().toISOString().split('T')[0];
-  const [showThursdayTerminal, setShowThursdayTerminal] = useState<boolean>(false);
+  const [showThursdayTerminal, setShowThursdayTerminal] = usePersistedState<boolean>(
+    'gofamint_prep_terminal_open',
+    false
+  );
   const [showScheduleModal, setShowScheduleModal] = useState<boolean>(false);
 
   // Quarter selection (Synced with General Executive)
-  const [selectedQuarterNumber, setSelectedQuarterNumber] = useState<QuarterNumber>(
+  const [selectedQuarterNumber, setSelectedQuarterNumber] = usePersistedState<QuarterNumber>(
+    'gofamint_prep_selected_quarter',
     sundaySchoolYear.activeQuarterNumber || 1
   );
 
@@ -75,8 +81,11 @@ export const PreparatoryAttendanceView: React.FC<PreparatoryAttendanceViewProps>
     return getQuarterWeeklySchedule(activeQuarter);
   }, [activeQuarter]);
 
-  // Selected week (1 to 13)
-  const [selectedWeek, setSelectedWeek] = useState<number>(1);
+  // Selected week (persisted so reload / screen-off / app switch NEVER resets to Week 1)
+  const [selectedWeek, setSelectedWeek] = usePersistedState<number>(
+    'gofamint_prep_selected_week',
+    getCurrentCalendarWeek(activeQuarter) || 1
+  );
 
   // Active week info
   const activeWeekInfo = useMemo(() => {
@@ -129,18 +138,33 @@ export const PreparatoryAttendanceView: React.FC<PreparatoryAttendanceViewProps>
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [markedByName, setMarkedByName] = useState<string>('Workers Coordinator');
 
-  // Lock Entry Handler (Past weeks finalized)
+  // Lock Register Handler (When all data is inputted)
   const handleLockEntry = async () => {
-    if (!window.confirm(`Lock Thursday attendance entry for Week ${selectedWeek}? This will prevent accidental modifications and preserve historical integrity.`)) {
+    if (!window.confirm(`Is all the data inputted? Lock Thursday Week ${selectedWeek} register to prevent accidental changes?`)) {
       return;
     }
     setIsProcessingLockAction(true);
     try {
       const updated = await lockAttendanceWeek('THURSDAY', selectedQuarterNumber, selectedWeek, markedByName || 'Workers Coordinator');
       if (onUpdateConfig) await onUpdateConfig(updated);
-      alert(`Thursday Week ${selectedWeek} attendance is now locked.`);
     } catch (err: any) {
       alert(`Failed to lock week: ${err.message}`);
+    } finally {
+      setIsProcessingLockAction(false);
+    }
+  };
+
+  // Direct 1-Click Make Changes Handler
+  const handleDirectMakeChanges = async () => {
+    if (!window.confirm(`Unlock Thursday Week ${selectedWeek} to make changes? You can update records and click 'Save & Lock Again' when done.`)) {
+      return;
+    }
+    setIsProcessingLockAction(true);
+    try {
+      const updated = await approveAttendanceWeekChanges('THURSDAY', selectedQuarterNumber, selectedWeek, markedByName || 'Workers Coordinator');
+      if (onUpdateConfig) await onUpdateConfig(updated);
+    } catch (err: any) {
+      alert(`Failed to unlock for changes: ${err.message}`);
     } finally {
       setIsProcessingLockAction(false);
     }
@@ -192,14 +216,13 @@ export const PreparatoryAttendanceView: React.FC<PreparatoryAttendanceViewProps>
 
   // Complete Changes Handler (Changes Done -> Automatically lock again)
   const handleCompleteChanges = async () => {
-    if (!window.confirm(`Finalize changes for Thursday Week ${selectedWeek}? This will record the audit log and automatically lock historical entry again.`)) {
+    if (!window.confirm(`Finalize changes for Thursday Week ${selectedWeek}? This will save corrections and lock the register again.`)) {
       return;
     }
     setIsProcessingLockAction(true);
     try {
       const updated = await completeAttendanceWeekChanges('THURSDAY', selectedQuarterNumber, selectedWeek);
       if (onUpdateConfig) await onUpdateConfig(updated);
-      alert(`Corrections completed. Thursday Week ${selectedWeek} has been automatically re-locked.`);
     } catch (err: any) {
       alert(`Failed to complete changes: ${err.message}`);
     } finally {
@@ -408,27 +431,44 @@ export const PreparatoryAttendanceView: React.FC<PreparatoryAttendanceViewProps>
             </button>
           )}
 
-          {attendanceAccess.allowedActions.lockEntry && (
+          {/* Lock Register Button */}
+          {!attendanceAccess.isManuallyLocked && !attendanceAccess.isFuture && (
             <button
+              id="btn-lock-thursday-register"
               onClick={handleLockEntry}
               disabled={isProcessingLockAction}
               className="px-3.5 py-2.5 bg-rose-900 hover:bg-rose-800 text-white rounded-xl text-xs font-black flex items-center gap-1.5 shadow-sm transition cursor-pointer"
-              title="Lock historical attendance to prevent accidental changes"
+              title="Lock Thursday register to prevent accidental modifications"
             >
               <Lock className="w-3.5 h-3.5 text-rose-300" />
-              <span>Lock Entry</span>
+              <span>Lock Register</span>
+            </button>
+          )}
+
+          {/* Make Changes Button when locked */}
+          {attendanceAccess.isManuallyLocked && !attendanceAccess.isChangeModeActive && (
+            <button
+              id="btn-thursday-make-changes"
+              onClick={handleDirectMakeChanges}
+              disabled={isProcessingLockAction}
+              className="px-3.5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 shadow-sm transition cursor-pointer"
+              title="Unlock to make corrections to Thursday register"
+            >
+              <Edit3 className="w-3.5 h-3.5 text-amber-200" />
+              <span>Make Changes</span>
             </button>
           )}
 
           {attendanceAccess.isChangeModeActive && (
             <button
+              id="btn-thursday-changes-done"
               onClick={handleCompleteChanges}
               disabled={isProcessingLockAction}
               className="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-md transition cursor-pointer animate-pulse"
               title="Finalize corrections and automatically lock again"
             >
               <CheckCircle2 className="w-4 h-4 text-amber-300" />
-              <span>Changes Done (Lock Again)</span>
+              <span>Save & Lock Again</span>
             </button>
           )}
 
@@ -500,7 +540,7 @@ export const PreparatoryAttendanceView: React.FC<PreparatoryAttendanceViewProps>
                 Thursday Executive 12-Week Schedule Sync
               </span>
               <h2 className="text-lg font-black font-['Cinzel',serif] text-white">
-                {activeQuarter.quarterName}: {activeQuarter.quarterTheme || 'Kingdom Study & Ministry Service'}
+                {activeQuarter.quarterName}: {activeQuarter.quarterTheme || sundaySchoolYear.overallTheme || 'General Faith & Holy Service'}
               </h2>
             </div>
           </div>
@@ -602,7 +642,7 @@ export const PreparatoryAttendanceView: React.FC<PreparatoryAttendanceViewProps>
       </div>
 
       {/* 3B. ATTENDANCE SECURITY & LOCK CONTROLS BANNER (Phase 2 & 4 & 5) */}
-      {attendanceAccess.status === 'PAST_MANUALLY_LOCKED' && (
+      {attendanceAccess.isManuallyLocked && !attendanceAccess.isChangeModeActive && (
         <div className="bg-rose-50 border-2 border-rose-300 rounded-3xl p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-start gap-3.5">
             <div className="p-3 bg-rose-600 text-white rounded-2xl shrink-0 mt-0.5 shadow-xs">
@@ -611,49 +651,34 @@ export const PreparatoryAttendanceView: React.FC<PreparatoryAttendanceViewProps>
             <div className="space-y-1">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-black uppercase tracking-wider text-rose-900">
-                  Week {selectedWeek} Historical Attendance Locked
+                  Thursday Week {selectedWeek} Register is Locked
                 </span>
                 <span className="px-2 py-0.5 bg-rose-200 text-rose-900 rounded-full text-[10px] font-black uppercase">
-                  Audit Protected
+                  Protected
                 </span>
               </div>
               <p className="text-xs text-rose-800 leading-relaxed max-w-2xl">
-                Historical attendance for Week {selectedWeek} ({targetPrepDate}) has been locked to prevent accidental modifications. To make corrections, submit a formal change request with an audit justification.
+                Attendance entries for Thursday Week {selectedWeek} ({targetPrepDate}) are locked to prevent accidental modifications. If corrections are needed, click <strong>"Make Changes"</strong>.
               </p>
-              {activeChangeRequest?.status === 'PENDING' && (
-                <div className="mt-2 p-2.5 bg-amber-100/80 border border-amber-300 rounded-xl text-xs text-amber-950">
-                  <span className="font-bold">Pending Change Request:</span> "{activeChangeRequest.reason}" (by {activeChangeRequest.requestedBy})
-                </div>
-              )}
             </div>
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {activeChangeRequest?.status === 'PENDING' ? (
-              <button
-                type="button"
-                onClick={handleApproveChangeRequest}
-                disabled={isProcessingLockAction}
-                className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-black shadow-sm transition flex items-center gap-2 cursor-pointer"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                <span>Approve & Unlock for Changes</span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setShowChangeRequestModal(true)}
-                className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-black shadow-sm transition flex items-center gap-2 cursor-pointer"
-              >
-                <Edit3 className="w-4 h-4 text-amber-300" />
-                <span>Request Changes</span>
-              </button>
-            )}
+            <button
+              type="button"
+              id="btn-banner-make-changes"
+              onClick={handleDirectMakeChanges}
+              disabled={isProcessingLockAction}
+              className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-amber-300 rounded-xl text-xs font-black shadow-sm transition flex items-center gap-2 cursor-pointer"
+            >
+              <Edit3 className="w-4 h-4" />
+              <span>Make Changes</span>
+            </button>
           </div>
         </div>
       )}
 
-      {attendanceAccess.status === 'PAST_CHANGE_REQUEST_APPROVED' && (
+      {attendanceAccess.isChangeModeActive && (
         <div className="bg-amber-50 border-2 border-amber-400 rounded-3xl p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-start gap-3.5">
             <div className="p-3 bg-amber-500 text-slate-950 rounded-2xl shrink-0 mt-0.5 shadow-xs">
@@ -662,26 +687,27 @@ export const PreparatoryAttendanceView: React.FC<PreparatoryAttendanceViewProps>
             <div className="space-y-1">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-black uppercase tracking-wider text-amber-950">
-                  Changes Mode Active — Week {selectedWeek}
+                  ⚠️ Changes Mode Active — Thursday Week {selectedWeek}
                 </span>
                 <span className="px-2 py-0.5 bg-amber-200 text-amber-900 rounded-full text-[10px] font-black uppercase">
-                  Unlocked for Corrections
+                  Editing
                 </span>
               </div>
               <p className="text-xs text-amber-900 leading-relaxed max-w-2xl">
-                Authorized corrections are currently enabled for this past session. Modify worker attendance in the register below, then click <strong>Changes Done (Lock Again)</strong> to automatically seal this week again.
+                Corrections are currently enabled for Thursday Week {selectedWeek}. Modify attendance in the register below, then click <strong>"Save & Lock Again"</strong> to re-lock the register.
               </p>
             </div>
           </div>
 
           <button
             type="button"
+            id="btn-banner-lock-again"
             onClick={handleCompleteChanges}
             disabled={isProcessingLockAction}
             className="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-black shadow-md transition flex items-center gap-2 cursor-pointer shrink-0 animate-pulse"
           >
             <CheckCircle2 className="w-4 h-4 text-amber-300" />
-            <span>Changes Done (Lock Again)</span>
+            <span>Save & Lock Again</span>
           </button>
         </div>
       )}

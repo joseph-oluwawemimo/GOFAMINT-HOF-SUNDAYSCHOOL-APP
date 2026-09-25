@@ -175,9 +175,9 @@ export function evaluateAttendanceAccess(params: AttendanceAccessParams): Attend
     };
   }
 
-  // 1B. PAST DATE: Live clock-in is closed; manual attendance depends on lock status
-  if (isPast) {
-    // If change request is approved, allow corrections
+  // 1B. MANUAL LOCK CHECK: If the register has been locked by the coordinator,
+  // prevent accidental changes on both today and past dates until "Make Changes" is clicked.
+  if (isManuallyLocked) {
     if (hasApprovedChangeRequest) {
       return {
         status: 'PAST_CHANGE_REQUEST_APPROVED',
@@ -186,10 +186,10 @@ export function evaluateAttendanceAccess(params: AttendanceAccessParams): Attend
         scheduledDate,
         canClockIn: false,
         canManualAttendance: true,
-        isDateMatch: false,
-        isToday: false,
+        isDateMatch: isToday,
+        isToday,
         isFuture: false,
-        isPast: true,
+        isPast,
         isManuallyLocked: true,
         isChangeRequestRequired: false,
         isChangeModeActive: true,
@@ -201,41 +201,40 @@ export function evaluateAttendanceAccess(params: AttendanceAccessParams): Attend
           manualEdit: true,
           lockEntry: false,
           requestChanges: false,
-          completeChanges: true, // "Changes Done" button visible
+          completeChanges: true, // "Save & Lock Again" button visible
         }
       };
     }
 
-    // If manually locked, completely prevent editing
-    if (isManuallyLocked) {
-      return {
-        status: 'PAST_MANUALLY_LOCKED',
-        sessionType,
-        weekNumber,
-        scheduledDate,
-        canClockIn: false,
-        canManualAttendance: false,
-        isDateMatch: false,
-        isToday: false,
-        isFuture: false,
-        isPast: true,
-        isManuallyLocked: true,
-        isChangeRequestRequired: true,
-        isChangeModeActive: false,
-        badgeLabel: 'Past Record Locked',
-        badgeColor: 'red',
-        lockReason: `Historical attendance for Week ${weekNumber} has been finalized and locked. Submit a change request to make authorized corrections.`,
-        allowedActions: {
-          clockIn: false,
-          manualEdit: false,
-          lockEntry: false,
-          requestChanges: true, // "Request Changes" button visible
-          completeChanges: false,
-        }
-      };
-    }
+    return {
+      status: 'PAST_MANUALLY_LOCKED',
+      sessionType,
+      weekNumber,
+      scheduledDate,
+      canClockIn: false,
+      canManualAttendance: false,
+      isDateMatch: isToday,
+      isToday,
+      isFuture: false,
+      isPast,
+      isManuallyLocked: true,
+      isChangeRequestRequired: true,
+      isChangeModeActive: false,
+      badgeLabel: 'Record Locked',
+      badgeColor: 'red',
+      lockReason: `Attendance for Week ${weekNumber} has been finalized and locked to prevent accidental changes. Click "Make Changes". Submit a change request to make authorized corrections.`,
+      allowedActions: {
+        clockIn: false,
+        manualEdit: false,
+        lockEntry: false,
+        requestChanges: true, // "Make Changes" button visible
+        completeChanges: false,
+      }
+    };
+  }
 
-    // Past date not yet locked: Live clock-in closed, but manual attendance available
+  // 1C. PAST DATE: Live clock-in is closed; manual attendance available
+  if (isPast) {
     return {
       status: 'PAST_UNLOCKED_MANUAL_OPEN',
       sessionType,
@@ -351,7 +350,7 @@ export function evaluateAttendanceAccess(params: AttendanceAccessParams): Attend
     allowedActions: {
       clockIn: true,
       manualEdit: true,
-      lockEntry: false,
+      lockEntry: true,
       requestChanges: false,
       completeChanges: false,
     }

@@ -108,7 +108,7 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
   // Persist and restore activeTab on page refresh (Complaint 8)
   const [activeTab, setActiveTabState] = useState<WorkersModuleTab>(() => {
     if (currentUserRole === 'WORKER' && !isOversight) return 'MY_ATTENDANCE';
-    const saved = sessionStorage.getItem('gofamint_workers_active_tab');
+    const saved = sessionStorage.getItem('gofamint_workers_active_tab') || localStorage.getItem('gofamint_workers_active_tab');
     if (saved && ['DIRECTORY', 'SUNDAY_CLOCK_IN', 'PREP_ATTENDANCE', 'SPECIAL_EVENTS', 'ADMONITION_HONORS', 'MY_ATTENDANCE', 'DASHBOARD', 'INSPECTION'].includes(saved)) {
       return saved as WorkersModuleTab;
     }
@@ -119,6 +119,7 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
     if (isPersonalWorker && tab !== 'MY_ATTENDANCE') return;
     setActiveTabState(tab);
     sessionStorage.setItem('gofamint_workers_active_tab', tab);
+    localStorage.setItem('gofamint_workers_active_tab', tab);
   };
 
   useEffect(() => {
@@ -219,8 +220,26 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
 
       setWorkers(loadedWorkers);
       setCategories(loadedCats);
-      setSundayAttendance(loadedSundayAtt);
-      setPrepAttendance(loadedPrepAtt);
+      setSundayAttendance(prev => {
+        const map = new Map<string, WorkerAttendanceRecord>();
+        loadedSundayAtt.forEach(r => map.set(r.id, r));
+        prev.forEach(r => {
+          if (!map.has(r.id)) {
+            map.set(r.id, r);
+          }
+        });
+        return Array.from(map.values());
+      });
+      setPrepAttendance(prev => {
+        const map = new Map<string, WorkerPrepAttendanceRecord>();
+        loadedPrepAtt.forEach(r => map.set(r.id, r));
+        prev.forEach(r => {
+          if (!map.has(r.id)) {
+            map.set(r.id, r);
+          }
+        });
+        return Array.from(map.values());
+      });
       setConfig(loadedConfig);
       setAdminDepartments(loadedDepts);
       setAdminProfiles(loadedProfiles);

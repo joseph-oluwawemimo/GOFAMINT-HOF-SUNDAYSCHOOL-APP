@@ -54,6 +54,7 @@ type TreasurerTab =
   | 'OVERVIEW'
   | 'PENDING_AUDIT'
   | 'WEEKLY_AUDIT'
+  | 'QUARTERLY_MATRIX'
   | 'EXPENDITURES'
   | 'AUDITED_TRAIL'
   | 'CHILDREN_ACCOUNT';
@@ -1958,7 +1959,158 @@ export const TreasurerView: React.FC<TreasurerViewProps> = ({
         </div>
       )}
 
-      {/* Tab 4: Expenditures */}
+      {/* Tab: 12-Week Quarterly Matrix */}
+      {activeTab === 'QUARTERLY_MATRIX' && (
+        <div className="bg-white rounded-3xl border border-slate-100 p-5 sm:p-6 space-y-4 shadow-sm overflow-hidden">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-black uppercase tracking-wider">
+                  Master Financial Register
+                </span>
+                <span className="text-xs text-slate-500 font-semibold">Weeks 1 to {totalWeeks}</span>
+              </div>
+              <h3 className="text-base sm:text-lg font-black text-slate-900 font-['Cinzel',serif] mt-1">
+                Quarter {selectedQuarter} Real 12-Week Financial Matrix (₦)
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Live weekly offering totals collated across all class registers with physical cash audit statuses.
+              </p>
+            </div>
+
+            <button
+              onClick={() => {
+                if (allClasses.length === 0) return;
+                const headers = ['Class Name', ...Array.from({ length: totalWeeks }, (_, i) => `Week ${i + 1}`), 'Quarter Total'];
+                const rows = [headers];
+                allClasses.forEach(cls => {
+                  let classSum = 0;
+                  const row = [cls.className];
+                  for (let w = 1; w <= totalWeeks; w++) {
+                    const off = allRawOfferings.find(
+                      o => (o.classId === cls.id || (!o.classId && cls.id === 'default_class')) &&
+                           o.weekNumber === w &&
+                           (o.quarterNumber === undefined || o.quarterNumber === selectedQuarter)
+                    );
+                    const amt = off?.remittanceStatus === 'AUDITED' ? (off.auditedAmount || off.amount) : (off?.amount || 0);
+                    classSum += amt;
+                    row.push(String(amt));
+                  }
+                  row.push(String(classSum));
+                  rows.push(row);
+                });
+                const csvContent = rows.map(r => r.join(',')).join('\n');
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `treasurer_12_week_matrix_q${selectedQuarter}_${new Date().toISOString().slice(0, 10)}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+              }}
+              className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition flex items-center gap-1.5 shrink-0 self-start sm:self-auto cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5 text-amber-300" />
+              <span>Export Matrix CSV</span>
+            </button>
+          </div>
+
+          <div className="overflow-x-auto border border-slate-200 rounded-2xl">
+            <table className="w-full text-left text-xs border-collapse min-w-[850px]">
+              <thead className="bg-slate-900 text-amber-300 font-bold uppercase tracking-wider text-[11px]">
+                <tr>
+                  <th className="py-3 px-4 border-r border-slate-800 sticky left-0 bg-slate-900 z-10">Class Name</th>
+                  {Array.from({ length: totalWeeks }, (_, i) => i + 1).map(w => (
+                    <th key={w} className="py-3 px-2.5 text-center border-r border-slate-800">W{w}</th>
+                  ))}
+                  <th className="py-3 px-4 text-right">Class Total</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
+                {allClasses.map((cls) => {
+                  let classSum = 0;
+                  return (
+                    <tr key={cls.id} className="hover:bg-slate-50 transition">
+                      <td className="py-2.5 px-4 font-bold text-slate-900 border-r border-slate-100 sticky left-0 bg-white hover:bg-slate-50 z-10 whitespace-nowrap">
+                        {cls.className}
+                      </td>
+                      {Array.from({ length: totalWeeks }, (_, i) => i + 1).map(w => {
+                        const offering = allRawOfferings.find(
+                          o => (o.classId === cls.id || (!o.classId && cls.id === 'default_class')) &&
+                               o.weekNumber === w &&
+                               (o.quarterNumber === undefined || o.quarterNumber === selectedQuarter)
+                        );
+                        const amt = offering?.remittanceStatus === 'AUDITED' ? (offering.auditedAmount || offering.amount) : (offering?.amount || 0);
+                        classSum += amt;
+                        return (
+                          <td key={w} className="py-2.5 px-2 text-center border-r border-slate-100 text-[11px]">
+                            {amt > 0 ? (
+                              <span 
+                                className={`px-1.5 py-0.5 rounded font-bold ${
+                                  offering?.remittanceStatus === 'AUDITED' 
+                                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' 
+                                    : 'bg-amber-50 text-amber-800 border border-amber-200'
+                                }`}
+                                title={offering?.remittanceStatus === 'AUDITED' ? `Audited: ₦${amt.toLocaleString()}` : `Submitted pending count: ₦${amt.toLocaleString()}`}
+                              >
+                                {amt >= 1000 ? `${(amt / 1000).toFixed(amt % 1000 === 0 ? 0 : 1)}k` : amt}
+                              </span>
+                            ) : (
+                              <span className="text-slate-300">-</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                      <td className="py-2.5 px-4 text-right font-black text-emerald-900 whitespace-nowrap text-xs bg-emerald-50/40">
+                        ₦{classSum.toLocaleString()}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot className="bg-slate-900 text-white font-black text-xs border-t-2 border-slate-800">
+                <tr>
+                  <td className="py-3 px-4 uppercase tracking-wider text-amber-400 sticky left-0 bg-slate-900 z-10">
+                    Weekly Total
+                  </td>
+                  {Array.from({ length: totalWeeks }, (_, i) => i + 1).map(w => {
+                    const weekTotal = allClasses.reduce((sum, cls) => {
+                      const offering = allRawOfferings.find(
+                        o => (o.classId === cls.id || (!o.classId && cls.id === 'default_class')) &&
+                             o.weekNumber === w &&
+                             (o.quarterNumber === undefined || o.quarterNumber === selectedQuarter)
+                      );
+                      const amt = offering?.remittanceStatus === 'AUDITED' ? (offering.auditedAmount || offering.amount) : (offering?.amount || 0);
+                      return sum + amt;
+                    }, 0);
+                    return (
+                      <td key={w} className="py-3 px-2 text-center border-r border-slate-800 text-[11px] text-amber-300">
+                        {weekTotal > 0 ? (weekTotal >= 1000 ? `${(weekTotal / 1000).toFixed(weekTotal % 1000 === 0 ? 0 : 1)}k` : weekTotal) : '-'}
+                      </td>
+                    );
+                  })}
+                  <td className="py-3 px-4 text-right text-emerald-300 whitespace-nowrap text-sm bg-slate-950">
+                    ₦{(() => {
+                      return allClasses.reduce((sum, cls) => {
+                        return sum + Array.from({ length: totalWeeks }, (_, i) => i + 1).reduce((wSum, w) => {
+                          const offering = allRawOfferings.find(
+                            o => (o.classId === cls.id || (!o.classId && cls.id === 'default_class')) &&
+                                 o.weekNumber === w &&
+                                 (o.quarterNumber === undefined || o.quarterNumber === selectedQuarter)
+                          );
+                          return wSum + (offering?.remittanceStatus === 'AUDITED' ? (offering.auditedAmount || offering.amount) : (offering?.amount || 0));
+                        }, 0);
+                      }, 0).toLocaleString();
+                    })()}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      )}
       {activeTab === 'EXPENDITURES' && (
         <div className="bg-white rounded-3xl border border-slate-100 p-5 sm:p-6 space-y-4 shadow-sm">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">

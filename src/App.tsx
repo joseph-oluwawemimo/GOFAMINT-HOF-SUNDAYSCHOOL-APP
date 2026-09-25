@@ -92,11 +92,11 @@ import { backgroundStateManager } from './utils/backgroundStateManager';
 const getVisitorTokenFromUrl = (): string | null => {
   if (typeof window === 'undefined') return null;
   const hash = window.location.hash || '';
-  const hashMatch = hash.match(/#\/?visitor-profile\/([a-zA-Z0-9_-]+)/);
+  const hashMatch = hash.match(/#\/?(?:visitor-profile|member-profile|profile-link)\/([a-zA-Z0-9_-]+)/);
   if (hashMatch && hashMatch[1]) return hashMatch[1];
   const search = window.location.search || '';
   const params = new URLSearchParams(search);
-  const paramToken = params.get('visitor_token');
+  const paramToken = params.get('visitor_token') || params.get('profile_token');
   if (paramToken) return paramToken;
   return null;
 };
@@ -195,9 +195,9 @@ export default function App() {
       setProfileResolution('ready');
 
       // Supabase profile identity takes priority over every legacy opening-flow state.
-      // Retain active portal across hard refreshes (Ctrl + Shift + R) if an active session was already in progress
-      const savedPortal = sessionStorage.getItem('gofamint_active_portal');
-      const savedOversight = sessionStorage.getItem('gofamint_oversight_target');
+      // Retain active portal across hard refreshes and mobile OS backgrounding
+      const savedPortal = sessionStorage.getItem('gofamint_active_portal') || localStorage.getItem('gofamint_active_portal');
+      const savedOversight = sessionStorage.getItem('gofamint_oversight_target') || localStorage.getItem('gofamint_oversight_target');
 
       if (savedPortal === 'WORKERS' && role !== 'DEPARTMENT_SUPERINTENDENT' && (ADMIN_PORTAL_ROLES.has(role) || WORKERS_MODULE_ROLES.has(role))) {
         setShowWorkersModule(true);

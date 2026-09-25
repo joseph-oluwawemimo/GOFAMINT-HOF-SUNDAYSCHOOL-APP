@@ -896,7 +896,7 @@ export const DEFAULT_DEPARTMENTS: string[] = [
 export const FRESH_UNINITIALIZED_YEAR: SundaySchoolYear = {
   id: 'YEAR_FRESH_SETUP',
   yearName: '',
-  overallTheme: '',
+  overallTheme: 'General Faith & Holy Service',
   startDate: '',
   endDate: '',
   activeQuarterNumber: 1,
@@ -908,7 +908,7 @@ export const FRESH_UNINITIALIZED_YEAR: SundaySchoolYear = {
       id: 'Q1_FRESH',
       quarterNumber: 1,
       quarterName: 'First Quarter',
-      quarterTheme: '',
+      quarterTheme: 'General Faith & Holy Service',
       startDate: '',
       endDate: '',
       sharingAdmonitionDate: '',

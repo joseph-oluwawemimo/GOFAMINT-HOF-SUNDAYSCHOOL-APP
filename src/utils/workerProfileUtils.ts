@@ -10,6 +10,9 @@ export interface ProfileCompletenessResult {
  * Calculates profile completeness percentage (0 to 100) and lists missing fields.
  */
 export function calculateWorkerProfileCompleteness(worker: WorkerProfile): ProfileCompletenessResult {
+  if (!worker) {
+    return { percentage: 0, missingFields: ['Full Name', 'Department', 'Phone Number'], isComplete: false };
+  }
   let score = 0;
   const missingFields: string[] = [];
 

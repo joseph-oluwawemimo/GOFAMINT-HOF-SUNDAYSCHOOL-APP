@@ -77,7 +77,7 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
 }) => {
   const isReadOnly = quarterStatus === 'ARCHIVED' || quarterStatus === 'UPCOMING';
   useScrollRestoration('roster_management');
-  const [activeRosterTab, setActiveRosterTab] = usePersistedState<'ALL' | 'STUDENTS' | 'VISITORS'>('gofamint_roster_tab', 'ALL');
+  const [activeRosterTab, setActiveRosterTab] = usePersistedState<'ALL' | 'STUDENTS' | 'VISITORS' | 'ARCHIVED'>('gofamint_roster_tab', 'ALL');
   const [searchTerm, setSearchTerm] = usePersistedState<string>('gofamint_roster_search', '');
   
   // Member Edit/Add Modal State
@@ -87,10 +87,11 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
 
-  // Student Movement Modal State (Phase 25)
+  // Student & Visitor Exclusion / Archive Modal State
   const [isMovementModalOpen, setIsMovementModalOpen] = useState(false);
+  const [exclusionActionType, setExclusionActionType] = useState<'TEMPORARY' | 'PERMANENT'>('TEMPORARY');
   const [movementMemberId, setMovementMemberId] = useState('');
-  const [movementReasonCategory, setMovementReasonCategory] = useState('Relocation');
+  const [movementReasonCategory, setMovementReasonCategory] = useState('One-Time Visiting Guest');
   const [movementDate, setMovementDate] = useState(new Date().toISOString().split('T')[0]);
   const [movementNotes, setMovementNotes] = useState('');
   const [isSavingMovement, setIsSavingMovement] = useState(false);
@@ -126,16 +127,18 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
   // Camera Modal
   const [isCameraOpen, setIsCameraOpen] = useState(false);
 
-  // One-Time Visitor Profile Link Modal State
+  // One-Time Profile Link Modal State (For Both Students and Visitors)
   const [activeLinkModalMember, setActiveLinkModalMember] = useState<Member | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
   const [isGeneratingLink, setIsGeneratingLink] = useState(false);
+  const [isResettingLinks, setIsResettingLinks] = useState(false);
 
-  const handleGenerateVisitorLink = async (member: Member) => {
+  const handleGenerateMemberLink = async (member: Member) => {
     try {
       setIsGeneratingLink(true);
-      const token = 'vis_' + Math.random().toString(36).substring(2, 12) + Math.random().toString(36).substring(2, 12) + Date.now().toString(36);
-      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const prefix = member.memberType === 'STUDENT' ? 'stu_' : 'vis_';
+      const token = prefix + Math.random().toString(36).substring(2, 12) + Math.random().toString(36).substring(2, 12) + Date.now().toString(36);
+      const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
 
       const updatedMember: Member = {
         ...member,
@@ -151,9 +154,91 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
       setActiveLinkModalMember(updatedMember);
       setCopiedLink(false);
     } catch (err: any) {
-      console.error('Failed to generate visitor link:', err);
+      console.error('Failed to generate member profile link:', err);
     } finally {
       setIsGeneratingLink(false);
+    }
+  };
+
+  const handleResetAllOneTimeLinks = async () => {
+    const eligibleMembers = members.filter(m => m.status !== 'LEFT_CLASS');
+    if (eligibleMembers.length === 0) {
+      alert('No active students or visitors found in this class.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Reset profile completion links for all ${eligibleMembers.length} active students and visitors?\n\nThis will generate fresh, secure links so each member can fill their profile and obtain their personal Sunday School Score Pass and QR Code.`
+    );
+    if (!confirmed) return;
+
+    setIsResettingLinks(true);
+    try {
+      const updatedList: Member[] = eligibleMembers.map(m => {
+        const prefix = m.memberType === 'STUDENT' ? 'stu_' : 'vis_';
+        const token = prefix + Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
+        const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+        return {
+          ...m,
+          oneTimeProfileToken: {
+            token,
+            expiresAt,
+            isUsed: false
+          },
+          updatedAt: new Date().toISOString()
+        };
+      });
+
+      if (onSaveBulkMembers) {
+        await onSaveBulkMembers(updatedList);
+      } else {
+        for (const mem of updatedList) {
+          await onSaveMember(mem);
+        }
+      }
+
+      alert(`Successfully reset one-time profile links for all ${updatedList.length} students and visitors! Each member now has a fresh link.`);
+    } catch (err: any) {
+      console.error('Failed to reset all member links:', err);
+      alert(`Could not reset profile links: ${err?.message || 'Database error'}`);
+    } finally {
+      setIsResettingLinks(false);
+    }
+  };
+
+  const handleRestoreMember = async (member: Member) => {
+    const confirmed = window.confirm(
+      `Restore ${member.fullName} (${member.memberType === 'STUDENT' ? 'Student' : 'Visitor'}) to the active roster?\n\nThey will immediately reappear in the active class register and grading matrix.`
+    );
+    if (!confirmed) return;
+
+    try {
+      const updated: Member = {
+        ...member,
+        status: 'ACTIVE',
+        exclusionType: undefined,
+        isOneTimeVisitor: undefined,
+        departureDate: undefined,
+        departureReason: undefined,
+        departureWeek: undefined,
+        statusHistory: [
+          ...(member.statusHistory || []),
+          {
+            fromStatus: member.status,
+            toStatus: 'ACTIVE',
+            date: new Date().toISOString().split('T')[0],
+            reason: 'Restored to active roster by Class Secretary',
+            authorizedBy: classProfile?.name || 'Class Secretary'
+          }
+        ],
+        updatedAt: new Date().toISOString()
+      };
+
+      await onSaveMember(updated);
+      alert(`${member.fullName} has been restored to the active roster!`);
+    } catch (err: any) {
+      console.error('Failed to restore member:', err);
+      alert(`Could not restore member: ${err?.message || 'Database error'}`);
     }
   };
 
@@ -338,10 +423,13 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
 
     setIsSavingMovement(true);
     try {
-      const fullReason = `${movementReasonCategory}${movementNotes ? ': ' + movementNotes.trim() : ''}`;
+      const prefix = exclusionActionType === 'TEMPORARY' ? '[One-Time Visitor / Temporal] ' : '[Permanent Archive] ';
+      const fullReason = `${prefix}${movementReasonCategory}${movementNotes ? ': ' + movementNotes.trim() : ''}`;
       const updated: Member = {
         ...targetMember,
         status: 'LEFT_CLASS',
+        exclusionType: exclusionActionType,
+        isOneTimeVisitor: exclusionActionType === 'TEMPORARY',
         departureDate: movementDate,
         departureReason: fullReason,
         departureWeek: currentWeek,
@@ -361,7 +449,8 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
       setIsMovementModalOpen(false);
       setMovementMemberId('');
       setMovementNotes('');
-      alert(`Student movement successfully recorded for ${targetMember.fullName}. Historical records remain safely preserved.`);
+      setActiveRosterTab('ARCHIVED');
+      alert(`${targetMember.fullName} successfully excluded and moved to Archived & Excluded roster. Previous lesson records remain safely preserved.`);
     } catch (err: any) {
       console.error('Failed to record student movement:', err);
       alert(`Could not record student movement: ${err?.message || 'Database error'}`);
@@ -370,17 +459,29 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
     }
   };
 
+  const activeMembers = members.filter(m => m.status !== 'LEFT_CLASS');
+  const activeStudents = activeMembers.filter(m => m.memberType === 'STUDENT');
+  const activeVisitors = activeMembers.filter(m => m.memberType === 'VISITOR');
+  const archivedMembers = members.filter(m => m.status === 'LEFT_CLASS');
+
   const filteredMembers = members.filter(m => {
-    const matchesTab = 
-      activeRosterTab === 'ALL' ||
-      (activeRosterTab === 'STUDENTS' && m.memberType === 'STUDENT') ||
-      (activeRosterTab === 'VISITORS' && m.memberType === 'VISITOR');
+    let matchesTab = false;
+    if (activeRosterTab === 'ALL') {
+      matchesTab = m.status !== 'LEFT_CLASS';
+    } else if (activeRosterTab === 'STUDENTS') {
+      matchesTab = m.memberType === 'STUDENT' && m.status !== 'LEFT_CLASS';
+    } else if (activeRosterTab === 'VISITORS') {
+      matchesTab = m.memberType === 'VISITOR' && m.status !== 'LEFT_CLASS';
+    } else if (activeRosterTab === 'ARCHIVED') {
+      matchesTab = m.status === 'LEFT_CLASS';
+    }
 
     const term = (searchTerm || '').toLowerCase();
     const matchesSearch = 
       (m.fullName || '').toLowerCase().includes(term) ||
       (m.phone || '').includes(searchTerm || '') ||
       (m.occupation || '').toLowerCase().includes(term) ||
+      (m.departureReason || '').toLowerCase().includes(term) ||
       (m.prayerRequests || '').toLowerCase().includes(term);
 
     return matchesTab && matchesSearch;
@@ -401,14 +502,14 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
             Student registration
           </h2>
           <p className="text-xs sm:text-sm text-blue-100/80 mt-1 max-w-2xl">
-            Welcome visitors, manage students and record class movements.
+            Welcome visitors, manage students, issue Score Pass links, and exempt one-time visitors.
           </p>
         </div>
 
         <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2.5 shrink-0">
           {!isReadOnly ? (
             <>
-              {/* Add Visitor is the primary addition action (Phase 22) */}
+              {/* Add Visitor is the primary addition action */}
               <button
                 id="btn-add-visitor"
                 onClick={() => openAddModal('VISITOR')}
@@ -418,18 +519,31 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                 <span>Add visitor</span>
               </button>
 
-              {/* Log Student Movement Button (Phase 25) */}
+              {/* Exclusion & Archive Button */}
               <button
                 id="btn-log-student-movement"
                 onClick={() => setIsMovementModalOpen(true)}
-                className="min-h-[44px] px-3.5 py-2.5 bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer"
-                title="Record student departure due to marriage, relocation, transfer, etc."
+                className="min-h-[44px] px-3.5 py-2.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-100 border border-rose-400/40 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer"
+                title="Exempt one-time visitors or archive departed students"
               >
-                <UserMinus className="w-4 h-4 text-blue-200" />
-                <span>Movement</span>
+                <UserMinus className="w-4 h-4 text-rose-300" />
+                <span>Exclusion & Archive</span>
               </button>
 
-              {/* Subtle More Actions Menu for Mass Import (Phase 23) */}
+              {/* Reset All One-Time Links Button */}
+              <button
+                id="btn-reset-all-one-time-links"
+                type="button"
+                onClick={handleResetAllOneTimeLinks}
+                disabled={isResettingLinks}
+                className="min-h-[44px] px-3.5 py-2.5 bg-purple-500/20 hover:bg-purple-500/30 text-purple-100 border border-purple-400/40 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer disabled:opacity-50"
+                title="Reset secure profile links for all active students and visitors"
+              >
+                <Link2 className="w-4 h-4 text-purple-300" />
+                <span>{isResettingLinks ? 'Resetting...' : 'Reset All Links'}</span>
+              </button>
+
+              {/* Subtle More Actions Menu for Mass Import */}
               <div className="relative">
                 <button
                   type="button"
@@ -524,36 +638,46 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
 
       {/* Roster Tab Switcher & Search Bar */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200 shadow-sm">
-        <div className="grid grid-cols-3 gap-1.5 w-full sm:flex sm:items-center sm:w-auto">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 w-full sm:flex sm:items-center sm:w-auto">
           <button
             onClick={() => setActiveRosterTab('ALL')}
             className={`min-h-[42px] px-2.5 sm:px-3.5 py-2 rounded-xl text-xs font-bold transition ${
               activeRosterTab === 'ALL'
-                ? 'bg-blue-900 text-white'
+                ? 'bg-blue-900 text-white shadow-sm'
                 : 'bg-slate-50 text-slate-600 hover:text-slate-900 border border-slate-200'
             }`}
           >
-            All ({members.length})
+            All ({activeMembers.length})
           </button>
           <button
             onClick={() => setActiveRosterTab('STUDENTS')}
             className={`min-h-[42px] px-2.5 sm:px-3.5 py-2 rounded-xl text-xs font-bold transition ${
               activeRosterTab === 'STUDENTS'
-                ? 'bg-blue-600 text-white'
+                ? 'bg-blue-600 text-white shadow-sm'
                 : 'bg-slate-50 text-slate-600 hover:text-slate-900 border border-slate-200'
             }`}
           >
-            Students ({members.filter(m => m.memberType === 'STUDENT').length})
+            Students ({activeStudents.length})
           </button>
           <button
             onClick={() => setActiveRosterTab('VISITORS')}
             className={`min-h-[42px] px-2.5 sm:px-3.5 py-2 rounded-xl text-xs font-bold transition ${
               activeRosterTab === 'VISITORS'
-                ? 'bg-purple-600 text-white'
+                ? 'bg-purple-600 text-white shadow-sm'
                 : 'bg-slate-50 text-slate-600 hover:text-slate-900 border border-slate-200'
             }`}
           >
-            Visitors ({members.filter(m => m.memberType === 'VISITOR').length})
+            Visitors ({activeVisitors.length})
+          </button>
+          <button
+            onClick={() => setActiveRosterTab('ARCHIVED')}
+            className={`min-h-[42px] px-2.5 sm:px-3.5 py-2 rounded-xl text-xs font-bold transition ${
+              activeRosterTab === 'ARCHIVED'
+                ? 'bg-rose-700 text-white shadow-sm'
+                : 'bg-slate-50 text-slate-600 hover:text-slate-900 border border-slate-200'
+            }`}
+          >
+            Archived & Excluded ({archivedMembers.length})
           </button>
         </div>
 
@@ -561,7 +685,7 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
           <input
             type="text"
-            placeholder="Search by name, phone, occupation..."
+            placeholder="Search by name, phone, occupation, notes..."
             aria-label="Search students and visitors"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -601,9 +725,13 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                 key={member.id}
                 id={`roster-card-${member.id}`}
                 className={`bg-white border rounded-2xl p-4 sm:p-5 shadow-sm flex flex-col justify-between transition ${
-                  member.memberType === 'STUDENT'
-                    ? 'border-slate-200 border-l-4 border-l-blue-600'
-                    : 'border-slate-200 border-l-4 border-l-purple-600'
+                  member.status === 'LEFT_CLASS'
+                    ? member.exclusionType === 'TEMPORARY' || member.isOneTimeVisitor
+                      ? 'border-amber-200 border-l-4 border-l-amber-500 bg-amber-50/20'
+                      : 'border-rose-200 border-l-4 border-l-rose-500 bg-rose-50/20'
+                    : member.memberType === 'STUDENT'
+                      ? 'border-slate-200 border-l-4 border-l-blue-600'
+                      : 'border-slate-200 border-l-4 border-l-purple-600'
                 }`}
               >
                 <div>
@@ -630,15 +758,25 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                           {member.fullName}
                         </h4>
                         <div className="flex items-center gap-1.5 mt-0.5">
-                          <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded ${
-                            member.memberType === 'STUDENT'
-                              ? 'bg-blue-100 text-blue-800'
-                              : 'bg-purple-100 text-purple-800'
-                          }`}>
-                            {member.memberType}
-                          </span>
+                          {member.status === 'LEFT_CLASS' ? (
+                            <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded ${
+                              member.exclusionType === 'TEMPORARY' || member.isOneTimeVisitor
+                                ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                                : 'bg-rose-100 text-rose-900 border border-rose-300'
+                            }`}>
+                              {member.exclusionType === 'TEMPORARY' || member.isOneTimeVisitor ? 'EXCLUDED VISITOR' : 'ARCHIVED'}
+                            </span>
+                          ) : (
+                            <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded ${
+                              member.memberType === 'STUDENT'
+                                ? 'bg-blue-100 text-blue-800'
+                                : 'bg-purple-100 text-purple-800'
+                            }`}>
+                              {member.memberType}
+                            </span>
+                          )}
 
-                          {member.firstLessonWeek > 1 && (
+                          {member.firstLessonWeek > 1 && member.status !== 'LEFT_CLASS' && (
                             <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.2 rounded">
                               Joined Wk {member.firstLessonWeek}
                             </span>
@@ -739,6 +877,18 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                     )}
                   </div>
 
+                  {/* Exclusion / Archive Reason Banner */}
+                  {member.departureReason && (
+                    <div className="bg-amber-50/80 border border-amber-200 p-2.5 rounded-lg text-xs mb-3">
+                      <span className="text-[10px] font-bold uppercase text-amber-900 block mb-0.5">
+                        Exclusion / Archive Record:
+                      </span>
+                      <p className="text-amber-950 font-medium text-[11px]">
+                        {member.departureReason}
+                      </p>
+                    </div>
+                  )}
+
                   {/* Prayer Requests */}
                   {member.prayerRequests && (
                     <div className="bg-blue-50 border border-blue-200 p-2.5 rounded-lg text-xs mb-3">
@@ -753,8 +903,32 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
 
                 </div>
 
-                {/* Footer Controls (e.g. Visitor Convert Button) */}
-                {member.memberType === 'VISITOR' && (() => {
+                {/* Footer Controls: Distinguish Excluded vs Active Visitor vs Active Student */}
+                {member.status === 'LEFT_CLASS' ? (
+                  <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
+                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded border ${
+                      member.exclusionType === 'TEMPORARY' || member.isOneTimeVisitor
+                        ? 'text-amber-800 bg-amber-50 border-amber-300'
+                        : 'text-rose-800 bg-rose-50 border-rose-300'
+                    }`}>
+                      {member.exclusionType === 'TEMPORARY' || member.isOneTimeVisitor
+                        ? 'Exempted from register stats'
+                        : 'Archived student'}
+                    </span>
+                    {!isReadOnly && (
+                      <button
+                        type="button"
+                        id={`btn-restore-member-${member.id}`}
+                        onClick={() => handleRestoreMember(member)}
+                        className="px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer active:scale-95"
+                        title="Restore member to active class roster"
+                      >
+                        <UserCheck className="w-3.5 h-3.5" />
+                        <span>Restore to Active</span>
+                      </button>
+                    )}
+                  </div>
+                ) : member.memberType === 'VISITOR' ? (() => {
                   const qual = checkVisitorQualification(member, grades, currentWeek);
                   return (
                     <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -773,7 +947,7 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                       <div className="flex items-center gap-2 flex-wrap">
                         <button
                           type="button"
-                          onClick={() => handleGenerateVisitorLink(member)}
+                          onClick={() => handleGenerateMemberLink(member)}
                           disabled={isGeneratingLink || isReadOnly}
                           className="px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-300 cursor-pointer disabled:opacity-50"
                           title="Generate passwordless one-time link for visitor to complete their profile"
@@ -803,23 +977,34 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                       </div>
                     </div>
                   );
-                })()}
-
-                {/* Student Enrollment Certificate Action (Phases 14 & 15) */}
-                {member.memberType === 'STUDENT' && (
-                  <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+                })() : (
+                  /* Certified Student Footer */
+                  <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
                     <span className="text-[11px] font-bold text-blue-900 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
                       Certified Student
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => setViewingCertificateMember(member)}
-                      className="px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 cursor-pointer"
-                      title="Download/Print Enrollment Certification Card"
-                    >
-                      <Award className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>Download Certificate</span>
-                    </button>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        id={`btn-student-link-${member.id}`}
+                        onClick={() => handleGenerateMemberLink(member)}
+                        disabled={isGeneratingLink || isReadOnly}
+                        className="px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-300 cursor-pointer disabled:opacity-50"
+                        title="Generate secure one-time link for student to verify profile and access live Score Pass"
+                      >
+                        <Link2 className="w-3.5 h-3.5" />
+                        <span>One-Time Link</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setViewingCertificateMember(member)}
+                        className="px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 cursor-pointer"
+                        title="Download/Print Enrollment Certification Card"
+                      >
+                        <Award className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Certificate</span>
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1085,12 +1270,12 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
             </div>
 
             <p className="text-xs text-slate-600 leading-relaxed">
-              Send this secure passwordless link to <strong>{activeLinkModalMember.fullName}</strong>. They can complete their profile, address, and upload a photo directly without logging in.
+              Send this secure passwordless link to <strong>{activeLinkModalMember.fullName}</strong> ({activeLinkModalMember.memberType === 'STUDENT' ? 'Student' : 'Visitor'}). They can complete or update their profile details and receive their live Sunday School Score Pass and QR Code.
             </p>
 
             <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-                Unique Visitor URL
+                Unique Profile & Score Pass URL
               </span>
               <div className="flex items-center gap-2">
                 <input
@@ -1107,7 +1292,7 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                     setCopiedLink(true);
                     setTimeout(() => setCopiedLink(false), 2000);
                   }}
-                  className="px-3 py-1.5 bg-blue-900 hover:bg-blue-800 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shrink-0"
+                  className="px-3 py-1.5 bg-blue-900 hover:bg-blue-800 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shrink-0 cursor-pointer"
                 >
                   {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                   <span>{copiedLink ? 'Copied!' : 'Copy'}</span>
@@ -1118,7 +1303,7 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
             <div className="pt-2 flex flex-col sm:flex-row items-center gap-2">
               <a
                 href={`https://wa.me/?text=${encodeURIComponent(
-                  `Hello ${activeLinkModalMember.fullName}! Welcome to GOFAMINT House of Favor Sunday School. Please take a moment to complete your visitor profile here: ${window.location.origin}/#visitor-profile/${activeLinkModalMember.oneTimeProfileToken.token}`
+                  `Hello ${activeLinkModalMember.fullName}! Welcome to GOFAMINT House of Favor Sunday School. Please take a moment to access your Sunday School profile and live score pass here: ${window.location.origin}/#visitor-profile/${activeLinkModalMember.oneTimeProfileToken.token}`
                 )}`}
                 target="_blank"
                 rel="noreferrer"
@@ -1130,29 +1315,34 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
               <button
                 type="button"
                 onClick={() => setActiveLinkModalMember(null)}
-                className="w-full sm:w-auto px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition"
+                className="w-full sm:w-auto px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
               >
                 Close
               </button>
             </div>
 
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-[10px] text-amber-800 font-medium">
-              🔒 <strong>Single-use security:</strong> After the visitor confirms and saves their profile, this one-time link is permanently invalidated.
+              🔒 <strong>Single-use security:</strong> After the member confirms and saves their profile, this one-time link is sealed and provides direct access to their personal Score Pass & Report Card.
             </div>
           </div>
         </div>
       )}
 
-      {/* Log Student Movement / Departure Modal (Phase 25) */}
+      {/* Log Student & Visitor Exclusion / Archive Modal */}
       {isMovementModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto" onClick={() => setIsMovementModalOpen(false)}>
-          <div className="bg-white border border-slate-200 rounded-2xl max-w-md w-full shadow-2xl overflow-hidden my-8" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden my-8" onClick={(e) => e.stopPropagation()}>
             <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
               <div className="flex items-center gap-2">
                 <UserMinus className="w-5 h-5 text-rose-600" />
-                <h3 className="font-black text-slate-900 text-base">
-                  Log Student Movement / Departure
-                </h3>
+                <div>
+                  <h3 className="font-black text-slate-900 text-base">
+                    Exclusion & Member Archive
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Exempt one-time visitors or archive departed students while preserving historical records
+                  </p>
+                </div>
               </div>
               <button
                 type="button"
@@ -1164,9 +1354,64 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
             </div>
 
             <form onSubmit={handleMovementSubmit} className="p-5 space-y-4">
+              
+              {/* Two-Button Action Point Selector */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Exclusion Action Type <span className="text-blue-600">*</span>
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExclusionActionType('TEMPORARY');
+                      setMovementReasonCategory('One-Time Visiting Guest');
+                    }}
+                    className={`p-3 rounded-xl border text-left transition cursor-pointer ${
+                      exclusionActionType === 'TEMPORARY'
+                        ? 'border-amber-500 bg-amber-50/80 ring-2 ring-amber-400'
+                        : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-amber-200 text-amber-900">
+                        Temporal / 1-Time Visitor
+                      </span>
+                    </div>
+                    <p className="text-xs font-bold text-slate-900">Exempt from Weekly Register</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">
+                      Exempts person from subsequent lessons in the quarter so class attendance stats are not degraded. Can be restored anytime.
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExclusionActionType('PERMANENT');
+                      setMovementReasonCategory('Relocation');
+                    }}
+                    className={`p-3 rounded-xl border text-left transition cursor-pointer ${
+                      exclusionActionType === 'PERMANENT'
+                        ? 'border-rose-500 bg-rose-50/80 ring-2 ring-rose-400'
+                        : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-rose-200 text-rose-900">
+                        Permanent Archive
+                      </span>
+                    </div>
+                    <p className="text-xs font-bold text-slate-900">Permanent Relocation / Exit</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5 leading-snug">
+                      For members who moved away, married, or permanently left. Archives student cleanly while preserving all historical scores.
+                    </p>
+                  </button>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Select Student <span className="text-blue-600">*</span>
+                  Select Person to Exclude / Archive <span className="text-blue-600">*</span>
                 </label>
                 <select
                   required
@@ -1174,7 +1419,7 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                   onChange={(e) => setMovementMemberId(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none focus:border-blue-600 cursor-pointer"
                 >
-                  <option value="">-- Choose Student --</option>
+                  <option value="">-- Choose Person --</option>
                   {members.filter(m => m.status !== 'LEFT_CLASS').map(m => (
                     <option key={m.id} value={m.id}>
                       {m.fullName} ({m.memberType})
@@ -1185,7 +1430,7 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Reason for Movement <span className="text-blue-600">*</span>
+                  Reason for Exclusion / Departure <span className="text-blue-600">*</span>
                 </label>
                 <select
                   required
@@ -1193,18 +1438,30 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                   onChange={(e) => setMovementReasonCategory(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none focus:border-blue-600 cursor-pointer"
                 >
-                  <option value="Relocation">Relocation</option>
-                  <option value="Marriage">Marriage</option>
-                  <option value="Transfer">Transfer to another assembly</option>
-                  <option value="Work / School">Work / School posting</option>
-                  <option value="Family Emergency">Family Emergency</option>
-                  <option value="Other">Other legitimate reason</option>
+                  {exclusionActionType === 'TEMPORARY' ? (
+                    <>
+                      <option value="One-Time Visiting Guest">One-Time Visiting Guest (Traveled in)</option>
+                      <option value="Temporary Travel / Visiting Relative">Temporary Travel / Visiting Relative</option>
+                      <option value="School Holiday Visitor">School Holiday Visitor</option>
+                      <option value="Out of Station Assignment">Out of Station Assignment</option>
+                      <option value="Other Temporal Reason">Other Temporal Reason</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="Relocation">Relocation</option>
+                      <option value="Marriage">Marriage</option>
+                      <option value="Transfer">Transfer to another assembly</option>
+                      <option value="Work / School">Work / School posting</option>
+                      <option value="Family Emergency">Family Emergency</option>
+                      <option value="Other">Other legitimate reason</option>
+                    </>
+                  )}
                 </select>
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Departure Date <span className="text-blue-600">*</span>
+                  Effective Date <span className="text-blue-600">*</span>
                 </label>
                 <input
                   type="date"
@@ -1223,13 +1480,13 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                   rows={2}
                   value={movementNotes}
                   onChange={(e) => setMovementNotes(e.target.value)}
-                  placeholder="e.g. Relocated to another city for employment"
+                  placeholder={exclusionActionType === 'TEMPORARY' ? "e.g. Traveled in for Sunday service only, will not attend for next 10 weeks" : "e.g. Relocated to another city for employment"}
                   className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:border-blue-600"
                 />
               </div>
 
               <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-900 leading-relaxed">
-                <strong>Historical Data Preservation:</strong> This updates the student's current status without deleting their historical existence. Past attendance, scores, and class records remain intact.
+                <strong>Historical Data Preservation:</strong> This updates the member's active status without deleting their historical existence. Past attendance, scores, and class records remain 100% intact.
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2">
@@ -1243,9 +1500,17 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                 <button
                   type="submit"
                   disabled={isSavingMovement}
-                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-black shadow-xs transition cursor-pointer"
+                  className={`px-4 py-2 text-white rounded-lg text-xs font-black shadow-xs transition cursor-pointer ${
+                    exclusionActionType === 'TEMPORARY'
+                      ? 'bg-amber-600 hover:bg-amber-700'
+                      : 'bg-rose-600 hover:bg-rose-700'
+                  }`}
                 >
-                  {isSavingMovement ? 'Saving...' : 'Record Student Movement'}
+                  {isSavingMovement
+                    ? 'Saving...'
+                    : exclusionActionType === 'TEMPORARY'
+                    ? 'Exempt One-Time Visitor'
+                    : 'Archive Member'}
                 </button>
               </div>
             </form>

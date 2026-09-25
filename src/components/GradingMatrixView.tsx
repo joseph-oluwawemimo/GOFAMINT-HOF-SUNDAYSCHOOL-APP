@@ -36,7 +36,8 @@ import {
   ArrowDown,
   GripVertical,
   Search,
-  ClipboardCheck
+  ClipboardCheck,
+  AlertTriangle
 } from 'lucide-react';
 import { backgroundStateManager } from '../utils/backgroundStateManager';
 import {
@@ -335,18 +336,64 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
   };
 
   const weekSummary = calculateWeekSummary(selectedWeek, members, grades, offerings);
+
+  // Eligible members for selectedWeek: EXEMPT members (joined later, archived, or explicitly exempt)
+  // are excluded from the attendance and register denominator!
+  const eligibleMembers = useMemo(() => {
+    return members.filter(m => {
+      const grade = getMemberGrade(m.id);
+      if (grade.attendance === 'EXEMPT') return false;
+      if ((m.firstLessonWeek || 1) > selectedWeek) return false;
+      if (m.status === 'LEFT_CLASS' && grade.attendance !== 'PRESENT') return false;
+      return true;
+    });
+  }, [members, selectedWeek, grades]);
+
+  const eligibleCount = eligibleMembers.length;
+  const exemptCount = members.length - eligibleCount;
+
   const recordedMemberIds = new Set(
     grades
       .filter(grade => grade.weekNumber === selectedWeek)
       .map(grade => grade.memberId)
   );
-  const recordedCount = members.filter(member => recordedMemberIds.has(member.id)).length;
-  const attendanceRate = members.length > 0
-    ? Math.round((weekSummary.totalAttendance / members.length) * 100)
+  const recordedCount = eligibleMembers.filter(member => recordedMemberIds.has(member.id)).length;
+  const attendanceRate = eligibleCount > 0
+    ? Math.round((weekSummary.totalAttendance / eligibleCount) * 100)
     : 0;
-  const registerCompletionRate = members.length > 0
-    ? Math.round((recordedCount / members.length) * 100)
+  const registerCompletionRate = eligibleCount > 0
+    ? Math.round((recordedCount / eligibleCount) * 100)
     : 0;
+
+  // 12-Week Attendance & Absence Trends for the top bar graph
+  // Line 1: Present attendees (came to Sunday School)
+  // Line 2: Absent students (active enrolled students absent, excluding exempt)
+  const weeklyAttendanceTrends = useMemo(() => {
+    return Array.from({ length: 12 }, (_, i) => {
+      const wk = i + 1;
+      const wkEligible = members.filter(m => {
+        const grade = grades.find(g => g.memberId === m.id && g.weekNumber === wk);
+        if (grade?.attendance === 'EXEMPT') return false;
+        if ((m.firstLessonWeek || 1) > wk) return false;
+        if (m.status === 'LEFT_CLASS' && grade?.attendance !== 'PRESENT') return false;
+        return true;
+      });
+
+      const presentCount = members.filter(m => {
+        const grade = grades.find(g => g.memberId === m.id && g.weekNumber === wk);
+        return grade?.attendance === 'PRESENT';
+      }).length;
+
+      const absentCount = Math.max(0, wkEligible.length - presentCount);
+
+      return {
+        week: wk,
+        present: presentCount,
+        absent: absentCount,
+        eligible: wkEligible.length
+      };
+    });
+  }, [members, grades]);
 
   const handleSaveTopic = async () => {
     if (!onUpdateLessonTopic) {
@@ -388,9 +435,14 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
     }
   };
 
-  // Sort members by custom display order first, then alphabetical fallback
+  // Sort members: Active members first (custom order / alphabetical), Archived & One-time visitors ALWAYS at the bottom
   const sortedMembers = useMemo(() => {
     return [...members].sort((a, b) => {
+      const isArchivedA = a.status === 'LEFT_CLASS';
+      const isArchivedB = b.status === 'LEFT_CLASS';
+      if (isArchivedA !== isArchivedB) {
+        return isArchivedA ? 1 : -1;
+      }
       const orderA = a.displayOrder !== undefined ? a.displayOrder : 99999;
       const orderB = b.displayOrder !== undefined ? b.displayOrder : 99999;
       if (orderA !== orderB) return orderA - orderB;
@@ -453,16 +505,19 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
     const existing = grades.find(g => g.memberId === memberId && g.weekNumber === selectedWeek);
     const drafts = backgroundStateManager.getScoreDrafts(classProfile?.id || 'default_class', selectedWeek);
     const memberDraft = drafts[memberId];
+    const member = members.find(m => m.id === memberId);
+
+    const isAutoExempt = member && (
+      selectedWeek < (member.firstLessonWeek || 1) || 
+      member.status === 'LEFT_CLASS'
+    );
 
     const baseRecord: WeeklyGradeRecord = existing || (() => {
-      const member = members.find(m => m.id === memberId);
-      const isExemptBeforeJoin = member && selectedWeek < (member.firstLessonWeek || 1);
-
       return {
         id: `${memberId}_week_${selectedWeek}`,
         memberId,
         weekNumber: selectedWeek,
-        attendance: isExemptBeforeJoin ? 'EXEMPT' : 'ABSENT',
+        attendance: isAutoExempt ? 'EXEMPT' : 'ABSENT',
         punctuality: 0,
         memoryVerse: 0,
         classParticipation: 0,
@@ -474,12 +529,24 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
       };
     })();
 
-    if (!memberDraft) return baseRecord;
+    let resolvedAttendance = baseRecord.attendance;
+    if (member?.status === 'LEFT_CLASS' && baseRecord.attendance !== 'PRESENT') {
+      resolvedAttendance = 'EXEMPT';
+    } else if (member && selectedWeek < (member.firstLessonWeek || 1) && baseRecord.attendance !== 'PRESENT') {
+      resolvedAttendance = 'EXEMPT';
+    }
+
+    if (!memberDraft) {
+      return {
+        ...baseRecord,
+        attendance: resolvedAttendance
+      };
+    }
 
     const punct = memberDraft.punctuality !== undefined ? memberDraft.punctuality : baseRecord.punctuality;
     const verse = memberDraft.memoryVerse !== undefined ? memberDraft.memoryVerse : baseRecord.memoryVerse;
     const part = memberDraft.classParticipation !== undefined ? memberDraft.classParticipation : baseRecord.classParticipation;
-    const att = (memberDraft.attendance as AttendanceStatus) || baseRecord.attendance;
+    const att = (memberDraft.attendance as AttendanceStatus) || resolvedAttendance;
 
     return {
       ...baseRecord,
@@ -489,6 +556,24 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
       classParticipation: part,
       lessonTotal: punct + verse + part
     };
+  };
+
+  const handleRestoreAndMarkPresent = async (member: Member) => {
+    if (isWeekLocked) return;
+    const updated: Member = {
+      ...member,
+      status: 'ACTIVE',
+      departureDate: undefined,
+      departureReason: undefined,
+      departureWeek: undefined,
+      updatedAt: new Date().toISOString()
+    };
+    if (onUpdateMember) {
+      await onUpdateMember(updated);
+    } else if (onSaveBulkMembers) {
+      await onSaveBulkMembers([updated]);
+    }
+    handleAttendanceChange(member, 'PRESENT');
   };
 
   const handleAttendanceChange = (member: Member, newStatus: AttendanceStatus) => {
@@ -1150,155 +1235,314 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
         </div>
       )}
 
-      {/* Weekly register pulse */}
-      <section aria-label="Week summary" className="grid grid-cols-2 xl:grid-cols-4 gap-3">
-        <div className="bg-white border border-slate-200/90 p-3.5 sm:p-4 rounded-2xl shadow-sm">
-          <div className="flex items-start justify-between gap-2">
+      {/* 2-Section Top Bar: 1) Attendance & Absence Trend Graph, 2) Register Pulse Metrics & Offering */}
+      <section aria-label="Week summary" className="grid grid-cols-1 lg:grid-cols-12 gap-3.5 sm:gap-4">
+        
+        {/* Section 1: 12-Week Attendance vs Absence Trend Graph (7 cols on desktop) */}
+        <div className="lg:col-span-7 bg-white border border-slate-200/90 p-4 sm:p-5 rounded-2xl shadow-sm flex flex-col justify-between space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
             <div>
-              <span className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Attendance</span>
-              <div className="flex items-baseline gap-1.5 mt-1">
-                <span className="text-2xl sm:text-3xl font-black text-slate-950">{weekSummary.totalAttendance}</span>
-                <span className="text-xs sm:text-sm font-bold text-slate-400">of {members.length}</span>
-              </div>
-            </div>
-            <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-800 flex items-center justify-center shrink-0">
-              <Users className="w-4.5 h-4.5" />
-            </div>
-          </div>
-          <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden mt-3">
-            <div className="h-full rounded-full bg-blue-700 transition-all" style={{ width: `${Math.min(100, attendanceRate)}%` }} />
-          </div>
-          <p className="text-[10px] text-slate-500 mt-1.5 font-semibold">{attendanceRate}% present · Avg {weekSummary.classAverageScore}/50</p>
-        </div>
-
-        <div className="bg-white border border-slate-200/90 p-3.5 sm:p-4 rounded-2xl shadow-sm">
-          <div className="flex items-start justify-between gap-2">
-            <div>
-              <span className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Register progress</span>
-              <div className="flex items-baseline gap-1.5 mt-1">
-                <span className="text-2xl sm:text-3xl font-black text-slate-950">{recordedCount}</span>
-                <span className="text-xs sm:text-sm font-bold text-slate-400">of {members.length}</span>
-              </div>
-            </div>
-            <div className="w-9 h-9 rounded-xl bg-violet-50 text-violet-700 flex items-center justify-center shrink-0">
-              <ClipboardCheck className="w-4.5 h-4.5" />
-            </div>
-          </div>
-          <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden mt-3">
-            <div className="h-full rounded-full bg-violet-600 transition-all" style={{ width: `${Math.min(100, registerCompletionRate)}%` }} />
-          </div>
-          <p className="text-[10px] text-slate-500 mt-1.5 font-semibold">{registerCompletionRate}% of roster recorded</p>
-        </div>
-
-        <div className="bg-white border border-slate-200/90 p-3.5 sm:p-4 rounded-2xl shadow-sm">
-          <div className="flex items-start justify-between gap-2">
-            <div>
-              <span className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Visitors today</span>
-              <div className="flex items-baseline gap-1.5 mt-1">
-                <span className="text-2xl sm:text-3xl font-black text-slate-950">{weekSummary.visitorCount}</span>
-                <span className="text-xs font-bold text-emerald-700">{weekSummary.newVisitorCount} new</span>
-              </div>
-            </div>
-            <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0">
-              <UserPlus className="w-4.5 h-4.5" />
-            </div>
-          </div>
-          <p className="text-[10px] text-slate-500 mt-4 font-semibold">
-            {weekSummary.returningVisitorCount > 0 ? `${weekSummary.returningVisitorCount} returning visitor${weekSummary.returningVisitorCount === 1 ? '' : 's'}` : `${weekSummary.studentCount} students present`}
-          </p>
-        </div>
-
-        {/* Total Weekly Offering Input (Nigerian Naira ₦) & Remittance Engine */}
-        <div className="bg-white border border-amber-200/90 p-3.5 sm:p-4 rounded-2xl shadow-sm space-y-2">
-          <div className="flex items-center justify-between text-slate-400">
-            <span className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Weekly offering</span>
-            <span className="text-[10px] font-black text-amber-800 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg">Week {selectedWeek}</span>
-          </div>
-
-          <div className="flex items-center gap-1.5">
-            <span className="text-lg font-black text-slate-800">{currencySymbol}</span>
-            <div className="relative w-full">
-              <input
-                id="weekly-offering-amount-input"
-                type="number"
-                min="0"
-                step="100"
-                disabled={isOfferingLocked}
-                value={currentOffering.amount || ''}
-                onChange={(e) => handleOfferingAmountChange(parseFloat(e.target.value))}
-                onWheel={(e) => e.currentTarget.blur()}
-                placeholder="0.00"
-                className={`w-full bg-slate-50 border border-slate-300 rounded-lg p-1.5 px-2.5 text-base font-black text-slate-900 focus:bg-white focus:outline-none focus:border-amber-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
-                  isOfferingLocked ? 'bg-slate-100 text-slate-500 cursor-not-allowed border-slate-300 pr-16' : ''
-                }`}
-              />
-              {isOfferingLocked && (
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 flex items-center gap-1 text-[10px] font-bold bg-slate-200/90 px-1.5 py-0.5 rounded shadow-2xs">
-                  <Lock className="w-3 h-3 text-slate-600" />
-                  <span>{currentOffering.remittanceStatus === 'AUDITED' ? 'Audited' : 'Locked'}</span>
+              <div className="flex items-center gap-1.5">
+                <TrendingUp className="w-4 h-4 text-blue-800" />
+                <span className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">
+                  Quarter Attendance Trend
                 </span>
-              )}
+              </div>
+              <h3 className="text-sm font-black text-slate-900 font-['Cinzel',serif] mt-0.5">
+                Weekly Attendees vs Absentees (Weeks 1–12)
+              </h3>
+            </div>
+
+            {/* Two-Line Legend */}
+            <div className="flex items-center gap-3 text-[11px] font-bold">
+              <div className="flex items-center gap-1.5 text-emerald-800">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 inline-block" />
+                <span>Present</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-rose-700">
+                <span className="w-2.5 h-2.5 rounded-full bg-rose-600 inline-block" />
+                <span>Absent</span>
+              </div>
             </div>
           </div>
 
-          {/* Remittance Status Indicator & Action */}
-          <div className="pt-1 border-t border-slate-100">
-            {currentOffering.remittanceStatus === 'AUDITED' ? (
-              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2 text-[10px] text-emerald-900 space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold flex items-center gap-1">
-                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                    <span>Audited Amount: {currencySymbol}{(currentOffering.auditedAmount ?? currentOffering.amount).toLocaleString()}</span>
+          {/* SVG Line Chart */}
+          <div className="w-full overflow-x-auto pt-1">
+            {(() => {
+              const maxVal = Math.max(8, ...weeklyAttendanceTrends.map(t => Math.max(t.present, t.absent))) + 2;
+              const svgWidth = 520;
+              const svgHeight = 150;
+              const padLeft = 35;
+              const padRight = 20;
+              const padTop = 15;
+              const padBottom = 28;
+              const chartWidth = svgWidth - padLeft - padRight;
+              const chartHeight = svgHeight - padTop - padBottom;
+
+              const getX = (week: number) => padLeft + ((week - 1) / 11) * chartWidth;
+              const getY = (val: number) => padTop + chartHeight - (val / maxVal) * chartHeight;
+
+              const presentPoints = weeklyAttendanceTrends.map(t => `${getX(t.week)},${getY(t.present)}`).join(' ');
+              const absentPoints = weeklyAttendanceTrends.map(t => `${getX(t.week)},${getY(t.absent)}`).join(' ');
+
+              return (
+                <svg viewBox={`0 0 ${svgWidth} ${svgHeight}`} className="w-full min-w-[480px] h-36 select-none">
+                  {/* Grid horizontal guidelines */}
+                  {[0, 0.33, 0.66, 1].map((ratio, idx) => {
+                    const y = padTop + chartHeight * (1 - ratio);
+                    const labelVal = Math.round(maxVal * ratio);
+                    return (
+                      <g key={idx}>
+                        <line x1={padLeft} y1={y} x2={svgWidth - padRight} y2={y} stroke="#f1f5f9" strokeWidth="1" strokeDasharray="3 3" />
+                        <text x={padLeft - 6} y={y + 3} textAnchor="end" fontSize="9" fontWeight="700" fill="#94a3b8">
+                          {labelVal}
+                        </text>
+                      </g>
+                    );
+                  })}
+
+                  {/* Active week column highlight */}
+                  {(() => {
+                    const selX = getX(selectedWeek);
+                    return (
+                      <rect
+                        x={selX - 16}
+                        y={padTop - 5}
+                        width={32}
+                        height={chartHeight + 10}
+                        rx={6}
+                        fill="#eff6ff"
+                        stroke="#bfdbfe"
+                        strokeWidth="1"
+                      />
+                    );
+                  })()}
+
+                  {/* Line 1: Present (Emerald solid line) */}
+                  <polyline
+                    fill="none"
+                    stroke="#059669"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    points={presentPoints}
+                  />
+
+                  {/* Line 2: Absent (Rose dashed line) */}
+                  <polyline
+                    fill="none"
+                    stroke="#e11d48"
+                    strokeWidth="2.5"
+                    strokeDasharray="4 3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    points={absentPoints}
+                  />
+
+                  {/* Points and click hotspots */}
+                  {weeklyAttendanceTrends.map((t) => {
+                    const x = getX(t.week);
+                    const yP = getY(t.present);
+                    const yA = getY(t.absent);
+                    const isSelected = t.week === selectedWeek;
+
+                    return (
+                      <g key={t.week} className="cursor-pointer" onClick={() => onSelectWeek(t.week)}>
+                        {/* Present Point */}
+                        <circle cx={x} cy={yP} r={isSelected ? 5.5 : 4} fill="#059669" stroke="#ffffff" strokeWidth="1.5" />
+                        {/* Absent Point */}
+                        <circle cx={x} cy={yA} r={isSelected ? 5.5 : 4} fill="#e11d48" stroke="#ffffff" strokeWidth="1.5" />
+
+                        {/* Labels for selected week */}
+                        {isSelected && (
+                          <>
+                            <text x={x} y={Math.max(12, yP - 8)} textAnchor="middle" fontSize="10" fontWeight="900" fill="#047857">
+                              {t.present}P
+                            </text>
+                            <text x={x} y={Math.min(chartHeight + 10, yA + 12)} textAnchor="middle" fontSize="10" fontWeight="900" fill="#be123c">
+                              {t.absent}A
+                            </text>
+                          </>
+                        )}
+
+                        {/* Week Label on X Axis */}
+                        <text
+                          x={x}
+                          y={svgHeight - 8}
+                          textAnchor="middle"
+                          fontSize={isSelected ? "11" : "9.5"}
+                          fontWeight={isSelected ? "900" : "700"}
+                          fill={isSelected ? "#1e3a8a" : "#64748b"}
+                        >
+                          W{t.week}
+                        </text>
+                      </g>
+                    );
+                  })}
+                </svg>
+              );
+            })()}
+          </div>
+
+          <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-100">
+            <span>Week {selectedWeek} Active View</span>
+            <span className="font-semibold text-blue-900">
+              {weeklyAttendanceTrends[selectedWeek - 1]?.present || 0} Present · {weeklyAttendanceTrends[selectedWeek - 1]?.absent || 0} Absent (out of {weeklyAttendanceTrends[selectedWeek - 1]?.eligible || 0} eligible)
+            </span>
+          </div>
+        </div>
+
+        {/* Section 2: Register Metrics & Offering (5 cols on desktop) */}
+        <div className="lg:col-span-5 flex flex-col gap-3">
+          
+          {/* Card: Attendance & Register Progress Pulse */}
+          <div className="bg-white border border-slate-200/90 p-4 sm:p-5 rounded-2xl shadow-sm space-y-3.5">
+            <div className="flex items-start justify-between gap-2 border-b border-slate-100 pb-2.5">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">
+                  Register Pulse • Week {selectedWeek}
+                </span>
+                <div className="flex items-baseline gap-1.5 mt-0.5">
+                  <span className="text-2xl sm:text-3xl font-black text-slate-950">{weekSummary.totalAttendance}</span>
+                  <span className="text-xs sm:text-sm font-bold text-slate-500">of {eligibleCount} eligible</span>
+                  {exemptCount > 0 && (
+                    <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                      {exemptCount} exempt excluded
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-800 flex items-center justify-center shrink-0">
+                <Users className="w-5 h-5" />
+              </div>
+            </div>
+
+            {/* Attendance Rate Bar */}
+            <div className="space-y-1">
+              <div className="flex justify-between text-xs font-bold text-slate-600">
+                <span>Class Attendance</span>
+                <span className="text-blue-900 font-black">{attendanceRate}% present</span>
+              </div>
+              <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+                <div className="h-full rounded-full bg-blue-700 transition-all" style={{ width: `${Math.min(100, attendanceRate)}%` }} />
+              </div>
+            </div>
+
+            {/* Register Completion Bar */}
+            <div className="space-y-1">
+              <div className="flex justify-between text-xs font-bold text-slate-600">
+                <span>Roster Progress</span>
+                <span className="text-violet-800 font-black">{recordedCount} of {eligibleCount} ({registerCompletionRate}%)</span>
+              </div>
+              <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+                <div className="h-full rounded-full bg-violet-600 transition-all" style={{ width: `${Math.min(100, registerCompletionRate)}%` }} />
+              </div>
+            </div>
+
+            {/* Visitors & Breakdown */}
+            <div className="flex items-center justify-between pt-1 text-xs text-slate-600 border-t border-slate-100">
+              <div className="flex items-center gap-1.5">
+                <UserPlus className="w-4 h-4 text-emerald-600" />
+                <span className="font-bold text-slate-900">{weekSummary.visitorCount} visitors today</span>
+                <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.2 rounded">({weekSummary.newVisitorCount} new)</span>
+              </div>
+              <span className="text-[11px] font-semibold text-slate-500">
+                {weekSummary.studentCount} students
+              </span>
+            </div>
+          </div>
+
+          {/* Weekly Offering Input Card */}
+          <div className="bg-white border border-amber-200/90 p-3.5 sm:p-4 rounded-2xl shadow-sm space-y-2">
+            <div className="flex items-center justify-between text-slate-400">
+              <span className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Weekly offering</span>
+              <span className="text-[10px] font-black text-amber-800 bg-amber-50 border border-amber-200 px-2 py-1 rounded-lg">Week {selectedWeek}</span>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <span className="text-lg font-black text-slate-800">{currencySymbol}</span>
+              <div className="relative w-full">
+                <input
+                  id="weekly-offering-amount-input"
+                  type="number"
+                  min="0"
+                  step="100"
+                  disabled={isOfferingLocked}
+                  value={currentOffering.amount || ''}
+                  onChange={(e) => handleOfferingAmountChange(parseFloat(e.target.value))}
+                  onWheel={(e) => e.currentTarget.blur()}
+                  placeholder="0.00"
+                  className={`w-full bg-slate-50 border border-slate-300 rounded-lg p-1.5 px-2.5 text-base font-black text-slate-900 focus:bg-white focus:outline-none focus:border-amber-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
+                    isOfferingLocked ? 'bg-slate-100 text-slate-500 cursor-not-allowed border-slate-300 pr-16' : ''
+                  }`}
+                />
+                {isOfferingLocked && (
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 flex items-center gap-1 text-[10px] font-bold bg-slate-200/90 px-1.5 py-0.5 rounded shadow-2xs">
+                    <Lock className="w-3 h-3 text-slate-600" />
+                    <span>{currentOffering.remittanceStatus === 'AUDITED' ? 'Audited' : 'Locked'}</span>
                   </span>
-                  <span className="text-emerald-700 font-semibold truncate max-w-[110px]">
-                    {currentOffering.auditedBy ? `By ${currentOffering.auditedBy}` : 'Audited'}
+                )}
+              </div>
+            </div>
+
+            {/* Remittance Status Indicator & Action */}
+            <div className="pt-1 border-t border-slate-100">
+              {currentOffering.remittanceStatus === 'AUDITED' ? (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2 text-[10px] text-emerald-900 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold flex items-center gap-1">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>Audited Amount: {currencySymbol}{(currentOffering.auditedAmount ?? currentOffering.amount).toLocaleString()}</span>
+                    </span>
+                    <span className="text-emerald-700 font-semibold truncate max-w-[110px]">
+                      {currentOffering.auditedBy ? `By ${currentOffering.auditedBy}` : 'Audited'}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-emerald-800 font-medium">
+                    This financial record has already been audited and accepted by the Treasurer.
+                  </p>
+                </div>
+              ) : currentOffering.remittanceStatus === 'REMITTED' ? (
+                <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-lg p-1.5 px-2 text-[10px]">
+                  <span className="font-bold text-blue-800 flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                    <span>Remitted (Awaiting Audit)</span>
+                  </span>
+                  <span className="text-blue-600 font-semibold text-[9px]">
+                    {currentOffering.remittedAt ? new Date(currentOffering.remittedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Sent'}
                   </span>
                 </div>
-                <p className="text-[10px] text-emerald-800 font-medium">
-                  This financial record has already been audited and accepted by the Treasurer.
-                </p>
-              </div>
-            ) : currentOffering.remittanceStatus === 'REMITTED' ? (
-              <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-lg p-1.5 px-2 text-[10px]">
-                <span className="font-bold text-blue-800 flex items-center gap-1">
-                  <Clock className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                  <span>Remitted (Awaiting Audit)</span>
-                </span>
-                <span className="text-blue-600 font-semibold text-[9px]">
-                  {currentOffering.remittedAt ? new Date(currentOffering.remittedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Sent'}
-                </span>
-              </div>
-            ) : (Number(currentOffering.amount) || 0) > 0 ? (
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[10px] font-bold text-amber-800 flex items-center gap-1">
-                  <AlertCircle className="w-3 h-3 text-amber-600 shrink-0" />
-                  <span>Recorded</span>
-                </span>
-                <button
-                  id="btn-remit-offering"
-                  type="button"
-                  onClick={handleRemitOffering}
-                  disabled={isWeekLocked}
-                  className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-lg font-black text-[11px] transition shadow-xs flex items-center gap-1 cursor-pointer active:scale-95 shrink-0 disabled:opacity-45 disabled:cursor-not-allowed disabled:hover:bg-amber-500"
-                  title={isWeekLocked ? 'This quarter or week is locked read-only.' : 'Hand over cash and mark as Remitted to Sunday School Treasurer'}
-                >
-                  <HandCoins className="w-3 h-3" />
-                  <span>REMIT {currencySymbol}{Number(currentOffering.amount).toLocaleString()}</span>
-                </button>
-              </div>
-            ) : (
-              <div className="text-[10px] text-slate-400 italic">
-                Enter amount collected in class
-              </div>
-            )}
-          </div>
+              ) : (Number(currentOffering.amount) || 0) > 0 ? (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-bold text-amber-800 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3 text-amber-600 shrink-0" />
+                    <span>Recorded</span>
+                  </span>
+                  <button
+                    id="btn-remit-offering"
+                    type="button"
+                    onClick={handleRemitOffering}
+                    disabled={isWeekLocked}
+                    className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-lg font-black text-[11px] transition shadow-xs flex items-center gap-1 cursor-pointer active:scale-95 shrink-0 disabled:opacity-45 disabled:cursor-not-allowed disabled:hover:bg-amber-500"
+                    title={isWeekLocked ? 'This quarter or week is locked read-only.' : 'Hand over cash and mark as Remitted to Sunday School Treasurer'}
+                  >
+                    <HandCoins className="w-3 h-3" />
+                    <span>REMIT {currencySymbol}{Number(currentOffering.amount).toLocaleString()}</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="text-[10px] text-slate-400 italic">
+                  Enter amount collected in class
+                </div>
+              )}
+            </div>
 
-          <div className="flex items-center justify-between text-[10px] text-slate-500 font-semibold pt-0.5">
-            <span>Week {selectedWeek} Offering</span>
-            <span className="font-bold text-amber-900">Cumul: {currencySymbol}{cumulativeOfferingTotal.toLocaleString()}</span>
+            <div className="flex items-center justify-between text-[10px] text-slate-500 font-semibold pt-0.5">
+              <span>Week {selectedWeek} Offering</span>
+              <span className="font-bold text-amber-900">Cumul: {currencySymbol}{cumulativeOfferingTotal.toLocaleString()}</span>
+            </div>
           </div>
         </div>
-
       </section>
 
       {/* Remit Notification Feedback Banner */}
@@ -1541,19 +1785,39 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
             const grade = getMemberGrade(member.id);
             const isLateJoiner = member.firstLessonWeek > 1;
             const qualification = member.memberType === 'VISITOR' ? checkVisitorQualification(member, grades, selectedWeek) : null;
+            const isExcludedOrArchived = member.status === 'LEFT_CLASS';
+            const isOneTimeVisitor = member.isOneTimeVisitor || member.exclusionType === 'TEMPORARY';
 
             return (
               <div
                 key={member.id}
                 id={`grading-card-${member.id}`}
                 className={`group bg-white border rounded-2xl p-3.5 sm:p-5 transition-all shadow-sm hover:shadow-md ${
-                  grade.attendance === 'PRESENT'
+                  isExcludedOrArchived
+                    ? 'border-slate-200 border-l-4 border-l-slate-400 bg-slate-50/50 opacity-90'
+                    : grade.attendance === 'PRESENT'
                     ? 'border-slate-200 border-l-4 border-l-emerald-600'
                     : grade.attendance === 'ABSENT'
                     ? 'border-slate-200 border-l-4 border-l-[#8b451f]'
                     : 'border-slate-200 border-l-4 border-l-rose-600'
                 }`}
               >
+                {/* Notification Badge on top for Archived / One-Time Visitors */}
+                {isExcludedOrArchived && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 bg-amber-50 border border-amber-300 rounded-xl mb-3">
+                    <div className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-amber-900">
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                      <span>{isOneTimeVisitor ? 'One-Time Visitor' : 'Archived Student'}</span>
+                      <span className="text-[10px] font-bold text-amber-800 bg-amber-200/70 px-1.5 py-0.5 rounded">
+                        Auto-Exempted from Denominator
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-slate-500 font-medium italic">
+                      {member.departureReason || 'Excluded from class'}
+                    </span>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 xl:grid-cols-[minmax(250px,1fr)_minmax(310px,auto)_minmax(360px,1.1fr)] xl:items-center gap-4">
                   
                   {/* Member Profile Avatar & Info */}
@@ -1605,51 +1869,72 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                     </div>
                   </div>
 
-                  {/* Attendance Selector Buttons with Specific Color Coding */}
-                  {/* Present: Emerald Green | Absent: Deep Brown | Exempt: Red */}
-                  <div className="grid grid-cols-3 gap-1.5 w-full xl:w-auto bg-slate-100/80 p-1 rounded-xl border border-slate-200">
-                    <button
-                      id={`att-present-${member.id}`}
-                      onClick={() => handleAttendanceChange(member, 'PRESENT')}
-                      disabled={isWeekLocked}
-                      className={`min-h-[40px] px-2 sm:px-3 py-2 rounded-lg text-[10px] sm:text-xs font-black transition flex items-center justify-center gap-1 sm:gap-1.5 border active:scale-95 duration-150 disabled:opacity-50 disabled:cursor-not-allowed ${
-                        grade.attendance === 'PRESENT'
-                          ? 'bg-emerald-600 border-emerald-600 text-white shadow-xs'
-                          : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
-                      }`}
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                      <span>PRESENT</span>
-                    </button>
+                  {/* Attendance Selector Buttons */}
+                  {/* For Excluded/Archived Students: Automatically on EXEMPT with 1-click Restore */}
+                  {/* For Active Students: PRESENT, ABSENT, EXEMPT */}
+                  {isExcludedOrArchived ? (
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full xl:w-auto bg-slate-100/90 p-1.5 rounded-xl border border-slate-200">
+                      <div className="px-3 py-2 rounded-lg text-xs font-black bg-rose-600 text-white flex items-center justify-center gap-1 shadow-xs shrink-0">
+                        <Minus className="w-3.5 h-3.5" />
+                        <span>EXEMPT</span>
+                      </div>
+                      <button
+                        id={`btn-restore-present-${member.id}`}
+                        type="button"
+                        onClick={() => handleRestoreAndMarkPresent(member)}
+                        disabled={isWeekLocked}
+                        className="px-3 py-2 rounded-lg text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center gap-1 shadow-xs transition active:scale-95 disabled:opacity-50 cursor-pointer"
+                        title="Attended today: Restore to active roster and mark PRESENT"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Came Today? Restore & Present</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-1.5 w-full xl:w-auto bg-slate-100/80 p-1 rounded-xl border border-slate-200">
+                      <button
+                        id={`att-present-${member.id}`}
+                        onClick={() => handleAttendanceChange(member, 'PRESENT')}
+                        disabled={isWeekLocked}
+                        className={`min-h-[40px] px-2 sm:px-3 py-2 rounded-lg text-[10px] sm:text-xs font-black transition flex items-center justify-center gap-1 sm:gap-1.5 border active:scale-95 duration-150 disabled:opacity-50 disabled:cursor-not-allowed ${
+                          grade.attendance === 'PRESENT'
+                            ? 'bg-emerald-600 border-emerald-600 text-white shadow-xs'
+                            : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
+                        }`}
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>PRESENT</span>
+                      </button>
 
-                    <button
-                      id={`att-absent-${member.id}`}
-                      onClick={() => handleAttendanceChange(member, 'ABSENT')}
-                      disabled={isWeekLocked}
-                      className={`min-h-[40px] px-2 sm:px-3 py-2 rounded-lg text-[10px] sm:text-xs font-black transition flex items-center justify-center gap-1 sm:gap-1.5 border active:scale-95 duration-150 disabled:opacity-50 disabled:cursor-not-allowed ${
-                        grade.attendance === 'ABSENT'
-                          ? 'bg-[#5c2c16] border-[#5c2c16] text-white shadow-xs'
-                          : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
-                      }`}
-                    >
-                      <X className="w-3.5 h-3.5" />
-                      <span>ABSENT</span>
-                    </button>
+                      <button
+                        id={`att-absent-${member.id}`}
+                        onClick={() => handleAttendanceChange(member, 'ABSENT')}
+                        disabled={isWeekLocked}
+                        className={`min-h-[40px] px-2 sm:px-3 py-2 rounded-lg text-[10px] sm:text-xs font-black transition flex items-center justify-center gap-1 sm:gap-1.5 border active:scale-95 duration-150 disabled:opacity-50 disabled:cursor-not-allowed ${
+                          grade.attendance === 'ABSENT'
+                            ? 'bg-[#5c2c16] border-[#5c2c16] text-white shadow-xs'
+                            : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
+                        }`}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                        <span>ABSENT</span>
+                      </button>
 
-                    <button
-                      id={`att-exempt-${member.id}`}
-                      onClick={() => handleAttendanceChange(member, 'EXEMPT')}
-                      disabled={isWeekLocked}
-                      className={`min-h-[40px] px-2 sm:px-3 py-2 rounded-lg text-[10px] sm:text-xs font-black transition flex items-center justify-center gap-1 sm:gap-1.5 border active:scale-95 duration-150 disabled:opacity-50 disabled:cursor-not-allowed ${
-                        grade.attendance === 'EXEMPT'
-                          ? 'bg-red-600 border-red-600 text-white shadow-xs'
-                          : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
-                      }`}
-                    >
-                      <Minus className="w-3.5 h-3.5" />
-                      <span>EXEMPT</span>
-                    </button>
-                  </div>
+                      <button
+                        id={`att-exempt-${member.id}`}
+                        onClick={() => handleAttendanceChange(member, 'EXEMPT')}
+                        disabled={isWeekLocked}
+                        className={`min-h-[40px] px-2 sm:px-3 py-2 rounded-lg text-[10px] sm:text-xs font-black transition flex items-center justify-center gap-1 sm:gap-1.5 border active:scale-95 duration-150 disabled:opacity-50 disabled:cursor-not-allowed ${
+                          grade.attendance === 'EXEMPT'
+                            ? 'bg-red-600 border-red-600 text-white shadow-xs'
+                            : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
+                        }`}
+                      >
+                        <Minus className="w-3.5 h-3.5" />
+                        <span>EXEMPT</span>
+                      </button>
+                    </div>
+                  )}
 
                   {/* 4-Tier Grading Inputs (Punctuality 0-15, M Vars 0-15, C Participation 0-20, Total 50) */}
                   <div className="grid grid-cols-4 gap-1.5 sm:gap-2 w-full xl:w-auto">

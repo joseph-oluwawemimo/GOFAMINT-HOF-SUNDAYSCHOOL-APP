@@ -225,6 +225,8 @@ export interface Member {
   departureWeek?: number;
   departureReason?: string;
   temporaryExitSince?: string;
+  exclusionType?: 'TEMPORARY' | 'PERMANENT';
+  isOneTimeVisitor?: boolean;
   conversionStatus?: 'NONE' | 'PENDING_APPROVAL' | 'APPROVED' | 'DENIED';
   conversionRequestedAt?: string;
   conversionRequestedBy?: string;

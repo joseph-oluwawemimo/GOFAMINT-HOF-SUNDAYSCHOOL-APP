@@ -904,7 +904,11 @@ export async function getAllMembers(): Promise<Member[]> {
 export async function getMembersByClass(classId: string, quarterNumber?: number): Promise<Member[]> {
   if (!classId) return [];
   const all = await getAllFromStore<Member>('members');
-  const classMembers = all.filter(m => m.classId === classId);
+  const classMembers = all.filter(m => 
+    m.classId === classId || 
+    (!m.classId && classId === 'default_class') || 
+    (m.classId === 'default_class' && !classId)
+  );
 
   if (!quarterNumber) {
     return classMembers;
@@ -912,31 +916,23 @@ export async function getMembersByClass(classId: string, quarterNumber?: number)
 
   // Filter or map for the specific quarter
   const result: Member[] = [];
+  const qNum = quarterNumber as QuarterNumber;
+
   for (const m of classMembers) {
-    if (quarterNumber === 1) {
-      if (m.quarterEnrollments?.[1]) {
-        const enr = m.quarterEnrollments[1];
-        result.push({
-          ...m,
-          memberType: enr.memberType || m.memberType,
-          status: enr.status || m.status,
-          firstLessonWeek: enr.firstLessonWeek || m.firstLessonWeek || 1
-        });
-      } else {
-        // Default to Q1 member
-        result.push(m);
-      }
+    if (m.quarterEnrollments?.[qNum]) {
+      const enr = m.quarterEnrollments[qNum]!;
+      result.push({
+        ...m,
+        memberType: enr.memberType || m.memberType,
+        status: enr.status || m.status,
+        firstLessonWeek: enr.firstLessonWeek || m.firstLessonWeek || 1
+      });
     } else {
-      // For Q2, Q3, Q4: Only include if explicitly enrolled/forwarded in this quarter
-      if (m.quarterEnrollments?.[quarterNumber as QuarterNumber]) {
-        const enr = m.quarterEnrollments[quarterNumber as QuarterNumber]!;
-        result.push({
-          ...m,
-          memberType: enr.memberType || m.memberType,
-          status: enr.status || m.status,
-          firstLessonWeek: enr.firstLessonWeek || 1
-        });
-      }
+      // Robust fallback: Always keep class member visible across all quarters
+      result.push({
+        ...m,
+        firstLessonWeek: m.firstLessonWeek || 1
+      });
     }
   }
   return result;

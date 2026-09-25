@@ -40,6 +40,7 @@ export const WorkersDirectoryView: React.FC<WorkersDirectoryViewProps> = ({
   onNavigateToTab
 }) => {
   useScrollRestoration('workers_directory');
+  const [isDirectoryLocked, setIsDirectoryLocked] = usePersistedState<boolean>('gofamint_workers_directory_locked', false);
   const [searchQuery, setSearchQuery] = usePersistedState<string>('gofamint_workers_search', '');
   const [selectedDept, setSelectedDept] = usePersistedState<string>('gofamint_workers_dept', 'ALL');
   const [selectedCategory, setSelectedCategory] = usePersistedState<string>('gofamint_workers_cat', 'ALL');
@@ -47,6 +48,39 @@ export const WorkersDirectoryView: React.FC<WorkersDirectoryViewProps> = ({
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [showBatchQrModal, setShowBatchQrModal] = useState<boolean>(false);
   const [selectedMobileWorker, setSelectedMobileWorker] = useState<WorkerProfile | null>(null);
+
+  // Guarded actions to prevent accidental changes when directory is locked
+  const handleAddWorkerGuarded = () => {
+    if (isDirectoryLocked) {
+      alert("Workers Directory is locked. Please click 'Directory Locked (Unlock to Edit)' before adding new workers.");
+      return;
+    }
+    onAddWorker();
+  };
+
+  const handleBulkImportGuarded = () => {
+    if (isDirectoryLocked) {
+      alert("Workers Directory is locked. Please click 'Directory Locked (Unlock to Edit)' before importing workers.");
+      return;
+    }
+    onBulkImport();
+  };
+
+  const handleEditWorkerGuarded = (worker: WorkerProfile) => {
+    if (isDirectoryLocked) {
+      alert("Workers Directory is locked. Please click 'Directory Locked (Unlock to Edit)' before modifying profiles.");
+      return;
+    }
+    onEditWorker(worker);
+  };
+
+  const handleDeleteWorkerGuarded = (id: string) => {
+    if (isDirectoryLocked) {
+      alert("Workers Directory is locked. Record deletions are disabled.");
+      return;
+    }
+    onDeleteWorker(id);
+  };
 
   // Archive & Restore Modals
   const [archiveModalWorker, setArchiveModalWorker] = useState<WorkerProfile | null>(null);
@@ -72,7 +106,7 @@ export const WorkersDirectoryView: React.FC<WorkersDirectoryViewProps> = ({
         (w.categories || []).some(c => (c || '').toLowerCase().includes(q));
 
       const matchesDept = selectedDept === 'ALL' || w.department === selectedDept;
-      const matchesCategory = selectedCategory === 'ALL' || w.categories.includes(selectedCategory) || w.duty === selectedCategory;
+      const matchesCategory = selectedCategory === 'ALL' || (w.categories || []).includes(selectedCategory) || w.duty === selectedCategory;
       const matchesStatus = selectedStatus === 'ALL' || w.status === selectedStatus;
 
       return matchesSearch && matchesDept && matchesCategory && matchesStatus;
@@ -135,16 +169,16 @@ export const WorkersDirectoryView: React.FC<WorkersDirectoryViewProps> = ({
     workers.forEach((w, index) => {
       rows.push([
         String(w.sn || index + 1),
-        `"${w.fullName.replace(/"/g, '""')}"`,
+        `"${(w.fullName || '').replace(/"/g, '""')}"`,
         w.gender === 'FEMALE' ? 'Female' : 'Male',
-        `"${w.department.replace(/"/g, '""')}"`,
+        `"${(w.department || '').replace(/"/g, '""')}"`,
         `"${(w.assignedClass || '-').replace(/"/g, '""')}"`,
-        `"${(w.duty || w.categories[0] || 'Class Teacher').replace(/"/g, '""')}"`,
+        `"${(w.duty || w.categories?.[0] || 'Class Teacher').replace(/"/g, '""')}"`,
         w.status,
         `"${(w.archiveReason || '').replace(/"/g, '""')}"`,
-        `"${w.phone}"`,
-        `"${w.whatsappNumber || w.phone}"`,
-        `"${w.address.replace(/"/g, '""')}"`
+        `"${w.phone || ''}"`,
+        `"${w.whatsappNumber || w.phone || ''}"`,
+        `"${(w.address || '').replace(/"/g, '""')}"`
       ]);
     });
 
@@ -202,16 +236,38 @@ export const WorkersDirectoryView: React.FC<WorkersDirectoryViewProps> = ({
           </button>
 
           <button
-            onClick={onBulkImport}
-            className="px-4 py-2.5 bg-blue-900 hover:bg-blue-800 text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-sm transition"
+            id="btn-lock-workers-directory"
+            onClick={() => {
+              if (!isDirectoryLocked) {
+                if (window.confirm("Lock Workers Directory? Adding, editing, and deleting workers will be disabled until unlocked to prevent accidental modifications.")) {
+                  setIsDirectoryLocked(true);
+                }
+              } else {
+                setIsDirectoryLocked(false);
+              }
+            }}
+            className={`px-3.5 py-2.5 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-sm transition cursor-pointer ${
+              isDirectoryLocked
+                ? 'bg-rose-100 text-rose-800 border-2 border-rose-300 hover:bg-rose-200'
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300'
+            }`}
+            title={isDirectoryLocked ? "Click to unlock directory for editing" : "Lock directory to prevent accidental changes"}
+          >
+            <Lock className="w-3.5 h-3.5 text-rose-600" />
+            <span>{isDirectoryLocked ? 'Directory Locked (Unlock to Edit)' : 'Lock Directory'}</span>
+          </button>
+
+          <button
+            onClick={handleBulkImportGuarded}
+            className="px-4 py-2.5 bg-blue-900 hover:bg-blue-800 text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-sm transition cursor-pointer"
           >
             <Upload className="w-4 h-4 text-amber-300" />
             <span>Import Workers</span>
           </button>
 
           <button
-            onClick={onAddWorker}
-            className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-black flex items-center gap-2 shadow-sm transition"
+            onClick={handleAddWorkerGuarded}
+            className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-black flex items-center gap-2 shadow-sm transition cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>Add Worker</span>
@@ -248,6 +304,25 @@ export const WorkersDirectoryView: React.FC<WorkersDirectoryViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Directory Locked Banner */}
+      {isDirectoryLocked && (
+        <div className="bg-rose-50 border-2 border-rose-300 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-rose-900 shadow-xs">
+          <div className="flex items-center gap-2.5">
+            <Lock className="w-5 h-5 text-rose-600 shrink-0" />
+            <div>
+              <span className="font-black uppercase tracking-wider block">Workers Directory is Locked</span>
+              <span className="text-rose-800 font-medium">Additions, edits, and deletions are protected against accidental touches. Click <strong>"Unlock to Edit"</strong> to make changes.</span>
+            </div>
+          </div>
+          <button
+            onClick={() => setIsDirectoryLocked(false)}
+            className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-black transition shrink-0 cursor-pointer self-start sm:self-auto"
+          >
+            Unlock to Edit
+          </button>
+        </div>
+      )}
 
       {/* Metric Cards Bar */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
@@ -440,7 +515,7 @@ export const WorkersDirectoryView: React.FC<WorkersDirectoryViewProps> = ({
                       <span className="mt-3 grid grid-cols-3 gap-2">
                         <span className="rounded-xl bg-slate-50 p-2"><span className="block text-[8px] font-black uppercase text-slate-400">Sex</span><span className="mt-0.5 block truncate text-[10px] font-bold text-slate-700">{worker.gender || '—'}</span></span>
                         <span className="rounded-xl bg-slate-50 p-2"><span className="block text-[8px] font-black uppercase text-slate-400">Class</span><span className="mt-0.5 block truncate text-[10px] font-bold text-slate-700">{worker.assignedClass || '—'}</span></span>
-                        <span className="rounded-xl bg-slate-50 p-2"><span className="block text-[8px] font-black uppercase text-slate-400">Duty</span><span className="mt-0.5 block truncate text-[10px] font-bold text-slate-700">{worker.duty || worker.categories[0] || 'Worker'}</span></span>
+                        <span className="rounded-xl bg-slate-50 p-2"><span className="block text-[8px] font-black uppercase text-slate-400">Duty</span><span className="mt-0.5 block truncate text-[10px] font-bold text-slate-700">{worker.duty || worker.categories?.[0] || 'Worker'}</span></span>
                       </span>
                       <span className="mt-3 flex items-center justify-end gap-1 text-[10px] font-black text-red-600">View profile <ChevronRight className="h-3.5 w-3.5" /></span>
                     </span>
@@ -468,7 +543,7 @@ export const WorkersDirectoryView: React.FC<WorkersDirectoryViewProps> = ({
               </thead>
               <tbody className="divide-y divide-slate-200 font-medium text-slate-800">
                 {filteredWorkers.map((worker, index) => {
-                  const initials = worker.fullName
+                  const initials = (worker.fullName || 'W')
                     .split(' ')
                     .filter(n => !n.includes('.'))
                     .map(n => n[0])
@@ -551,11 +626,11 @@ export const WorkersDirectoryView: React.FC<WorkersDirectoryViewProps> = ({
                       <td className="py-3 px-4 space-y-1">
                         <div className="font-semibold text-slate-900 text-[11px] flex items-center gap-1">
                           <Tag className="w-3 h-3 text-amber-600 shrink-0" />
-                          <span>{worker.duty || worker.categories[0] || 'Class Teacher'}</span>
+                          <span>{worker.duty || worker.categories?.[0] || 'Class Teacher'}</span>
                         </div>
-                        {worker.categories.length > 1 && (
+                        {(worker.categories?.length || 0) > 1 && (
                           <div className="flex flex-wrap gap-1">
-                            {worker.categories.filter(c => c !== worker.duty).map((cat, i) => (
+                            {(worker.categories || []).filter(c => c !== worker.duty).map((cat, i) => (
                               <span key={i} className="px-1.5 py-0.2 bg-slate-100 text-slate-700 rounded text-[9px] font-medium border border-slate-200">
                                 {cat}
                               </span>
@@ -645,7 +720,7 @@ export const WorkersDirectoryView: React.FC<WorkersDirectoryViewProps> = ({
                           </button>
 
                           <button
-                            onClick={() => onEditWorker(worker)}
+                            onClick={() => handleEditWorkerGuarded(worker)}
                             className="p-1.5 bg-slate-100 hover:bg-slate-800 text-slate-700 hover:text-white rounded-lg transition"
                             title="Edit Worker Profile"
                           >
@@ -655,7 +730,13 @@ export const WorkersDirectoryView: React.FC<WorkersDirectoryViewProps> = ({
                           {/* Archive or Restore Toggle Button */}
                           {worker.status === 'ARCHIVED' ? (
                             <button
-                              onClick={() => setRestoreConfirmWorker(worker)}
+                              onClick={() => {
+                                if (isDirectoryLocked) {
+                                  alert("Workers Directory is locked. Please unlock before restoring workers.");
+                                  return;
+                                }
+                                setRestoreConfirmWorker(worker);
+                              }}
                               className="p-1.5 bg-amber-100 hover:bg-amber-600 text-amber-900 hover:text-white rounded-lg transition border border-amber-300"
                               title="Restore / Unarchive Worker back to Active Directory"
                             >
@@ -664,6 +745,10 @@ export const WorkersDirectoryView: React.FC<WorkersDirectoryViewProps> = ({
                           ) : (
                             <button
                               onClick={() => {
+                                if (isDirectoryLocked) {
+                                  alert("Workers Directory is locked. Please unlock before archiving workers.");
+                                  return;
+                                }
                                 setArchiveModalWorker(worker);
                                 setArchiveReason(worker.archiveReason || 'Relocated / Moved to new city');
                               }}
@@ -675,7 +760,13 @@ export const WorkersDirectoryView: React.FC<WorkersDirectoryViewProps> = ({
                           )}
 
                           <button
-                            onClick={() => setDeleteConfirmId(worker.id)}
+                            onClick={() => {
+                              if (isDirectoryLocked) {
+                                alert("Workers Directory is locked. Deleting records is disabled.");
+                                return;
+                              }
+                              setDeleteConfirmId(worker.id);
+                            }}
                             className="p-1.5 bg-slate-100 hover:bg-rose-600 text-slate-400 hover:text-white rounded-lg transition"
                             title="Delete Worker"
                           >
@@ -713,7 +804,7 @@ export const WorkersDirectoryView: React.FC<WorkersDirectoryViewProps> = ({
               {[
                 ['Sex', selectedMobileWorker.gender || 'Not set'],
                 ['Assigned class', selectedMobileWorker.assignedClass || 'Not set'],
-                ['Primary duty', selectedMobileWorker.duty || selectedMobileWorker.categories[0] || 'Worker'],
+                ['Primary duty', selectedMobileWorker.duty || selectedMobileWorker.categories?.[0] || 'Worker'],
                 ['Status', selectedMobileWorker.status]
               ].map(([label, value]) => <div key={label} className="rounded-2xl bg-slate-50 p-3"><span className="block text-[8px] font-black uppercase tracking-wider text-slate-400">{label}</span><strong className="mt-1 block text-slate-800">{value}</strong></div>)}
             </div>

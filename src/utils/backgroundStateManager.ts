@@ -152,11 +152,14 @@ class BackgroundStateManager {
 
   private saveCurrentAppStateSnapshot() {
     try {
-      const activePortal = sessionStorage.getItem('gofamint_active_portal') || undefined;
-      const classId = sessionStorage.getItem('gofamint_unlocked_class_id') || undefined;
+      const activePortal = sessionStorage.getItem('gofamint_active_portal') || localStorage.getItem('gofamint_active_portal') || undefined;
+      const classId = sessionStorage.getItem('gofamint_unlocked_class_id') || localStorage.getItem('gofamint_unlocked_class_id') || undefined;
+      const activeTab = sessionStorage.getItem('gofamint_active_tab') || localStorage.getItem('gofamint_active_tab') || undefined;
+      const workersTab = sessionStorage.getItem('gofamint_workers_active_tab') || localStorage.getItem('gofamint_workers_active_tab') || undefined;
       const scrollPos = typeof window !== 'undefined' ? window.scrollY : 0;
       this.saveAppState({
         activePortal,
+        activeTab: workersTab || activeTab,
         classId,
         scrollPosition: scrollPos,
         lastActiveTimestamp: Date.now()

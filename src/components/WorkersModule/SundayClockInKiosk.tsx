@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { usePersistedState } from '../../hooks/usePersistedState';
 import { 
   WorkerProfile, 
   WorkerAttendanceRecord, 
@@ -57,8 +58,8 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
   onUpdateWorkerProfile,
   onNavigateToTab
 }) => {
-  // Complaint 2: View Mode Switcher (Sunday Terminal vs Sunday Attendance Register)
-  const [viewMode, setViewMode] = useState<'TERMINAL' | 'REGISTER'>('TERMINAL');
+  // Persisted View Mode Switcher (Sunday Terminal vs Sunday Attendance Register)
+  const [viewMode, setViewMode] = usePersistedState<'TERMINAL' | 'REGISTER'>('gofamint_sunday_view_mode', 'TERMINAL');
 
   // Terminal Method: Name Search, QR Scan, Dept List
   const [activeMethod, setActiveMethod] = useState<'NAME_SEARCH' | 'QR_SCAN' | 'DEPT_LIST'>('NAME_SEARCH');
@@ -96,9 +97,10 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
   const [updateAddressInput, setUpdateAddressInput] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
 
-  // Sunday 12-Week schedule sync — week is ALWAYS derived from today's date
+  // Sunday 12-Week schedule sync
   const resolvedYear = sundaySchoolYear || INITIAL_SUNDAY_SCHOOL_YEAR;
-  const [selectedQuarterNumber, setSelectedQuarterNumber] = useState<QuarterNumber>(
+  const [selectedQuarterNumber, setSelectedQuarterNumber] = usePersistedState<QuarterNumber>(
+    'gofamint_sunday_selected_quarter',
     resolvedYear.activeQuarterNumber || 1
   );
 
@@ -107,12 +109,15 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
   }, [resolvedYear, selectedQuarterNumber]);
 
   // Auto-derive the calendar-current week from today's date and the active quarter schedule.
-  // Never defaults to Week 1 — always reflects where we actually are in the 12-week plan.
   const calendarCurrentWeek = useMemo(() => getCurrentCalendarWeek(activeQuarter), [activeQuarter]);
 
-  const [selectedWeek, setSelectedWeek] = useState<number>(() => getCurrentCalendarWeek(
-    resolvedYear.quarters.find(q => q.quarterNumber === (resolvedYear.activeQuarterNumber || 1)) || resolvedYear.quarters[0]
-  ));
+  // Selected week (persisted so reload / screen-off / app switch NEVER resets to Week 1)
+  const [selectedWeek, setSelectedWeek] = usePersistedState<number>(
+    'gofamint_sunday_selected_week',
+    getCurrentCalendarWeek(
+      resolvedYear.quarters.find(q => q.quarterNumber === (resolvedYear.activeQuarterNumber || 1)) || resolvedYear.quarters[0]
+    ) || 1
+  );
 
   // Sync selected quarter when sundaySchoolYear loads/updates from cloud
   useEffect(() => {
@@ -120,12 +125,6 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
       setSelectedQuarterNumber(sundaySchoolYear.activeQuarterNumber);
     }
   }, [sundaySchoolYear?.activeQuarterNumber]);
-
-  // When the active quarter changes (e.g. after cloud hydration), jump to the
-  // calendar-correct week for that quarter. Do NOT fall back to Week 1.
-  useEffect(() => {
-    setSelectedWeek(getCurrentCalendarWeek(activeQuarter));
-  }, [activeQuarter]);
 
   const quarterSchedule = useMemo(() => {
     if (!activeQuarter) return [];
@@ -188,18 +187,33 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
   const [changeRequestRequester, setChangeRequestRequester] = useState<string>('Workers Secretary');
   const [isProcessingLockAction, setIsProcessingLockAction] = useState<boolean>(false);
 
-  // Lock Entry Handler (Past weeks finalized)
+  // Lock Register Handler (When all data is inputted)
   const handleLockEntry = async () => {
-    if (!window.confirm(`Lock Sunday attendance entry for Week ${selectedWeek}? This will finalize historical records and prevent accidental changes.`)) {
+    if (!window.confirm(`Is all the data inputted? Lock Sunday Week ${selectedWeek} register to prevent accidental changes?`)) {
       return;
     }
     setIsProcessingLockAction(true);
     try {
       const updated = await lockAttendanceWeek('SUNDAY', selectedQuarterNumber, selectedWeek, 'Workers Coordinator');
       await onUpdateConfig(updated);
-      alert(`Sunday Week ${selectedWeek} attendance is now locked.`);
     } catch (err: any) {
       alert(`Failed to lock week: ${err.message}`);
+    } finally {
+      setIsProcessingLockAction(false);
+    }
+  };
+
+  // Direct 1-Click Make Changes Handler
+  const handleDirectMakeChanges = async () => {
+    if (!window.confirm(`Unlock Sunday Week ${selectedWeek} to make changes? You can update records and click 'Save & Lock Again' when done.`)) {
+      return;
+    }
+    setIsProcessingLockAction(true);
+    try {
+      const updated = await approveAttendanceWeekChanges('SUNDAY', selectedQuarterNumber, selectedWeek, 'Authorized Coordinator');
+      await onUpdateConfig(updated);
+    } catch (err: any) {
+      alert(`Failed to unlock for changes: ${err.message}`);
     } finally {
       setIsProcessingLockAction(false);
     }
@@ -251,14 +265,13 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
 
   // Complete Changes Handler (Changes Done -> Automatically lock again)
   const handleCompleteChanges = async () => {
-    if (!window.confirm(`Finalize changes for Sunday Week ${selectedWeek}? This will record the audit log and automatically lock historical entry again.`)) {
+    if (!window.confirm(`Finalize changes for Sunday Week ${selectedWeek}? This will save corrections and lock the register again.`)) {
       return;
     }
     setIsProcessingLockAction(true);
     try {
       const updated = await completeAttendanceWeekChanges('SUNDAY', selectedQuarterNumber, selectedWeek);
       await onUpdateConfig(updated);
-      alert(`Corrections completed. Sunday Week ${selectedWeek} has been automatically re-locked.`);
     } catch (err: any) {
       alert(`Failed to complete changes: ${err.message}`);
     } finally {
@@ -848,7 +861,7 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
                   Sunday Executive 12-Week Schedule Sync
                 </span>
                 <h2 className="text-lg font-black font-['Cinzel',serif] text-white uppercase">
-                  {activeQuarter?.quarterName || 'First Quarter'}: {activeQuarter?.quarterTheme || 'Kingdom Study & Ministry Service'}
+                  {activeQuarter?.quarterName || 'First Quarter'}: {activeQuarter?.quarterTheme || resolvedYear?.overallTheme || 'General Faith & Holy Service'}
                 </h2>
               </div>
             </div>
@@ -998,65 +1011,84 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
           </button>
         </div>
 
-        {viewMode === 'REGISTER' && (
-          <div className="flex items-center gap-2">
-            {sundayAccess.canManualAttendance && (isTargetDatePast || sundayAccess.isChangeModeActive) && (
-              <button
-                onClick={handleMarkAllRegisterPresent}
-                className="px-3 py-2 bg-blue-900 hover:bg-blue-800 text-white rounded-xl text-xs font-black transition flex items-center gap-1.5 cursor-pointer shadow-xs"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5 text-amber-300" />
-                <span>Mark All Filtered Present</span>
-              </button>
-            )}
-
-            {sundayAccess.allowedActions.lockEntry && (
-              <button
-                onClick={handleLockEntry}
-                disabled={isProcessingLockAction}
-                className="px-3.5 py-2 bg-rose-900 hover:bg-rose-800 text-white rounded-xl text-xs font-black flex items-center gap-1.5 shadow-sm transition cursor-pointer"
-                title="Lock historical attendance to prevent accidental changes"
-              >
-                <Lock className="w-3.5 h-3.5 text-rose-300" />
-                <span>Lock Entry</span>
-              </button>
-            )}
-
-            {sundayAccess.isChangeModeActive && (
-              <button
-                onClick={handleCompleteChanges}
-                disabled={isProcessingLockAction}
-                className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-md transition cursor-pointer animate-pulse"
-                title="Finalize corrections and automatically lock again"
-              >
-                <CheckCircle2 className="w-4 h-4 text-amber-300" />
-                <span>Changes Done (Lock Again)</span>
-              </button>
-            )}
-
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Lock Register Button */}
+          {!sundayAccess.isManuallyLocked && !sundayAccess.isFuture && (
             <button
-              onClick={handleExportSundayCsv}
-              className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+              id="btn-lock-sunday-register"
+              onClick={handleLockEntry}
+              disabled={isProcessingLockAction}
+              className="px-3.5 py-2 bg-rose-900 hover:bg-rose-800 text-white rounded-xl text-xs font-black flex items-center gap-1.5 shadow-sm transition cursor-pointer"
+              title="Lock Sunday register to prevent accidental changes"
             >
-              <Download className="w-3.5 h-3.5 text-slate-600" />
-              <span>Export CSV</span>
+              <Lock className="w-3.5 h-3.5 text-rose-300" />
+              <span>Lock Register</span>
             </button>
+          )}
+
+          {/* Make Changes Button */}
+          {sundayAccess.isManuallyLocked && !sundayAccess.isChangeModeActive && (
             <button
-              onClick={() => window.print()}
-              className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition cursor-pointer"
-              title="Print Register"
+              id="btn-sunday-make-changes"
+              onClick={handleDirectMakeChanges}
+              disabled={isProcessingLockAction}
+              className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 shadow-sm transition cursor-pointer"
+              title="Unlock to make corrections to Sunday register"
             >
-              <Printer className="w-3.5 h-3.5" />
+              <Edit3 className="w-3.5 h-3.5 text-amber-200" />
+              <span>Make Changes</span>
             </button>
-          </div>
-        )}
+          )}
+
+          {sundayAccess.isChangeModeActive && (
+            <button
+              id="btn-sunday-changes-done"
+              onClick={handleCompleteChanges}
+              disabled={isProcessingLockAction}
+              className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-md transition cursor-pointer animate-pulse"
+              title="Save corrections and lock register again"
+            >
+              <CheckCircle2 className="w-4 h-4 text-amber-300" />
+              <span>Save & Lock Again</span>
+            </button>
+          )}
+
+          {viewMode === 'REGISTER' && sundayAccess.canManualAttendance && (isTargetDatePast || sundayAccess.isChangeModeActive) && (
+            <button
+              onClick={handleMarkAllRegisterPresent}
+              className="px-3 py-2 bg-blue-900 hover:bg-blue-800 text-white rounded-xl text-xs font-black transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+            >
+              <CheckCircle2 className="w-3.5 h-3.5 text-amber-300" />
+              <span>Mark All Filtered Present</span>
+            </button>
+          )}
+
+          {viewMode === 'REGISTER' && (
+            <>
+              <button
+                onClick={handleExportSundayCsv}
+                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5 text-slate-600" />
+                <span>Export CSV</span>
+              </button>
+              <button
+                onClick={() => window.print()}
+                className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition cursor-pointer"
+                title="Print Register"
+              >
+                <Printer className="w-3.5 h-3.5" />
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* ======================= VIEW MODE: REGISTER ======================= */}
       {viewMode === 'REGISTER' && (
         <div className="space-y-6">
           {/* Security & Lock Status Banners for Sunday Register */}
-          {sundayAccess.status === 'PAST_MANUALLY_LOCKED' && (
+          {sundayAccess.isManuallyLocked && !sundayAccess.isChangeModeActive && (
             <div className="bg-rose-50 border-2 border-rose-300 rounded-3xl p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div className="flex items-start gap-3.5">
                 <div className="p-3 bg-rose-600 text-white rounded-2xl shrink-0 mt-0.5 shadow-xs">
@@ -1065,49 +1097,34 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-black uppercase tracking-wider text-rose-900">
-                      Week {selectedWeek} Historical Attendance Locked
+                      Sunday Week {selectedWeek} Register is Locked
                     </span>
                     <span className="px-2 py-0.5 bg-rose-200 text-rose-900 rounded-full text-[10px] font-black uppercase">
-                      Audit Protected
+                      Protected
                     </span>
                   </div>
                   <p className="text-xs text-rose-800 leading-relaxed max-w-2xl">
-                    Historical attendance for Sunday Week {selectedWeek} ({targetSundayDate}) has been locked to prevent accidental modifications. To make corrections, submit a formal change request with an audit justification.
+                    Attendance entries for Sunday Week {selectedWeek} ({targetSundayDate}) are locked to prevent accidental modifications. If corrections are needed, click <strong>"Make Changes"</strong>.
                   </p>
-                  {activeSundayChangeRequest?.status === 'PENDING' && (
-                    <div className="mt-2 p-2.5 bg-amber-100/80 border border-amber-300 rounded-xl text-xs text-amber-950">
-                      <span className="font-bold">Pending Change Request:</span> "{activeSundayChangeRequest.reason}" (by {activeSundayChangeRequest.requestedBy})
-                    </div>
-                  )}
                 </div>
               </div>
 
               <div className="flex items-center gap-2 shrink-0">
-                {activeSundayChangeRequest?.status === 'PENDING' ? (
-                  <button
-                    type="button"
-                    onClick={handleApproveChangeRequest}
-                    disabled={isProcessingLockAction}
-                    className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-black shadow-sm transition flex items-center gap-2 cursor-pointer"
-                  >
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span>Approve & Unlock for Changes</span>
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setShowChangeRequestModal(true)}
-                    className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-black shadow-sm transition flex items-center gap-2 cursor-pointer"
-                  >
-                    <Edit3 className="w-4 h-4 text-amber-300" />
-                    <span>Request Changes</span>
-                  </button>
-                )}
+                <button
+                  type="button"
+                  id="btn-sunday-banner-make-changes"
+                  onClick={handleDirectMakeChanges}
+                  disabled={isProcessingLockAction}
+                  className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-amber-300 rounded-xl text-xs font-black shadow-sm transition flex items-center gap-2 cursor-pointer"
+                >
+                  <Edit3 className="w-4 h-4" />
+                  <span>Make Changes</span>
+                </button>
               </div>
             </div>
           )}
 
-          {sundayAccess.status === 'PAST_CHANGE_REQUEST_APPROVED' && (
+          {sundayAccess.isChangeModeActive && (
             <div className="bg-amber-50 border-2 border-amber-400 rounded-3xl p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div className="flex items-start gap-3.5">
                 <div className="p-3 bg-amber-500 text-slate-950 rounded-2xl shrink-0 mt-0.5 shadow-xs">
@@ -1116,26 +1133,27 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-black uppercase tracking-wider text-amber-950">
-                      Changes Mode Active — Week {selectedWeek}
+                      ⚠️ Changes Mode Active — Sunday Week {selectedWeek}
                     </span>
                     <span className="px-2 py-0.5 bg-amber-200 text-amber-900 rounded-full text-[10px] font-black uppercase">
-                      Unlocked for Corrections
+                      Editing
                     </span>
                   </div>
                   <p className="text-xs text-amber-900 leading-relaxed max-w-2xl">
-                    Authorized corrections are currently enabled for this past Sunday session. Modify worker attendance in the register below, then click <strong>Changes Done (Lock Again)</strong> to automatically seal this week again.
+                    Corrections are currently enabled for Sunday Week {selectedWeek}. Modify attendance below, then click <strong>"Save & Lock Again"</strong> to re-lock the register.
                   </p>
                 </div>
               </div>
 
               <button
                 type="button"
+                id="btn-sunday-banner-lock-again"
                 onClick={handleCompleteChanges}
                 disabled={isProcessingLockAction}
-                className="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-black shadow-md transition flex items-center gap-2 cursor-pointer shrink-0 animate-pulse"
+                className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-black shadow-md transition flex items-center gap-2 cursor-pointer shrink-0 animate-pulse"
               >
                 <CheckCircle2 className="w-4 h-4 text-amber-300" />
-                <span>Changes Done (Lock Again)</span>
+                <span>Save & Lock Again</span>
               </button>
             </div>
           )}
