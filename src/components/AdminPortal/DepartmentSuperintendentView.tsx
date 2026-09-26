@@ -35,7 +35,8 @@ import {
   getAllAbsenceLogs,
   getAllOfferings,
   getAllStudentTransfers,
-  getStudentClassForWeek
+  getStudentClassForWeek,
+  getAllClassesDirectory
 } from '../../db/indexedDB';
 import {
   isSundayRegisterOpenForWeek,
@@ -101,34 +102,105 @@ export const DepartmentSuperintendentView: React.FC<Props> = ({
   // Inspection mode state for deep-dive read-only view
   const [inspectedClass, setInspectedClass] = useState<ClassProfile | null>(null);
 
-  // Synchronized Approved Departments list
+  // Dynamically loaded classes ensuring all directory classes are available
+  const [loadedClasses, setLoadedClasses] = useState<ClassProfile[]>(allClasses);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function fetchClasses() {
+      try {
+        const directory = await getAllClassesDirectory();
+        if (isMounted && directory && directory.length > 0) {
+          setLoadedClasses(prev => {
+            const map = new Map<string, ClassProfile>();
+            (prev || []).forEach(c => map.set(c.id, c));
+            directory.forEach(c => {
+              if (!map.has(c.id) || !map.get(c.id)?.className) {
+                map.set(c.id, c);
+              }
+            });
+            return Array.from(map.values());
+          });
+        }
+      } catch (err) {
+        console.warn('Could not load directory classes:', err);
+      }
+    }
+    fetchClasses();
+    return () => { isMounted = false; };
+  }, []);
+
+  useEffect(() => {
+    if (allClasses && allClasses.length > 0) {
+      setLoadedClasses(prev => {
+        const map = new Map<string, ClassProfile>();
+        (prev || []).forEach(c => map.set(c.id, c));
+        allClasses.forEach(c => map.set(c.id, c));
+        return Array.from(map.values());
+      });
+    }
+  }, [allClasses]);
+
+  // Synchronized Approved Departments list (guaranteed Adult, Youth, Children)
   const approvedDepartments = useMemo(() => {
     const list = Array.isArray(sundaySchoolYear?.departments) && sundaySchoolYear.departments.length > 0
       ? sundaySchoolYear.departments
       : DEFAULT_DEPARTMENTS;
     const normalized = list.map(d => normalizeDepartmentName(d, list));
-    return Array.from(new Set(normalized)).sort();
+    const set = new Set(normalized);
+    ['Adult', 'Youth', 'Children'].forEach(d => set.add(d));
+    return Array.from(set).sort();
   }, [sundaySchoolYear?.departments]);
 
-  // Initial department assignment resolution
-  const assignedDept = currentAdmin.departmentId
-    ? normalizeDepartmentName(currentAdmin.departmentId, approvedDepartments)
-    : (approvedDepartments[0] || 'Adult');
+  // Initial department assignment resolution with intelligent alias inference
+  const assignedDept = useMemo(() => {
+    if (currentAdmin.departmentId) {
+      return normalizeDepartmentName(currentAdmin.departmentId, approvedDepartments);
+    }
+    const adminIdentity = `${currentAdmin.username || ''} ${currentAdmin.email || ''} ${currentAdmin.title || ''} ${currentAdmin.profileName || ''}`.toLowerCase();
+    if (adminIdentity.includes('youth') || adminIdentity.includes('yds') || adminIdentity.includes('akintayo')) {
+      return 'Youth';
+    }
+    if (adminIdentity.includes('child') || adminIdentity.includes('cds')) {
+      return 'Children';
+    }
+    if (adminIdentity.includes('adult') || adminIdentity.includes('ads')) {
+      return 'Adult';
+    }
+    return approvedDepartments[0] || 'Adult';
+  }, [currentAdmin, approvedDepartments]);
 
   const [selectedDepartment, setSelectedDepartment] = useState<string>(assignedDept);
 
-  // Sync selectedDepartment when currentAdmin profile changes
+  // Sync selectedDepartment when assignedDept changes
   useEffect(() => {
-    if (currentAdmin.departmentId) {
-      const normalized = normalizeDepartmentName(currentAdmin.departmentId, approvedDepartments);
-      setSelectedDepartment(normalized);
+    setSelectedDepartment(assignedDept);
+  }, [assignedDept]);
+
+  // Live class counts per department
+  const deptClassCounts = useMemo(() => {
+    const counts: Record<string, number> = { Adult: 0, Youth: 0, Children: 0 };
+    const sourceClasses = loadedClasses && loadedClasses.length > 0 ? loadedClasses : allClasses;
+    for (const d of ['Adult', 'Youth', 'Children']) {
+      const dLower = d.toLowerCase();
+      counts[d] = sourceClasses.filter(c => {
+        const cDept = normalizeDepartmentName(c.department, approvedDepartments).toLowerCase();
+        if (cDept === dLower) return true;
+        const cName = (c.className || '').toLowerCase();
+        if (dLower === 'youth' && (cName.includes('youth') || cName.includes('teen') || cName.includes('young adult') || cName.includes('intermediate'))) return true;
+        if (dLower === 'children' && (cName.includes('child') || cName.includes('junior') || cName.includes('primary') || cName.includes('cradle') || cName.includes('toddler'))) return true;
+        if (dLower === 'adult' && (cName.includes('adult') || cName.includes('elder') || cName.includes('senior') || cName.includes('men') || cName.includes('women'))) return true;
+        return false;
+      }).length;
     }
-  }, [currentAdmin.departmentId, approvedDepartments]);
+    return counts;
+  }, [loadedClasses, allClasses, approvedDepartments]);
 
   // Supervised classes strictly under selectedDepartment
   const departmentClasses = useMemo(() => {
     const selLower = selectedDepartment.toLowerCase();
-    return allClasses.filter(c => {
+    const sourceClasses = loadedClasses && loadedClasses.length > 0 ? loadedClasses : allClasses;
+    return sourceClasses.filter(c => {
       // 1. Direct department check
       const normalizedClassDept = normalizeDepartmentName(c.department, approvedDepartments);
       if (normalizedClassDept.toLowerCase() === selLower) return true;
@@ -139,19 +211,19 @@ export const DepartmentSuperintendentView: React.FC<Props> = ({
 
       // 3. Substring check if department is in class name (e.g. c.className includes 'youth')
       const nameLower = (c.className || '').toLowerCase();
-      if (selLower === 'youth' && (nameLower.includes('youth') || nameLower.includes('teen') || nameLower.includes('young adult'))) {
+      if (selLower === 'youth' && (nameLower.includes('youth') || nameLower.includes('teen') || nameLower.includes('young adult') || nameLower.includes('intermediate'))) {
         return true;
       }
-      if (selLower === 'children' && (nameLower.includes('child') || nameLower.includes('junior') || nameLower.includes('primary') || nameLower.includes('cradle'))) {
+      if (selLower === 'children' && (nameLower.includes('child') || nameLower.includes('junior') || nameLower.includes('primary') || nameLower.includes('cradle') || nameLower.includes('toddler'))) {
         return true;
       }
-      if (selLower === 'adult' && (nameLower.includes('adult') || nameLower.includes('elder') || nameLower.includes('senior'))) {
+      if (selLower === 'adult' && (nameLower.includes('adult') || nameLower.includes('elder') || nameLower.includes('senior') || nameLower.includes('men') || nameLower.includes('women'))) {
         return true;
       }
 
       return false;
     });
-  }, [allClasses, selectedDepartment, approvedDepartments]);
+  }, [loadedClasses, allClasses, selectedDepartment, approvedDepartments]);
 
   const departmentClassIds = useMemo(
     () => new Set(departmentClasses.map(c => c.id)),
@@ -473,20 +545,37 @@ export const DepartmentSuperintendentView: React.FC<Props> = ({
             </p>
           </div>
 
-          {/* Department Selector (Synchronized with 3 approved departments) */}
-          <div className="bg-white/10 backdrop-blur-md p-3 rounded-2xl border border-white/20 space-y-1.5 shrink-0">
-            <span className="text-[10px] uppercase font-bold text-indigo-200 block">Department in View:</span>
-            <select
-              value={selectedDepartment}
-              onChange={(e) => setSelectedDepartment(e.target.value)}
-              className="bg-indigo-900 text-white font-bold text-xs px-3 py-2 rounded-xl border border-indigo-400/50 focus:ring-2 focus:ring-amber-400 cursor-pointer"
-            >
-              {approvedDepartments.map(dept => (
-                <option key={dept} value={dept} className="bg-slate-900 text-white">
-                  {dept} Department
-                </option>
-              ))}
-            </select>
+          {/* Prominent Department Switcher Buttons */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            {[
+              { id: 'Adult', label: 'Adult Dept', icon: '👨‍👩‍👧', count: deptClassCounts['Adult'] || 0 },
+              { id: 'Youth', label: 'Youth Dept', icon: '🏃', count: deptClassCounts['Youth'] || 0 },
+              { id: 'Children', label: 'Children Dept', icon: '👶', count: deptClassCounts['Children'] || 0 }
+            ].map(dept => (
+              <button
+                key={dept.id}
+                type="button"
+                id={`btn-dept-${dept.id.toLowerCase()}`}
+                onClick={() => setSelectedDepartment(dept.id)}
+                className={`px-3.5 py-2.5 rounded-2xl text-xs font-black transition flex items-center justify-between sm:justify-start gap-2 cursor-pointer shadow-xs ${
+                  selectedDepartment.toLowerCase() === dept.id.toLowerCase()
+                    ? 'bg-amber-400 text-slate-950 ring-2 ring-white/60 shadow-lg scale-102'
+                    : 'bg-white/10 hover:bg-white/20 text-white border border-white/20'
+                }`}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span className="text-base">{dept.icon}</span>
+                  <span>{dept.label}</span>
+                </div>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                  selectedDepartment.toLowerCase() === dept.id.toLowerCase()
+                    ? 'bg-slate-950 text-amber-300'
+                    : 'bg-black/40 text-indigo-200'
+                }`}>
+                  {dept.count} Classes
+                </span>
+              </button>
+            ))}
           </div>
         </div>
 

@@ -530,14 +530,14 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                 <span>Exclusion & Archive</span>
               </button>
 
-              {/* Reset All One-Time Links Button */}
+              {/* Reset All Student Profile Links Button */}
               <button
-                id="btn-reset-all-one-time-links"
+                id="btn-reset-all-student-profile-links"
                 type="button"
                 onClick={handleResetAllOneTimeLinks}
                 disabled={isResettingLinks}
                 className="min-h-[44px] px-3.5 py-2.5 bg-purple-500/20 hover:bg-purple-500/30 text-purple-100 border border-purple-400/40 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer disabled:opacity-50"
-                title="Reset secure profile links for all active students and visitors"
+                title="Reset student profile links for all active students and visitors"
               >
                 <Link2 className="w-4 h-4 text-purple-300" />
                 <span>{isResettingLinks ? 'Resetting...' : 'Reset All Links'}</span>
@@ -950,10 +950,10 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                           onClick={() => handleGenerateMemberLink(member)}
                           disabled={isGeneratingLink || isReadOnly}
                           className="px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-300 cursor-pointer disabled:opacity-50"
-                          title="Generate passwordless one-time link for visitor to complete their profile"
+                          title="Generate student profile link for visitor to register and view report card"
                         >
                           <Link2 className="w-3.5 h-3.5" />
-                          <span>One-Time Link</span>
+                          <span>Student Profile Link</span>
                         </button>
                         {member.conversionStatus === 'PENDING_APPROVAL' ? (
                           <span className="inline-flex items-center gap-1 text-amber-800 font-bold bg-amber-50 border border-amber-300 px-2 py-1 rounded text-xs">
@@ -990,10 +990,10 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                         onClick={() => handleGenerateMemberLink(member)}
                         disabled={isGeneratingLink || isReadOnly}
                         className="px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-300 cursor-pointer disabled:opacity-50"
-                        title="Generate secure one-time link for student to verify profile and access live Score Pass"
+                        title="Generate student profile link to access live Report Card and attendance"
                       >
                         <Link2 className="w-3.5 h-3.5" />
-                        <span>One-Time Link</span>
+                        <span>Student Profile Link</span>
                       </button>
                       <button
                         type="button"
@@ -1242,7 +1242,7 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
         }}
       />
 
-      {/* One-Time Visitor Link Modal */}
+      {/* Student Profile & Report Card Link Modal */}
       {activeLinkModalMember && activeLinkModalMember.oneTimeProfileToken && (
         <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in duration-200">
@@ -1253,10 +1253,10 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                 </div>
                 <div>
                   <h3 className="font-black text-sm text-slate-900">
-                    One-Time Profile Link
+                    Student Profile Link
                   </h3>
                   <p className="text-[11px] text-slate-500">
-                    For {activeLinkModalMember.fullName}
+                    For {activeLinkModalMember.fullName} ({activeLinkModalMember.memberType === 'STUDENT' ? 'Student' : 'Visitor'})
                   </p>
                 </div>
               </div>
@@ -1270,12 +1270,12 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
             </div>
 
             <p className="text-xs text-slate-600 leading-relaxed">
-              Send this secure passwordless link to <strong>{activeLinkModalMember.fullName}</strong> ({activeLinkModalMember.memberType === 'STUDENT' ? 'Student' : 'Visitor'}). They can complete or update their profile details and receive their live Sunday School Score Pass and QR Code.
+              Send this permanent link to <strong>{activeLinkModalMember.fullName}</strong>. They will complete their profile registration and be redirected straight to their live Sunday School Report Card — with no password or login credentials required.
             </p>
 
             <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-                Unique Profile & Score Pass URL
+                Student Profile & Report Card URL
               </span>
               <div className="flex items-center gap-2">
                 <input
@@ -1304,7 +1304,7 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
               <a
                 href={buildWhatsAppDirectLink(
                   activeLinkModalMember.phone,
-                  `Hello ${activeLinkModalMember.fullName}! Welcome to GOFAMINT House of Favor Sunday School. Please take a moment to access your Sunday School profile and live score pass here: ${window.location.origin}/#visitor-profile/${activeLinkModalMember.oneTimeProfileToken.token}`
+                  `Hello ${activeLinkModalMember.fullName}! Welcome to GOFAMINT House of Favour Sunday School. Access your Sunday School student profile and live report card here: ${window.location.origin}/#visitor-profile/${activeLinkModalMember.oneTimeProfileToken.token}`
                 )}
                 target="_blank"
                 rel="noreferrer"
@@ -1322,8 +1322,8 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
               </button>
             </div>
 
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-[10px] text-amber-800 font-medium">
-              🔒 <strong>Single-use security:</strong> After the member confirms and saves their profile, this one-time link is sealed and provides direct access to their personal Score Pass & Report Card.
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-2.5 text-[10px] text-blue-900 font-medium">
+              🔗 <strong>Persistent Access:</strong> This consistent link allows the student to register their details once and continuously view their live grades, attendance, and scores anytime.
             </div>
           </div>
         </div>

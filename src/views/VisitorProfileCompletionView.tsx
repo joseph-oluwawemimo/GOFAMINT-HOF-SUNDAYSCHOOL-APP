@@ -57,6 +57,13 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
           const response = await fetch(`/api/visitor-profile/${encodeURIComponent(token)}`);
           if (response.ok) {
             data = await response.json();
+            const rc = typeof (data as any)?.reportCardToken === 'string'
+              ? (data as any).reportCardToken
+              : (data as any)?.reportCardToken?.token;
+            if ((data as any)?.isRegistered && rc) {
+              window.location.hash = `#report-card/${rc}`;
+              return;
+            }
           } else if (response.status === 410) {
             if (isMounted) setIsAlreadyUsed(true);
             return;
@@ -77,14 +84,17 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
           });
 
           if (!found) {
-            throw new Error('Visitor link not found or invalid.');
+            throw new Error('Student profile link not found or invalid.');
           }
 
           const memData: Member = found.data || found;
-          if (memData.oneTimeProfileToken?.isUsed) {
-            if (isMounted) setIsAlreadyUsed(true);
+          const isRegistered = Boolean(memData.oneTimeProfileToken?.isUsed || memData.isProfileCompleted);
+          const rc = memData.reportCardToken?.token;
+          if (isRegistered && rc) {
+            window.location.hash = `#report-card/${rc}`;
             return;
           }
+
           if (memData.oneTimeProfileToken?.expiresAt && new Date(memData.oneTimeProfileToken.expiresAt) < new Date()) {
             if (isMounted) setIsAlreadyUsed(true);
             return;
@@ -239,6 +249,7 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
       };
 
       let saveSucceeded = false;
+      let finalRcToken = rcToken;
 
       // Try API first
       try {
@@ -249,6 +260,10 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
         });
 
         if (response.ok) {
+          const resData = await response.json().catch(() => ({}));
+          if (resData.reportCardToken) {
+            finalRcToken = resData.reportCardToken;
+          }
           saveSucceeded = true;
         }
       } catch {
@@ -260,6 +275,8 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
         const updatedMember: Member = {
           ...member,
           ...payload,
+          reportCardToken: { token: finalRcToken, createdAt: new Date().toISOString() },
+          isProfileCompleted: true,
           oneTimeProfileToken: member.oneTimeProfileToken ? {
             ...member.oneTimeProfileToken,
             isUsed: true,
@@ -292,21 +309,11 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
         throw new Error('Failed to save profile. The link may have expired or been used.');
       }
 
-      const generatedUrl = `${window.location.origin}/#report-card/${rcToken}`;
-      setReportCardUrl(generatedUrl);
-      try {
-        const qrData = await QRCode.toDataURL(generatedUrl, {
-          width: 240,
-          margin: 2,
-          color: { dark: '#0f172a', light: '#ffffff' }
-        });
-        setReportCardQr(qrData);
-      } catch (qrErr) {
-        console.error('Failed to generate QR code:', qrErr);
-      }
-
-      setIsSuccess(true);
       if (onProfileCompleted) onProfileCompleted();
+
+      // Immediate redirect to Student Report Card: passwordless, direct to live data
+      window.location.hash = `#report-card/${finalRcToken}`;
+      return;
     } catch (err: any) {
       setError(err?.message || 'Could not save profile. Please try again.');
     } finally {
@@ -335,10 +342,10 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
             <Lock className="w-8 h-8" />
           </div>
           <h2 className="text-xl font-black font-['Cinzel',serif] text-amber-400">
-            Profile Link Completed
+            Student Profile Registered
           </h2>
           <p className="text-xs text-slate-300 leading-relaxed">
-            This secure one-time link has already been used to complete the Sunday School profile.
+            Your Sunday School profile is active. You can view your live report card and attendance anytime below:
           </p>
           {existingRcToken && (
             <div className="bg-slate-800/90 border border-slate-700 rounded-2xl p-4 text-left space-y-3">
@@ -711,10 +718,10 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
               <Shield className="w-6 h-6" />
             </div>
             <h3 className="text-base font-black text-white">
-              Are you sure you want to save this profile?
+              Save Profile & Open Report Card?
             </h3>
             <p className="text-xs text-slate-300 leading-relaxed">
-              After you save this profile, this one-time link can no longer be used to make changes.
+              Your details will be saved to your Sunday School class register, and you will be redirected immediately to your live Report Card.
             </p>
             <div className="flex items-center gap-2.5 pt-2">
               <button

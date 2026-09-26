@@ -264,7 +264,7 @@ async function performHydration(scope: SyncScope | undefined, scopeKey: string):
         fetchCollection<WeeklyGradeRecord>('grades'),
       ]);
       await Promise.all([
-        replaceStoreContents('allClasses', cloudClasses),
+        cloudClasses && cloudClasses.length > 0 ? replaceStoreContents('allClasses', cloudClasses) : Promise.resolve(),
         replaceStoreContents('members', cloudMembers),
         replaceStoreContents('grades', cloudGrades),
         replaceStoreContents('offerings', []),

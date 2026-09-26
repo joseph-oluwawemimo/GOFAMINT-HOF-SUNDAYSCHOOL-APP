@@ -241,6 +241,7 @@ export interface Member {
     token: string;
     createdAt: string;
   };
+  isProfileCompleted?: boolean;
   transferHistory?: StudentTransferRecord[];
   createdAt: string;
   updatedAt: string;

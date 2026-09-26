@@ -4,7 +4,7 @@ import fs from 'fs';
 import { GoogleGenAI } from '@google/genai';
 import { GOFAMINT_ROLES, getBearerToken, getSupabaseAdmin, provisionSupabaseUserProfile, type GofamintRole } from './supabaseAdmin.js';
 import { hasInitializedSystem } from '../utils/systemInitialization.js';
-import { normalizeClassLoginIdentifier } from '../utils/loginIdentifier.js';
+import { normalizeClassLoginIdentifier, normalizeLoginIdentifier } from '../utils/loginIdentifier.js';
 import { collectAllPages } from '../utils/paginatedRead.js';
 
 const EXEC: GofamintRole[] = ['SUPER_ADMIN', 'GENERAL_SUPERINTENDENT', 'GENERAL_SECRETARY'];
@@ -122,7 +122,21 @@ async function caller(req: Request, res: Response, allowed?: GofamintRole[]): Pr
     error = fallback.error;
   }
   if (error || !p || !p.is_approved || !GOFAMINT_ROLES.includes(p.role as GofamintRole)) { res.status(403).json({ error: 'An approved application profile is required.' }); return null; }
-  const result = { id: p.id, email: p.email || auth.user.email || null, role: p.role as GofamintRole, classId: p.class_id || null, departmentId: p.department_id || null };
+  let callerDeptId = p.department_id || null;
+  if (p.role === 'DEPARTMENT_SUPERINTENDENT' && !callerDeptId) {
+    const e = String(p.email || auth.user.email || '').toLowerCase();
+    if (e.includes('akintayo') || e.includes('youth') || e.includes('yds')) {
+      callerDeptId = 'Youth';
+    } else if (e.includes('child') || e.includes('cds')) {
+      callerDeptId = 'Children';
+    } else if (e.includes('adult') || e.includes('ads')) {
+      callerDeptId = 'Adult';
+    }
+    if (callerDeptId) {
+      void db.from('profiles').update({ department_id: callerDeptId }).eq('id', p.id);
+    }
+  }
+  const result = { id: p.id, email: p.email || auth.user.email || null, role: p.role as GofamintRole, classId: p.class_id || null, departmentId: callerDeptId };
   if (allowed && !allowed.includes(result.role)) { res.status(403).json({ error: 'You do not have permission for this operation.' }); return null; }
   return result;
 }
@@ -130,7 +144,13 @@ async function audit(actor: Caller | null, action: string, details: Record<strin
   const { error } = await getSupabaseAdmin().from('audit_logs').insert({ actor_id: actor?.id || null, action, entity_type: entityType || null, entity_id: entityId || null, details });
   if (error) throw error;
 }
-function email(raw: string) { const v = String(raw || '').trim(); return v.includes('@') ? v.toLowerCase() : `class_${v.toLowerCase().replace(/[^a-z0-9_]/g, '')}@gofamint-hof.internal`; }
+function email(raw: string) {
+  const v = String(raw || '').trim();
+  if (v.includes('@')) return v.toLowerCase();
+  const normalized = normalizeLoginIdentifier(v);
+  if (normalized.includes('@')) return normalized.toLowerCase();
+  return `class_${v.toLowerCase().replace(/[^a-z0-9_]/g, '')}@gofamint-hof.internal`;
+}
 function initialYear(id: string) {
   const names = ['First Quarter', 'Second Quarter', 'Third Quarter', 'Fourth Quarter'];
   return { id, yearName: `${new Date().getFullYear()}–${new Date().getFullYear() + 1}`, overallTheme: '', startDate: '', endDate: '', activeQuarterNumber: 1, isInitialized: false, departments: [], updatedAt: new Date().toISOString(), quarters: [1,2,3,4].map(n => ({ id: `Q${n}_${id}`, quarterNumber:n, quarterName:names[n-1], quarterTheme:'', startDate:'', endDate:'', sharingAdmonitionDate:'', totalLessonWeeks:12, hasSharingAdmonitionWeek:true, status:n===1?'ACTIVE':'UPCOMING', isDistributed:false, lessons:[], updatedAt:new Date().toISOString() })) };
@@ -167,7 +187,7 @@ export function createApp() {
     });
   });
 
-  // --- One-Time Visitor Profile Public Endpoints ---
+  // --- Continuing Student Profile Public Endpoints ---
   app.get('/api/visitor-profile/:token', async (req, res) => {
     try {
       const token = String(req.params.token || '').trim();
@@ -183,21 +203,18 @@ export function createApp() {
 
       const member = rows?.[0];
       if (!member) {
-        return res.status(404).json({ error: 'Invalid or expired visitor link.' });
+        return res.status(404).json({ error: 'Invalid or expired student profile link.' });
       }
 
       const tokenMeta = member.data.oneTimeProfileToken;
-      if (tokenMeta.isUsed) {
-        return res.status(410).json({ error: 'This one-time link has already been used.' });
-      }
-
-      if (tokenMeta.expiresAt && new Date(tokenMeta.expiresAt).getTime() < Date.now()) {
-        return res.status(410).json({ error: 'This one-time link has expired.' });
-      }
+      const isAlreadyCompleted = Boolean(tokenMeta?.isUsed || member.data?.isProfileCompleted);
+      const rcToken = member.data?.reportCardToken?.token || null;
 
       // Return public editable fields only — do NOT leak internal credentials or notes
       const publicData = {
         id: member.id,
+        isRegistered: isAlreadyCompleted,
+        reportCardToken: rcToken,
         fullName: member.data.fullName || '',
         phone: member.data.phone || '',
         address: member.data.address || '',
@@ -230,16 +247,13 @@ export function createApp() {
 
       const member = rows?.[0];
       if (!member) {
-        return res.status(404).json({ error: 'Invalid or expired visitor link.' });
+        return res.status(404).json({ error: 'Invalid or expired student profile link.' });
       }
 
       const tokenMeta = member.data.oneTimeProfileToken;
-      if (tokenMeta.isUsed) {
-        return res.status(410).json({ error: 'This one-time link has already been used.' });
-      }
-
-      if (tokenMeta.expiresAt && new Date(tokenMeta.expiresAt).getTime() < Date.now()) {
-        return res.status(410).json({ error: 'This one-time link has expired.' });
+      let rcToken = member.data?.reportCardToken?.token;
+      if (!rcToken) {
+        rcToken = `rc_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
       }
 
       const { fullName, phone, address, occupation, gender, ageGroup, prayerRequests, photoBase64 } = req.body || {};
@@ -254,6 +268,11 @@ export function createApp() {
         ageGroup: ageGroup || member.data.ageGroup,
         prayerRequests: prayerRequests !== undefined ? prayerRequests : member.data.prayerRequests,
         photoBase64: photoBase64 !== undefined ? photoBase64 : member.data.photoBase64,
+        isProfileCompleted: true,
+        reportCardToken: member.data?.reportCardToken || {
+          token: rcToken,
+          createdAt: new Date().toISOString()
+        },
         oneTimeProfileToken: {
           ...tokenMeta,
           isUsed: true,
@@ -272,7 +291,7 @@ export function createApp() {
 
       if (updateErr) throw updateErr;
 
-      res.json({ success: true, memberId: member.id });
+      res.json({ success: true, memberId: member.id, reportCardToken: rcToken });
     } catch (err: any) {
       console.error('[Server] Error saving visitor profile by token:', err);
       res.status(500).json({ error: 'Internal server error.' });
@@ -1122,12 +1141,9 @@ export function createApp() {
       if (CLASS_PORTAL_ROLES.includes(c.role)) {
         if (!c.classId) return r.json({ success: true, classes: [] });
         filters.push({ column: 'id', value: c.classId });
-      } else if (c.role === 'DEPARTMENT_SUPERINTENDENT') {
-        if (!c.departmentId) return r.json({ success: true, classes: [] });
-        filters.push({ column: 'department_id', value: c.departmentId });
       }
       const data = await readAllServerRows(db, 'classes', { filters });
-      const classes = (data || []).map((row: any) => ({
+      let classes = (data || []).map((row: any) => ({
         ...(row.data && typeof row.data === 'object' ? row.data : {}),
         id: row.id,
         department: row.data?.department || row.department_id || 'Adult',
@@ -1137,6 +1153,7 @@ export function createApp() {
         createdAt: row.created_at || row.data?.createdAt,
         updatedAt: row.updated_at || row.data?.updatedAt
       }));
+
       r.json({ success: true, classes });
     } catch (e: any) {
       console.error('[Server] get classes error:', e);

@@ -91,11 +91,11 @@ import { shouldResolveProfileForAuthEvent } from './utils/authEventPolicy';
 const getVisitorTokenFromUrl = (): string | null => {
   if (typeof window === 'undefined') return null;
   const hash = window.location.hash || '';
-  const hashMatch = hash.match(/#\/?(?:visitor-profile|member-profile|profile-link)\/([a-zA-Z0-9_-]+)/);
+  const hashMatch = hash.match(/#\/?(?:visitor-profile|member-profile|profile-link|student-profile)\/([a-zA-Z0-9_-]+)/);
   if (hashMatch && hashMatch[1]) return hashMatch[1];
   const search = window.location.search || '';
   const params = new URLSearchParams(search);
-  const paramToken = params.get('visitor_token') || params.get('profile_token');
+  const paramToken = params.get('visitor_token') || params.get('profile_token') || params.get('student_token');
   if (paramToken) return paramToken;
   return null;
 };
@@ -103,11 +103,11 @@ const getVisitorTokenFromUrl = (): string | null => {
 const getReportCardTokenFromUrl = (): string | null => {
   if (typeof window === 'undefined') return null;
   const hash = window.location.hash || '';
-  const hashMatch = hash.match(/#\/?report-card\/([a-zA-Z0-9_-]+)/);
+  const hashMatch = hash.match(/#\/?(?:report-card|student-report)\/([a-zA-Z0-9_-]+)/);
   if (hashMatch && hashMatch[1]) return hashMatch[1];
   const search = window.location.search || '';
   const params = new URLSearchParams(search);
-  const paramToken = params.get('report_card_token');
+  const paramToken = params.get('report_card_token') || params.get('student_report_token');
   if (paramToken) return paramToken;
   return null;
 };

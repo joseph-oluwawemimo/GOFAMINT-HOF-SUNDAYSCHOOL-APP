@@ -34,9 +34,18 @@ const ROLE_ALIASES: Record<string, string> = {
   finance: 'omotolaadaramaja@gmail.com',
   oriola: 'omotolaadaramaja@gmail.com',
   oriolaemail: 'oriola@gmail.com',
+  // Departmental Superintendents (Initials: ADS, YDS, CDS)
+  yds: 'akintayoakinsunmade@gmail.com',
   youthsuperintendent: 'akintayoakinsunmade@gmail.com',
+  youthdeptsuperintendent: 'akintayoakinsunmade@gmail.com',
   deptsuperintendent: 'akintayoakinsunmade@gmail.com',
   akintayo: 'akintayoakinsunmade@gmail.com',
+  ads: 'ads@gofamint-hof.internal',
+  adultsuperintendent: 'ads@gofamint-hof.internal',
+  adultdeptsuperintendent: 'ads@gofamint-hof.internal',
+  cds: 'cds@gofamint-hof.internal',
+  childrensuperintendent: 'cds@gofamint-hof.internal',
+  childrendeptsuperintendent: 'cds@gofamint-hof.internal',
 };
 
 const LEGACY_CLASS_ALIASES: Record<string, string> = {

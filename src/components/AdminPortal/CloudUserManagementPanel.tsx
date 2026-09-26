@@ -166,18 +166,37 @@ export const CloudUserManagementPanel: React.FC<CloudUserManagementPanelProps> =
       setResult({ ok: false, message: 'Password must be at least 6 characters.' });
       return;
     }
-    if (roleType === 'DEPARTMENT_SUPERINTENDENT' && !departmentId) {
+    let cleanEmail = identifier.trim();
+    let cleanDept = departmentId;
+
+    if (roleType === 'DEPARTMENT_SUPERINTENDENT') {
+      const compact = cleanEmail.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (compact === 'ads' || compact === 'adultsuperintendent') {
+        cleanEmail = 'ads@gofamint-hof.internal';
+        cleanDept = cleanDept || 'Adult';
+      } else if (compact === 'yds' || compact === 'youthsuperintendent') {
+        cleanEmail = 'akintayoakinsunmade@gmail.com';
+        cleanDept = cleanDept || 'Youth';
+      } else if (compact === 'cds' || compact === 'childrensuperintendent') {
+        cleanEmail = 'cds@gofamint-hof.internal';
+        cleanDept = cleanDept || 'Children';
+      } else if (!cleanDept) {
+        cleanDept = approvedDepartments[0] || 'Adult';
+      }
+    }
+
+    if (roleType === 'DEPARTMENT_SUPERINTENDENT' && !cleanDept) {
       setResult({ ok: false, message: 'Select the department this superintendent will oversee.' });
       return;
     }
 
     setIsSubmitting(true);
     const params: any = {
-      email: identifier.trim(),
+      email: cleanEmail,
       password,
       roleType,
       displayName: displayName.trim() || undefined,
-      departmentId: roleType === 'DEPARTMENT_SUPERINTENDENT' ? departmentId : undefined
+      departmentId: roleType === 'DEPARTMENT_SUPERINTENDENT' ? cleanDept : undefined
     };
 
     const res = await createStaffLogin(params);
@@ -425,34 +444,86 @@ export const CloudUserManagementPanel: React.FC<CloudUserManagementPanelProps> =
               </div>
 
               {roleType === 'DEPARTMENT_SUPERINTENDENT' && (
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Assigned Department</label>
-                  <select
-                    value={departmentId}
-                    onChange={(e) => setDepartmentId(e.target.value)}
-                    required
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-amber-400 outline-hidden font-medium"
-                    disabled={isSubmitting || approvedDepartments.length === 0}
-                  >
-                    {approvedDepartments.map(department => (
-                      <option key={department} value={department}>{department} Department</option>
-                    ))}
-                  </select>
-                  <p className="mt-1 text-xs text-slate-500">This account can only read analytics for classes and records in the selected department ({approvedDepartments.join(', ')}).</p>
+                <div className="space-y-3 bg-indigo-50/60 border border-indigo-200/80 p-3.5 rounded-2xl">
+                  <div>
+                    <label className="block text-xs font-bold text-indigo-950 mb-1.5">
+                      Quick Department & Initials Preset:
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { id: 'ADS', dept: 'Adult', label: 'ADS (Adult Dept)', icon: '👨‍👩‍👧', name: 'Adult Departmental Superintendent' },
+                        { id: 'YDS', dept: 'Youth', label: 'YDS (Youth Dept)', icon: '🏃', name: 'Youth Departmental Superintendent' },
+                        { id: 'CDS', dept: 'Children', label: 'CDS (Children Dept)', icon: '👶', name: "Children's Departmental Superintendent" },
+                      ].map(preset => (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => {
+                            setIdentifier(preset.id);
+                            setDepartmentId(preset.dept);
+                            if (!displayName || displayName.includes('Superintendent')) {
+                              setDisplayName(preset.name);
+                            }
+                          }}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-black transition flex items-center gap-1.5 cursor-pointer shadow-xs ${
+                            identifier.toUpperCase() === preset.id || departmentId === preset.dept
+                              ? 'bg-indigo-900 text-amber-300 ring-2 ring-indigo-600'
+                              : 'bg-white hover:bg-indigo-100 text-indigo-900 border border-indigo-200'
+                          }`}
+                        >
+                          <span>{preset.icon}</span>
+                          <span>{preset.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Assigned Department</label>
+                    <select
+                      value={departmentId}
+                      onChange={(e) => {
+                        const newDept = e.target.value;
+                        setDepartmentId(newDept);
+                        if (!identifier || ['ADS', 'YDS', 'CDS'].includes(identifier.toUpperCase())) {
+                          if (newDept === 'Adult') setIdentifier('ADS');
+                          else if (newDept === 'Youth') setIdentifier('YDS');
+                          else if (newDept === 'Children') setIdentifier('CDS');
+                        }
+                      }}
+                      required
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-amber-400 outline-hidden font-medium"
+                      disabled={isSubmitting || approvedDepartments.length === 0}
+                    >
+                      {approvedDepartments.map(department => (
+                        <option key={department} value={department}>{department} Department</option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-xs text-slate-500">Superintendent can sign in using their initials (e.g. <strong>ADS</strong>, <strong>YDS</strong>, <strong>CDS</strong>) and temporary password.</p>
+                  </div>
                 </div>
               )}
 
               <div className="grid sm:grid-cols-2 gap-3.5">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Official Staff Email
+                    Official Staff Email or Initial (e.g. ADS, YDS, CDS)
                   </label>
                   <input
-                    type="email"
+                    type="text"
                     value={identifier}
-                    onChange={(e) => setIdentifier(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setIdentifier(val);
+                      const clean = val.trim().toUpperCase();
+                      if (roleType === 'DEPARTMENT_SUPERINTENDENT') {
+                        if (clean === 'ADS') setDepartmentId('Adult');
+                        else if (clean === 'YDS') setDepartmentId('Youth');
+                        else if (clean === 'CDS') setDepartmentId('Children');
+                      }
+                    }}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-slate-50 focus:bg-white focus:ring-2 focus:ring-amber-400 outline-hidden transition"
-                    placeholder="officer@example.com"
+                    placeholder={roleType === 'DEPARTMENT_SUPERINTENDENT' ? "officer@example.com or initial (ADS, YDS, CDS)" : "officer@example.com"}
                     disabled={isSubmitting}
                   />
                 </div>
