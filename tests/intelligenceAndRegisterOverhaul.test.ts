@@ -117,7 +117,8 @@ test('Historical Independence Rule — earlier weeks preserve visitor status whe
   const grades = [
     { id: 'g_w1', memberId: 'mem_converted', weekNumber: 1, attendance: 'PRESENT', punctuality: 15, memoryVerse: 15, classParticipation: 20, lessonTotal: 50, updatedAt: '' },
     { id: 'g_w2', memberId: 'mem_converted', weekNumber: 2, attendance: 'PRESENT', punctuality: 15, memoryVerse: 15, classParticipation: 20, lessonTotal: 50, updatedAt: '' },
-    { id: 'g_w3', memberId: 'mem_converted', weekNumber: 3, attendance: 'PRESENT', punctuality: 15, memoryVerse: 15, classParticipation: 20, lessonTotal: 50, updatedAt: '' }
+    { id: 'g_w3', memberId: 'mem_converted', weekNumber: 3, attendance: 'PRESENT', punctuality: 15, memoryVerse: 15, classParticipation: 20, lessonTotal: 50, updatedAt: '' },
+    { id: 'g_w4', memberId: 'mem_converted', weekNumber: 4, attendance: 'PRESENT', punctuality: 15, memoryVerse: 15, classParticipation: 20, lessonTotal: 50, updatedAt: '' }
   ];
 
   // In Week 1: Grace must count as VISITOR, NOT student
@@ -130,9 +131,14 @@ test('Historical Independence Rule — earlier weeks preserve visitor status whe
   assert.equal(summaryW2.visitorCount, 1, 'Grace must count as visitor in Week 2');
   assert.equal(summaryW2.studentCount, 0, 'Grace must not count as student in Week 2');
 
-  // In Week 3: Grace has converted and counts as STUDENT
+  // In Week 3: Grace has fulfilled 3-week consistency quota, but studentship starts in Week 4
   const summaryW3 = calculateWeekSummary(3, [member], grades as any, []);
-  assert.equal(summaryW3.studentCount, 1, 'Grace must count as student from Week 3 onward');
-  assert.equal(summaryW3.visitorCount, 0, 'Grace must not count as visitor from Week 3 onward');
+  assert.equal(summaryW3.visitorCount, 1, 'Grace must still count as visitor in Week 3');
+  assert.equal(summaryW3.studentCount, 0, 'Grace must not count as student in Week 3');
+
+  // In Week 4: Grace's studentship is now officially active
+  const summaryW4 = calculateWeekSummary(4, [member], grades as any, []);
+  assert.equal(summaryW4.studentCount, 1, 'Grace must count as student from Week 4 onward');
+  assert.equal(summaryW4.visitorCount, 0, 'Grace must not count as visitor from Week 4 onward');
 });
 

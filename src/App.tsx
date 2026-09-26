@@ -1935,7 +1935,7 @@ export default function App() {
   const currencySymbol = classProfile?.currencySymbol || '₦';
 
   return (
-    <div className="min-h-screen bg-[#f4f7fb] text-slate-800 flex flex-col pb-[calc(4.75rem+env(safe-area-inset-bottom))] font-sans selection:bg-blue-600 selection:text-white sm:pb-0">
+    <div className="min-h-screen bg-[#f4f7fb] text-slate-800 flex flex-col lg:flex-row pb-[calc(4.75rem+env(safe-area-inset-bottom))] lg:pb-0 font-sans selection:bg-blue-600 selection:text-white">
       {isProfileLocked && (
         <LockScreen
           userEmail={cloudUser.email || ''}
@@ -1950,32 +1950,14 @@ export default function App() {
         />
       )}
       
-      {/* App Header */}
-      <Header
+      {/* Navigation (Renders Desktop Sidebar on lg:flex, and Mobile Bottom Nav on lg:hidden) */}
+      <Navigation
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        urgentAbsenceCount={urgentAbsenceCount}
+        visitorConversionCount={visitorConversionCount}
+        unreadCommentsCount={comments.filter(c => c.classId === classProfile?.id).length}
         classProfile={classProfile}
-        currentWeek={selectedWeek}
-        selectedQuarter={selectedQuarter}
-        activeQuarterNumber={sundaySchoolYear?.activeQuarterNumber || classProfile?.quarter || 1}
-        onQuarterChange={(q) => handleQuarterChange(q as QuarterNumber)}
-        syncState={{
-          isOnline,
-          isSyncing,
-          syncQueueCount: syncQueue.length,
-          syncStatusText,
-          realtimeStatus,
-        }}
-        quarters={sundaySchoolYear?.quarters}
-        onSyncClick={handlePushSync}
-        onLockClick={() => {
-          sessionStorage.setItem('gofamint_profile_locked', 'true');
-          setIsProfileLocked(true);
-        }}
-        onOpenAI={() => setActiveTab('AI_ASSISTANT')}
-        onOpenWelcome={() => {
-          setShowWorkersModule(false);
-          setShowAdminPortal(false);
-          setShowOpeningPage(true);
-        }}
         onOpenAdminPortal={() => {
           setShowWorkersModule(false);
           setShowOpeningPage(false);
@@ -1987,21 +1969,62 @@ export default function App() {
           setShowOpeningPage(false);
           setShowWorkersModule(true);
         }}
-        totalStudents={members.filter(m => m.memberType === 'STUDENT' && m.status !== 'LEFT_CLASS').length}
-        totalVisitors={members.filter(m => m.memberType === 'VISITOR' && m.status !== 'LEFT_CLASS').length}
+        onOpenWelcome={() => {
+          setShowWorkersModule(false);
+          setShowAdminPortal(false);
+          setShowOpeningPage(true);
+        }}
+        onLockClick={() => {
+          sessionStorage.setItem('gofamint_profile_locked', 'true');
+          setIsProfileLocked(true);
+        }}
       />
 
-      {/* Navigation Tab Bar */}
-      <Navigation
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
-        urgentAbsenceCount={urgentAbsenceCount}
-        visitorConversionCount={visitorConversionCount}
-        unreadCommentsCount={comments.filter(c => c.classId === classProfile?.id).length}
-      />
+      {/* Main Content Column beside Sidebar on desktop */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* App Header */}
+        <Header
+          classProfile={classProfile}
+          currentWeek={selectedWeek}
+          selectedQuarter={selectedQuarter}
+          activeQuarterNumber={sundaySchoolYear?.activeQuarterNumber || classProfile?.quarter || 1}
+          onQuarterChange={(q) => handleQuarterChange(q as QuarterNumber)}
+          syncState={{
+            isOnline,
+            isSyncing,
+            syncQueueCount: syncQueue.length,
+            syncStatusText,
+            realtimeStatus,
+          }}
+          quarters={sundaySchoolYear?.quarters}
+          onSyncClick={handlePushSync}
+          onLockClick={() => {
+            sessionStorage.setItem('gofamint_profile_locked', 'true');
+            setIsProfileLocked(true);
+          }}
+          onOpenAI={() => setActiveTab('AI_ASSISTANT')}
+          onOpenWelcome={() => {
+            setShowWorkersModule(false);
+            setShowAdminPortal(false);
+            setShowOpeningPage(true);
+          }}
+          onOpenAdminPortal={() => {
+            setShowWorkersModule(false);
+            setShowOpeningPage(false);
+            setShowAdminPortal(true);
+          }}
+          onOpenWorkersModule={() => {
+            sessionStorage.setItem('gofamint_active_portal', 'WORKERS');
+            setShowAdminPortal(false);
+            setShowOpeningPage(false);
+            setShowWorkersModule(true);
+          }}
+          totalStudents={members.filter(m => m.memberType === 'STUDENT' && m.status !== 'LEFT_CLASS').length}
+          totalVisitors={members.filter(m => m.memberType === 'VISITOR' && m.status !== 'LEFT_CLASS').length}
+        />
 
-      {/* Main Content Area */}
-      <main className="flex-1 max-w-[1440px] w-full mx-auto px-3 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
+        {/* Main Content Area */}
+        <main className="flex-1 max-w-[1440px] w-full mx-auto px-3 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
         <Suspense fallback={<PortalChunkFallback label="Opening section" />}>
         {activeTab === 'GRADING_MATRIX' && (
           <GradingMatrixView
@@ -2199,6 +2222,7 @@ export default function App() {
           <span>GOFAMINT_HOF SS PWA v2.4</span>
         </div>
       </footer>
+      </div>
 
       {/* First-Run Setup & Lock Authentication Modal */}
       <AuthModal

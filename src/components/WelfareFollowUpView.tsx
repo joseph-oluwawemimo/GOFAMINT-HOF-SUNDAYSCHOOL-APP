@@ -36,7 +36,7 @@ import {
   ExitReviewOutcome
 } from '../types';
 import { getConsecutiveAbsences, getAbsenceUrgency } from '../utils/calculations';
-import { normalizePhoneNumber } from '../utils/phoneUtils';
+import { normalizePhoneNumber, buildWhatsAppDirectLink } from '../utils/phoneUtils';
 import { GOFAMINT_HOF_12_LESSONS } from '../data/mockQuarterLessons';
 
 interface WelfareFollowUpViewProps {
@@ -472,7 +472,7 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
                             </a>
 
                             <a
-                              href={`https://wa.me/${normalizePhoneNumber(member.phone).replace(/[^0-9]/g, '')}?text=${generateWhatsAppMessage(member)}`}
+                              href={buildWhatsAppDirectLink(member.phone, generateWhatsAppMessage(member))}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="min-h-[42px] px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"

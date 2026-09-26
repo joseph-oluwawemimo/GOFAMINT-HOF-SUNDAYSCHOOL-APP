@@ -233,6 +233,10 @@ import {
   FRESH_UNINITIALIZED_YEAR
 } from '../data/mockQuarterLessons';
 import {
+  isMemberStudentAtWeek,
+  getEffectiveStudentActivationWeek
+} from '../utils/calculations';
+import {
   DEFAULT_WORKER_CATEGORIES,
   DEFAULT_CLOCK_IN_CONFIG
 } from '../data/mockWorkersData';
@@ -3622,17 +3626,9 @@ export async function getRealRecordOfficerCollation(
       }
 
       // Determine member category at this specific weekNumber (historical integrity):
-      // A member is a STUDENT only if memberType is STUDENT and they did not convert at a LATER lesson.
-      let isStudentAtThisWeek = false;
-      if (mem.memberType === 'STUDENT') {
-        if (convertedWeek && convertedWeek > weekNumber) {
-          isStudentAtThisWeek = false; // was still a visitor in weekNumber
-        } else {
-          isStudentAtThisWeek = true;
-        }
-      } else {
-        isStudentAtThisWeek = false;
-      }
+      // A member is a STUDENT only if memberType is STUDENT and their studentship activation week <= weekNumber.
+      // Under NO circumstances is any converted visitor a student in Weeks 1, 2, or 3.
+      const isStudentAtThisWeek = isMemberStudentAtWeek(mem, weekNumber);
 
       const isPresent = grade && !grade.isNoRecordWeek && grade.attendance === 'PRESENT';
 
@@ -3799,17 +3795,14 @@ export async function getRealEnrollmentOfficerCollation(
     const broughtForwardStudents = qMembers.filter(m => {
       const status = m.quarterEnrollments?.[quarterNumber as QuarterNumber]?.status || m.status || 'ACTIVE';
       if (hasPermanentlyExitedBy(m, quarterNumber, 1, status)) return false;
-      const convertedWeek = m.convertedFromVisitorAtLesson;
-      return m.memberType === 'STUDENT' && (!convertedWeek || convertedWeek < 1);
+      return isMemberStudentAtWeek(m, 1);
     }).length;
 
     // Members brought forward as visitors prior to Week 1
     const broughtForwardVisitors = qMembers.filter(m => {
-      const qEnr = m.quarterEnrollments?.[quarterNumber as QuarterNumber];
-      const status = qEnr?.status || m.status || 'ACTIVE';
+      const status = m.quarterEnrollments?.[quarterNumber as QuarterNumber]?.status || m.status || 'ACTIVE';
       if (hasPermanentlyExitedBy(m, quarterNumber, 1, status)) return false;
-      const firstWeek = qEnr?.firstLessonWeek || m.firstLessonWeek || 1;
-      return m.memberType === 'VISITOR' && firstWeek < 1;
+      return !isMemberStudentAtWeek(m, 1);
     }).length;
 
     let prevTotalOnboarded = broughtForwardStudents + broughtForwardVisitors;
@@ -3842,11 +3835,12 @@ export async function getRealEnrollmentOfficerCollation(
       const wTotalOnboarded = wNewlyOnboarded + wPreviouslyOnboarded;
 
       // Newly Enrolled in week w: visitors who completed consistency and became students in week w
+      // Strict rule: earliest activation is Week 4 (the next week after consistency quota)
       const wNewlyEnrolledMembers = qMembers.filter(m => {
         const qEnr = m.quarterEnrollments?.[quarterNumber as QuarterNumber];
         const status = qEnr?.status || m.status || 'ACTIVE';
         if (hasPermanentlyExitedBy(m, quarterNumber, w, status)) return false;
-        return m.memberType === 'STUDENT' && m.convertedFromVisitorAtLesson === w;
+        return m.memberType === 'STUDENT' && getEffectiveStudentActivationWeek(m) === w;
       });
       const wNewlyEnrolled = wNewlyEnrolledMembers.length;
       const wPreviouslyEnrolled = prevTotalEnrolled;
@@ -4095,12 +4089,13 @@ export async function certifyVisitorEnrollment(
     enrolledDate: new Date().toISOString()
   };
 
+  const activationWeek = Math.max(4, weekNumber + 1);
   const statusHistory = target.statusHistory || [];
   statusHistory.push({
     fromStatus: 'VISITOR',
     toStatus: 'STUDENT',
     date: new Date().toISOString(),
-    reason: `Certified by Enrollment Officer ${officerProfile.profileName} (Week ${weekNumber}, Q${quarterNumber})`,
+    reason: `Certified by Enrollment Officer ${officerProfile.profileName} (Consistency completed Week ${weekNumber}, studentship officially activated Week ${activationWeek})`,
     authorizedBy: officerProfile.profileName
   });
 
@@ -4108,7 +4103,7 @@ export async function certifyVisitorEnrollment(
     ...target,
     memberType: 'STUDENT',
     conversionStatus: 'APPROVED',
-    convertedFromVisitorAtLesson: weekNumber,
+    convertedFromVisitorAtLesson: activationWeek,
     enrolledDate: new Date().toISOString(),
     certifiedBy: officerProfile.profileName,
     certifiedAt: new Date().toISOString(),

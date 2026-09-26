@@ -31,7 +31,7 @@ import {
   Printer,
   Download
 } from 'lucide-react';
-import { normalizePhoneNumber, findDuplicateMemberByPhone } from '../utils/phoneUtils';
+import { normalizePhoneNumber, findDuplicateMemberByPhone, buildWhatsAppDirectLink } from '../utils/phoneUtils';
 import { GofamintLogo } from './GofamintLogo';
 import {
   Member,
@@ -844,7 +844,7 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                         <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                         <span className="font-semibold text-slate-800">{member.phone}</span>
                         <a
-                          href={`https://wa.me/${member.phone.replace(/[^0-9]/g, '')}`}
+                          href={buildWhatsAppDirectLink(member.phone)}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="ml-auto text-[10px] text-emerald-600 hover:text-emerald-700 font-bold flex items-center gap-1"
@@ -1302,9 +1302,10 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
 
             <div className="pt-2 flex flex-col sm:flex-row items-center gap-2">
               <a
-                href={`https://wa.me/?text=${encodeURIComponent(
+                href={buildWhatsAppDirectLink(
+                  activeLinkModalMember.phone,
                   `Hello ${activeLinkModalMember.fullName}! Welcome to GOFAMINT House of Favor Sunday School. Please take a moment to access your Sunday School profile and live score pass here: ${window.location.origin}/#visitor-profile/${activeLinkModalMember.oneTimeProfileToken.token}`
-                )}`}
+                )}
                 target="_blank"
                 rel="noreferrer"
                 className="w-full sm:flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center justify-center gap-2 text-center"

@@ -78,7 +78,7 @@ test('Department Management: Uninitialized departments default to standard recog
   };
 
   const { departments, needsUpdate } = normalizeDepartments(uninitializedYear);
-  assert.deepEqual(departments, ['Adult', 'Youth', 'Teenagers', 'Children']);
+  assert.deepEqual(departments, ['Adult', 'Youth', 'Children']);
   assert.equal(needsUpdate, true);
 });
 

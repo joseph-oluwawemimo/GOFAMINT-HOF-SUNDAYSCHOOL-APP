@@ -630,20 +630,86 @@ export function getAbsenceUrgency(consecutiveWeeks: number): {
 }
 
 /**
+ * Returns the effective lesson week when a member became an active STUDENT.
+ *
+ * HISTORICAL INDEPENDENCE RULE (MANDATORY):
+ * When a visitor satisfies 3 consecutive visits (e.g. Weeks 1, 2, 3) and is approved,
+ * their studentship starts strictly the NEXT week (Week 4 minimum).
+ * Under NO circumstances is any converted visitor a student in Weeks 1, 2, or 3.
+ * In Weeks 1, 2, and 3 they were 100% visitors.
+ */
+export function getEffectiveStudentActivationWeek(member: Member): number {
+  if (member.memberType === 'VISITOR') {
+    return Infinity;
+  }
+
+  // Check if member is a converted visitor
+  const rawConvertedLesson = member.convertedFromVisitorAtLesson;
+  const isConverted =
+    (rawConvertedLesson !== undefined && rawConvertedLesson !== null) ||
+    member.conversionStatus === 'APPROVED' ||
+    member.statusHistory?.some(h => h.fromStatus === 'VISITOR' && h.toStatus === 'STUDENT') ||
+    member.certifiedAt !== undefined;
+
+  if (isConverted) {
+    const lessonNum = Number(rawConvertedLesson) || 4;
+    // Earliest possible student activation is Week 4.
+    // If recorded as 1, 2, or 3 (the consistency lesson), activation starts strictly at Week 4.
+    if (lessonNum <= 3) {
+      return 4;
+    }
+    return lessonNum;
+  }
+
+  // Pre-existing student from prior academic quarters (not converted from visitor this quarter)
+  return 1;
+}
+
+/**
  * Determines whether a member was historically a STUDENT at a specific week.
- * Preserves historical independence: If a visitor converted to student at lesson 4,
- * in weeks 1, 2, and 3 they remain historically classified as a VISITOR.
+ * Preserves historical independence:
+ * If a visitor converted to student, in all weeks prior to their activation week
+ * (Weeks 1, 2, 3) they remain historically classified as a VISITOR.
  */
 export function isMemberStudentAtWeek(member: Member, weekNumber: number): boolean {
   if (member.memberType === 'VISITOR') {
     return false;
   }
-  // Member is currently a STUDENT
-  // If they converted from a visitor at a designated lesson/week, earlier weeks remain VISITOR
-  if (member.convertedFromVisitorAtLesson && weekNumber < member.convertedFromVisitorAtLesson) {
-    return false;
+  const activationWeek = getEffectiveStudentActivationWeek(member);
+  return weekNumber >= activationWeek;
+}
+
+/**
+ * Normalizes legacy department strings or age-group strings to one of the canonical departments:
+ * - 'Adult'
+ * - 'Youth'
+ * - 'Children'
+ * Or custom departments approved by General Secretary in sundaySchoolYear.departments.
+ */
+export function normalizeDepartmentName(dept: string | undefined | null, approvedDepartments?: string[]): string {
+  const raw = String(dept || '').trim();
+  if (!raw) return 'Adult';
+
+  // If already in approved list (case-insensitive match), return canonical casing
+  const validList = approvedDepartments && approvedDepartments.length > 0
+    ? approvedDepartments
+    : ['Adult', 'Youth', 'Children'];
+
+  const exactMatch = validList.find(d => d.toLowerCase() === raw.toLowerCase());
+  if (exactMatch) return exactMatch;
+
+  const lower = raw.toLowerCase();
+  if (lower.includes('child') || lower.includes('junior') || lower.includes('cradle') || lower.includes('beginner') || lower.includes('nursery') || lower.includes('primary')) {
+    return 'Children';
   }
-  return true;
+  if (lower.includes('youth') || lower.includes('teen') || lower.includes('young adult') || lower.includes('intermediate')) {
+    return 'Youth';
+  }
+  if (lower.includes('adult') || lower.includes('elder') || lower.includes('senior')) {
+    return 'Adult';
+  }
+
+  return validList[0] || 'Adult';
 }
 
 /**

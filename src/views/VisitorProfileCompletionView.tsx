@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Camera, CheckCircle2, AlertCircle, Heart, Shield, Lock, User, Phone, MapPin, Briefcase, Copy, Check, GraduationCap, Upload, Download } from 'lucide-react';
+import { Camera, CheckCircle2, AlertCircle, Heart, Shield, Lock, User, Phone, MapPin, Briefcase, Copy, Check, GraduationCap, Upload, Download, MessageCircle } from 'lucide-react';
 import QRCode from 'qrcode';
 import { Member } from '../types';
 import { CameraModal } from '../components/CameraModal';
 import { compressImage } from '../utils/imageCompression';
 import { getSupabaseClient } from '../services/supabase';
 import { saveMemberToDB } from '../db/indexedDB';
+import { normalizePhoneNumber, buildWhatsAppDirectLink } from '../utils/phoneUtils';
 
 interface VisitorProfileCompletionViewProps {
   token: string;
@@ -37,6 +38,7 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
   const [ageGroup, setAgeGroup] = useState('');
   const [prayerRequests, setPrayerRequests] = useState('');
   const [photoBase64, setPhotoBase64] = useState<string | undefined>(undefined);
+  const [formValidationError, setFormValidationError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load member by token
@@ -171,10 +173,46 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
 
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setFormValidationError(null);
+
     if (!fullName.trim()) {
-      alert('Please enter your full name.');
+      setFormValidationError('Full Name is required. Please enter your complete official name.');
       return;
     }
+    if (!phone.trim()) {
+      setFormValidationError('Phone Number is required so your teacher and pastoral team can reach you on WhatsApp.');
+      return;
+    }
+    const cleanDigits = phone.replace(/\D/g, '');
+    if (cleanDigits.length < 10) {
+      setFormValidationError('Please enter a valid phone number (at least 10 digits).');
+      return;
+    }
+    if (!gender) {
+      setFormValidationError('Please select your gender (Male or Female).');
+      return;
+    }
+    if (!ageGroup) {
+      setFormValidationError('Please select your Sunday School Department (Adult, Youth, or Children).');
+      return;
+    }
+    if (!address.trim()) {
+      setFormValidationError('Residential Address is required. Please provide your current home address.');
+      return;
+    }
+    if (!occupation.trim()) {
+      setFormValidationError('Occupation / Vocation is required (e.g. Student, Trader, Engineer, Teacher, Civil Servant).');
+      return;
+    }
+    if (!photoBase64) {
+      setFormValidationError('Profile photograph is required. Please click "Take Live Photo" or "Upload Image" before submitting.');
+      return;
+    }
+    if (!prayerRequests.trim()) {
+      setFormValidationError('Prayer Request / Thanksgiving is required. Share a prayer point or write "None" if you have none today.');
+      return;
+    }
+
     setIsConfirmModalOpen(true);
   };
 
@@ -186,10 +224,11 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
     try {
       const rcToken = member?.reportCardToken?.token || `rc_${Math.random().toString(36).substring(2, 10)}_${Date.now().toString(36)}`;
       const reportCardToken = { token: rcToken, createdAt: new Date().toISOString() };
+      const normalizedPhone = normalizePhoneNumber(phone.trim());
 
       const payload: Partial<Member> = {
         fullName: fullName.trim(),
-        phone: phone.trim(),
+        phone: normalizedPhone,
         address: address.trim(),
         occupation: occupation.trim(),
         gender: gender || undefined,
@@ -423,16 +462,31 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
                   {copiedLink ? 'Copied' : 'Copy'}
                 </button>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  window.location.hash = reportCardUrl.split('#')[1] || '';
-                }}
-                className="w-full py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <GraduationCap className="w-4 h-4" />
-                Open My Score Pass
-              </button>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.location.hash = reportCardUrl.split('#')[1] || '';
+                  }}
+                  className="w-full py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <GraduationCap className="w-4 h-4" />
+                  <span>Open Live Report Card</span>
+                </button>
+
+                <a
+                  href={buildWhatsAppDirectLink(
+                    phone,
+                    `Hello ${fullName.trim()}! Here is your official GOFAMINT Sunday School Score Pass and Report Card link: ${reportCardUrl}. Keep this link to track your weekly lessons, grades, and attendance anytime.`
+                  )}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer text-center"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  <span>Send Pass to My WhatsApp</span>
+                </a>
+              </div>
             </div>
           )}
 
@@ -625,6 +679,17 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
               className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400 resize-none"
             />
           </div>
+
+          {/* Form Validation Alert Box */}
+          {formValidationError && (
+            <div className="p-3.5 bg-rose-500/20 border-2 border-rose-500/60 rounded-2xl flex items-start gap-2.5 text-rose-200 text-xs animate-shake">
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+              <div>
+                <strong className="block text-rose-300 font-bold">Incomplete Information:</strong>
+                <span>{formValidationError}</span>
+              </div>
+            </div>
+          )}
 
           {/* Submit Button */}
           <button

@@ -13,11 +13,13 @@ import {
   ShieldCheck,
   Sparkles,
   AlertCircle,
-  Clock
+  Clock,
+  Edit3
 } from 'lucide-react';
 import { GofamintLogo } from './GofamintLogo';
 import { ClassProfile, DepartmentType, TeacherInfo, WorkerProfile } from '../types';
 import { getAllWorkers, getAllDepartmentsList } from '../db/indexedDB';
+import { normalizeNigerianPhone } from '../utils/phoneUtils';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -40,7 +42,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [departmentsList, setDepartmentsList] = useState<string[]>([]);
   const [isLoadingMetadata, setIsLoadingMetadata] = useState(true);
 
-  // First-Run Registration States
+  // First-Run & Registration Editing States
+  const [isEditingRegistration, setIsEditingRegistration] = useState(false);
   const [className, setClassName] = useState(existingClassProfile?.className || '');
   const [department, setDepartment] = useState<string>(existingClassProfile?.department || 'Young Adults');
   const [selectedSecretaryWorkerId, setSelectedSecretaryWorkerId] = useState<string>('');
@@ -61,6 +64,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   // Subsequent Lock Screen State
   const [unlockPassword, setUnlockPassword] = useState('');
   const [unlockError, setUnlockError] = useState<string | null>(null);
+
+  // Keep state in sync when existingClassProfile changes
+  useEffect(() => {
+    if (existingClassProfile) {
+      setClassName(existingClassProfile.className || '');
+      setDepartment(existingClassProfile.department || 'Young Adults');
+      setSecretaryName(existingClassProfile.secretaryName || '');
+      setSecretaryPhone(existingClassProfile.secretaryPhone || '');
+      if (existingClassProfile.teachers?.length) {
+        setTeachers(existingClassProfile.teachers);
+      }
+    }
+  }, [existingClassProfile]);
 
   useEffect(() => {
     if (isOpen) {
@@ -167,18 +183,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       className: className.trim(),
       department: department as DepartmentType,
       secretaryName: secretaryName.trim(),
-      secretaryPhone: secretaryPhone.trim(),
-      teachers: validTeachers,
+      secretaryPhone: normalizeNigerianPhone(secretaryPhone.trim()),
+      teachers: validTeachers.map(t => ({
+        ...t,
+        phone: normalizeNigerianPhone(t.phone)
+      })),
       quarterTitle: quarterTitle.trim(),
       year: new Date().getFullYear(),
       currencySymbol,
       isSetupComplete: true,
-      approvalStatus: existingClassProfile?.approvalStatus || 'PENDING_APPROVAL',
+      approvalStatus: 'PENDING_APPROVAL',
       createdAt: existingClassProfile?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
 
     onCompleteSetup(newProfile);
+    setIsEditingRegistration(false);
   };
 
   const handleUnlockSubmit = (e: React.FormEvent) => {
@@ -208,10 +228,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             THE GOSPEL FAITH MISSION INTERNATIONAL(HOUSE OF FAVOUR)
           </span>
           <h2 className="text-xl font-extrabold text-white mt-2 font-['Cinzel',serif] tracking-wide">
-            GOFAMINT_HOF SUNDAY SCHOOL SECRETARY CONSOLE
+            {isEditingRegistration
+              ? 'EDIT CLASS REGISTRATION'
+              : 'GOFAMINT_HOF SUNDAY SCHOOL SECRETARY CONSOLE'}
           </h2>
           <p className="text-xs text-blue-200/80 mt-1 max-w-md mx-auto">
-            {isFirstRun
+            {isEditingRegistration
+              ? 'Modify designated teachers, secretary, or class room. Submitted updates require administrator sign-off before taking effect.'
+              : isFirstRun
               ? 'Sunday School Class Registration: Select designated workers from the Workers Directory and submit class registration.'
               : 'Secure Secretary Console: Enter your password to unlock live grading and roster management.'}
           </p>
@@ -219,8 +243,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
         {/* Form Body */}
         <div className="p-6">
-          {isFirstRun ? (
-            /* First Launch: Class Setup Form */
+          {(isFirstRun || isEditingRegistration) ? (
+            /* First Launch or Edit: Class Setup Form */
             <form onSubmit={handleRegisterSubmit} className="space-y-4">
               {setupError && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 font-semibold flex items-center gap-2">
@@ -349,7 +373,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
               {/* Submit & Cancel Buttons */}
               <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
-                {onCancel && (
+                {isEditingRegistration ? (
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingRegistration(false)}
+                    className="w-full sm:w-auto px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs transition order-2 sm:order-1"
+                  >
+                    Cancel Edit
+                  </button>
+                ) : onCancel ? (
                   <button
                     type="button"
                     onClick={onCancel}
@@ -357,14 +389,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   >
                     Back to Opening Screen
                   </button>
-                )}
+                ) : null}
                 <button
                   id="setup-btn-submit"
                   type="submit"
                   className="flex-1 w-full py-3.5 bg-blue-900 hover:bg-blue-800 text-white font-bold rounded-lg text-sm shadow-xs flex items-center justify-center gap-2 transition order-1 sm:order-2"
                 >
                   <CheckCircle2 className="w-5 h-5 text-amber-300" />
-                  <span>Submit Class Registration</span>
+                  <span>{isEditingRegistration ? 'Submit Registration for Approval' : 'Submit Class Registration'}</span>
                 </button>
               </div>
             </form>
@@ -405,6 +437,34 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 >
                   <Lock className="w-4 h-4 text-amber-300" />
                   <span>Unlock Console</span>
+                </button>
+              </div>
+
+              {/* Edit Class Registration under Unlock Console */}
+              <div className="pt-1">
+                <button
+                  type="button"
+                  id="edit-class-registration-btn"
+                  onClick={() => {
+                    if (existingClassProfile) {
+                      setClassName(existingClassProfile.className || '');
+                      setDepartment(existingClassProfile.department || 'Young Adults');
+                      setSecretaryName(existingClassProfile.secretaryName || '');
+                      setSecretaryPhone(existingClassProfile.secretaryPhone || '');
+                      if (existingClassProfile.teachers?.length) {
+                        setTeachers(existingClassProfile.teachers);
+                      }
+                      if (existingClassProfile.secretaryName && workersList.length > 0) {
+                        const matchedSec = workersList.find(w => w.fullName === existingClassProfile.secretaryName);
+                        if (matchedSec) setSelectedSecretaryWorkerId(matchedSec.id);
+                      }
+                    }
+                    setIsEditingRegistration(true);
+                  }}
+                  className="w-full py-2.5 px-4 bg-slate-100 hover:bg-blue-50 border border-slate-300 hover:border-blue-300 text-slate-700 hover:text-blue-900 font-bold rounded-lg text-xs flex items-center justify-center gap-2 transition"
+                >
+                  <Edit3 className="w-4 h-4 text-blue-700" />
+                  <span>Edit Class Registration</span>
                 </button>
               </div>
 

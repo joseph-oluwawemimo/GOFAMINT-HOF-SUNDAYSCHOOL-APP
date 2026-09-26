@@ -41,7 +41,9 @@ import {
   Layers,
   Receipt,
   ArrowUpRight,
-  UserX
+  UserX,
+  FileCheck,
+  Award
 } from 'lucide-react';
 import { GofamintLogo } from '../GofamintLogo';
 import {
@@ -70,7 +72,7 @@ import { CloudUserManagementPanel } from './CloudUserManagementPanel';
 import { GeneralSecretaryView } from './GeneralSecretaryView';
 import { TreasurerView } from './TreasurerView';
 import { RecordOfficerView } from './RecordOfficerView';
-import { EnrollmentOfficerView } from './EnrollmentOfficerView';
+import { EnrollmentOfficerView, EnrollmentOfficerTab } from './EnrollmentOfficerView';
 import { AsstGeneralSecretaryView } from './AsstGeneralSecretaryView';
 import { DepartmentSuperintendentView } from './DepartmentSuperintendentView';
 import { DatabaseBackupModal } from '../DatabaseBackupModal';
@@ -141,6 +143,9 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
 
   // Record Officer Sub-tab Navigation state (Jobie active tab)
   const [recordOfficerActiveTab, setRecordOfficerActiveTab] = usePersistedState<'WEEKLY_COLLATION' | 'WEEKLY_ONBOARDED' | 'QUARTER_ANALYSIS' | 'DEPARTED_MEMBERS'>(`gofamint_admin_${stateScope}_record_tab`, 'WEEKLY_COLLATION');
+
+  // Enrollment Officer Sub-tab Navigation state (Jobie active tab)
+  const [enrollmentOfficerActiveTab, setEnrollmentOfficerActiveTab] = usePersistedState<EnrollmentOfficerTab>(`gofamint_admin_${stateScope}_eo_tab`, 'WEEKLY_ENROLLMENT');
 
   // Assistant General Secretary Sub-tab Navigation state (Jobie active tab)
   const [asstGsecActiveTab, setAsstGsecActiveTab] = usePersistedState<'OVERVIEW' | 'CREATE_CLASSES' | 'CLASS_DIRECTORY' | 'TEACHER_ROSTER'>(`gofamint_admin_${stateScope}_asst_tab`, 'OVERVIEW');
@@ -418,6 +423,18 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
     { id: 'DEPARTED_MEMBERS', label: 'Departed Registry', icon: UserX },
   ];
 
+  // Navigation Items for Enrollment Officer (6 Pipeline & Certification Sections)
+  const isEnrollmentOfficer = activePortalAdmin?.roleType === 'ENROLLMENT_OFFICER';
+
+  const enrollmentOfficerNavItems = [
+    { id: 'WEEKLY_ENROLLMENT', label: 'Weekly Enrollment Collation', icon: FileCheck },
+    { id: 'CONSISTENCY_CERTIFICATION', label: 'Consistency & Certification Review', icon: Award },
+    { id: 'AUDIT_TRAIL', label: 'Conversion Audit Trail', icon: ShieldCheck },
+    { id: 'DEPARTMENTAL_CENSUS', label: 'Departmental Census Breakdown', icon: Building },
+    { id: 'DEPARTED_MEMBERS', label: 'Departed Members', icon: UserX },
+    { id: 'STUDENT_TRANSFERS', label: 'Student Transfers', icon: ArrowRightLeft },
+  ];
+
   // Navigation Items for Assistant General Secretary (4 Class Architecture & Workers Sections)
   const isAsstGeneralSecretary = activePortalAdmin?.roleType === 'ASST_GENERAL_SECRETARY' || activePortalAdmin?.roleType === 'ASSISTANT_GENERAL_SECRETARY';
 
@@ -560,6 +577,32 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
                     key={item.id}
                     type="button"
                     onClick={() => setRecordOfficerActiveTab(item.id as any)}
+                    className={`w-full flex items-center gap-3 pl-6 pr-4 py-3.5 text-xs font-black transition-all cursor-pointer text-left ${
+                      isActive
+                        ? 'jobie-notch-item active'
+                        : 'text-purple-200/80 hover:text-white hover:bg-white/10 rounded-2xl mx-3 my-0.5 px-4 py-3'
+                    }`}
+                  >
+                    <item.icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-[#320b86]' : 'text-purple-300'}`} />
+                    <span className="truncate">{item.label}</span>
+                  </button>
+                );
+              })}
+            </>
+          )}
+
+          {isEnrollmentOfficer && (
+            <>
+              <div className="px-6 pb-2 text-[10px] font-black uppercase tracking-wider text-purple-300/70">
+                Enrollment Directorate
+              </div>
+              {enrollmentOfficerNavItems.map((item) => {
+                const isActive = enrollmentOfficerActiveTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setEnrollmentOfficerActiveTab(item.id as any)}
                     className={`w-full flex items-center gap-3 pl-6 pr-4 py-3.5 text-xs font-black transition-all cursor-pointer text-left ${
                       isActive
                         ? 'jobie-notch-item active'
@@ -797,60 +840,62 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
             </div>
           )}
 
-          {/* GS Staff & Logins tab */}
-          {isGeneralSuperintendent && gsActiveTab === 'CLOUD_USERS' && !oversightAdminProfile ? (
-            <div className="jobie-card p-6 space-y-4">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                <div>
-                  <h3 className="text-base sm:text-lg font-black text-slate-900 font-['Cinzel',serif]">
-                    Staff & Officer Login Directorate
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Create, approve, and manage administrative officers and Sunday School class logins
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setGsActiveTab('OVERVIEW')}
-                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer"
-                >
-                  Back to Overview
-                </button>
-              </div>
-              <CloudUserManagementPanel adminRole={currentAdmin?.roleType} />
-            </div>
-          ) : (
-            /* Standard Role Execution */
-            (() => {
-              const effectiveYear: SundaySchoolYear = sundaySchoolYear || {
-                id: 'DEFAULT',
-                yearName: `${new Date().getFullYear()}–${new Date().getFullYear() + 1}`,
-                overallTheme: '',
+          {/* Resolve Effective Year for Portal Management & Views */}
+          {(() => {
+            const effectiveYear: SundaySchoolYear = sundaySchoolYear || {
+              id: 'DEFAULT',
+              yearName: `${new Date().getFullYear()}–${new Date().getFullYear() + 1}`,
+              overallTheme: '',
+              startDate: '',
+              endDate: '',
+              activeQuarterNumber: 1,
+              isInitialized: true,
+              departments: [],
+              updatedAt: new Date().toISOString(),
+              quarters: [1, 2, 3, 4].map(q => ({
+                id: `Q${q}`,
+                quarterNumber: q as QuarterNumber,
+                quarterName: `Quarter ${q}`,
+                quarterTheme: '',
                 startDate: '',
                 endDate: '',
-                activeQuarterNumber: 1,
-                isInitialized: true,
-                departments: [],
-                updatedAt: new Date().toISOString(),
-                quarters: [1, 2, 3, 4].map(q => ({
-                  id: `Q${q}`,
-                  quarterNumber: q as QuarterNumber,
-                  quarterName: `Quarter ${q}`,
-                  quarterTheme: '',
-                  startDate: '',
-                  endDate: '',
-                  sharingAdmonitionDate: '',
-                  totalLessonWeeks: 12,
-                  hasSharingAdmonitionWeek: true,
-                  status: q === 1 ? 'ACTIVE' : 'UPCOMING',
-                  isDistributed: false,
-                  lessons: [],
-                  updatedAt: new Date().toISOString()
-                }))
-              };
+                sharingAdmonitionDate: '',
+                totalLessonWeeks: 12,
+                hasSharingAdmonitionWeek: true,
+                status: q === 1 ? 'ACTIVE' : 'UPCOMING',
+                isDistributed: false,
+                lessons: [],
+                updatedAt: new Date().toISOString()
+              }))
+            };
 
-              return (
-                <>
+            return (
+              <>
+                {/* GS Staff & Logins tab */}
+                {isGeneralSuperintendent && gsActiveTab === 'CLOUD_USERS' && !oversightAdminProfile ? (
+                  <div className="jobie-card p-6 space-y-4">
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                      <div>
+                        <h3 className="text-base sm:text-lg font-black text-slate-900 font-['Cinzel',serif]">
+                          Staff & Officer Login Directorate
+                        </h3>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          Create, approve, and manage administrative officers and Sunday School class logins
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setGsActiveTab('OVERVIEW')}
+                        className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer"
+                      >
+                        Back to Overview
+                      </button>
+                    </div>
+                    <CloudUserManagementPanel adminRole={currentAdmin?.roleType} sundaySchoolYear={effectiveYear} />
+                  </div>
+                ) : (
+                  /* Standard Role Execution */
+                  <>
                   {/* View by Role */}
                   {isGeneralSuperintendent && (
                     <GeneralSuperintendentView
@@ -909,7 +954,7 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
                   {activePortalAdmin?.roleType === 'DEPARTMENT_SUPERINTENDENT' && (
                     <DepartmentSuperintendentView
                       currentAdmin={activePortalAdmin}
-                      allClasses={allClasses.filter(item => String(item.department || '').trim() === String(activePortalAdmin.departmentId || '').trim())}
+                      allClasses={allClasses}
                       sundaySchoolYear={effectiveYear}
                     />
                   )}
@@ -939,6 +984,8 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
                       currentAdmin={activePortalAdmin}
                       allClasses={allClasses}
                       sundaySchoolYear={effectiveYear}
+                      activeTab={enrollmentOfficerActiveTab}
+                      onTabChange={setEnrollmentOfficerActiveTab}
                     />
                   )}
 
@@ -954,9 +1001,10 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
                     />
                   )}
                 </>
-              );
-            })()
-          )}
+              )}
+            </>
+          );
+        })()}
 
         </main>
 
@@ -1394,6 +1442,25 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
                   }}
                   className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-bold transition text-left cursor-pointer ${
                     recordOfficerActiveTab === item.id
+                      ? 'bg-white text-[#320b86] shadow-sm'
+                      : 'text-purple-100 hover:bg-white/10'
+                  }`}
+                >
+                  <item.icon className="w-4 h-4 shrink-0" />
+                  <span className="truncate">{item.label}</span>
+                </button>
+              ))}
+
+              {isEnrollmentOfficer && enrollmentOfficerNavItems.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => {
+                    setEnrollmentOfficerActiveTab(item.id as any);
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-bold transition text-left cursor-pointer ${
+                    enrollmentOfficerActiveTab === item.id
                       ? 'bg-white text-[#320b86] shadow-sm'
                       : 'text-purple-100 hover:bg-white/10'
                   }`}

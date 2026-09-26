@@ -2055,7 +2055,7 @@ export const TreasurerView: React.FC<TreasurerViewProps> = ({
                                 }`}
                                 title={offering?.remittanceStatus === 'AUDITED' ? `Audited: ₦${amt.toLocaleString()}` : `Submitted pending count: ₦${amt.toLocaleString()}`}
                               >
-                                {amt >= 1000 ? `${(amt / 1000).toFixed(amt % 1000 === 0 ? 0 : 1)}k` : amt}
+                                {amt.toLocaleString()}
                               </span>
                             ) : (
                               <span className="text-slate-300">-</span>
@@ -2087,7 +2087,7 @@ export const TreasurerView: React.FC<TreasurerViewProps> = ({
                     }, 0);
                     return (
                       <td key={w} className="py-3 px-2 text-center border-r border-slate-800 text-[11px] text-amber-300">
-                        {weekTotal > 0 ? (weekTotal >= 1000 ? `${(weekTotal / 1000).toFixed(weekTotal % 1000 === 0 ? 0 : 1)}k` : weekTotal) : '-'}
+                        {weekTotal > 0 ? weekTotal.toLocaleString() : '-'}
                       </td>
                     );
                   })}

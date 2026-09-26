@@ -71,6 +71,8 @@ export const CloudLoginGate: React.FC<CloudLoginGateProps> = ({ onSignedIn, isSy
   const roleSuggestions = [
     { label: 'GS', tip: 'General Superintendent' },
     { label: 'GSEC', tip: 'General Secretary' },
+    { label: 'EO', tip: 'Enrollment Officer' },
+    { label: 'RECORD', tip: 'Record Officer' },
     { label: 'TEACHER', tip: 'Class Teacher' },
     { label: 'YOUTH_A', tip: 'Class ID Example' },
   ];

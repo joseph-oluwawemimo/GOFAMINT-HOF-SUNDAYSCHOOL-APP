@@ -16,6 +16,7 @@ import {
   Phone
 } from 'lucide-react';
 import { Member, ClassProfile } from '../types';
+import { buildWhatsAppDirectLink } from '../utils/phoneUtils';
 
 interface VisitorWelcomeModalProps {
   isOpen: boolean;
@@ -84,11 +85,7 @@ export const VisitorWelcomeModal: React.FC<VisitorWelcomeModalProps> = ({
   };
 
   const handleShareWhatsApp = () => {
-    const cleanPhone = visitor.phone ? visitor.phone.replace(/[^0-9]/g, '') : '';
-    const encodedText = encodeURIComponent(welcomeMessage);
-    const waUrl = cleanPhone
-      ? `https://wa.me/${cleanPhone}?text=${encodedText}`
-      : `https://wa.me/?text=${encodedText}`;
+    const waUrl = buildWhatsAppDirectLink(visitor.phone, welcomeMessage);
     window.open(waUrl, '_blank', 'noopener,noreferrer');
   };
 

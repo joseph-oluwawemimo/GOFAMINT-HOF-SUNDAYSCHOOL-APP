@@ -383,169 +383,216 @@ export const OpeningFlowView: React.FC<OpeningFlowViewProps> = ({
         </div>
       )}
 
-      {/* ----------------- STAGE 2: PORTAL SELECTION (Item 9) ----------------- */}
+      {/* ----------------- STAGE 2: PORTAL SELECTION (UI EXCELLENCE AUDIT) ----------------- */}
       {currentStep === 'PORTAL_SELECTION' && (
-        <div className="max-w-4xl w-full mx-auto my-auto p-4 sm:p-6 lg:p-8 space-y-6">
+        <div className="max-w-6xl w-full mx-auto my-auto p-4 sm:p-6 lg:p-10 space-y-8 animate-fade-in">
           
           {/* Header */}
-          <div className="text-center space-y-2">
+          <div className="text-center space-y-3">
             <button
               onClick={() => setCurrentStep('OPENING_PAGE')}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:text-slate-900 transition mb-2 shadow-xs cursor-pointer"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-white/90 hover:bg-white border border-slate-200 rounded-full text-xs font-bold text-slate-700 hover:text-slate-900 transition shadow-xs cursor-pointer hover:shadow-md"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
-              <span>Back to Welcome</span>
+              <span>Back to Welcome Screen</span>
             </button>
 
-            <h2 className="text-2xl sm:text-3xl font-black text-slate-900 font-['Cinzel',serif] uppercase">
+            <div className="flex items-center justify-center gap-2 mt-2">
+              <span className="text-[10px] font-black tracking-widest uppercase text-amber-600 bg-amber-500/10 px-3 py-1 rounded-full border border-amber-400/30 font-['Cinzel',serif]">
+                GOFAMINT HOUSE OF FAVOUR • SUNDAY BIBLE SCHOOL
+              </span>
+            </div>
+
+            <h2 className="text-2xl sm:text-4xl font-extrabold text-slate-900 font-['Cinzel',serif] tracking-tight">
               Select Portal Destination
             </h2>
-            <p className="text-xs sm:text-sm text-slate-600 max-w-lg mx-auto">
-              Please choose your authorized Sunday School console to proceed.
+            <p className="text-xs sm:text-sm text-slate-600 max-w-xl mx-auto leading-relaxed">
+              Please choose your authorized Sunday School console to proceed into operational management, class registers, or intelligence oversight.
             </p>
           </div>
 
-          {/* 4 Clean Portal Cards (Admin, Workers, Teacher/Secretary, and SIB) */}
+          {/* 4 Clean Elevated Portal Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-2">
             
             {/* 1. Admin Portal */}
-            <div className="bg-white border-2 border-slate-900 rounded-2xl p-6 flex flex-col justify-between shadow-lg hover:shadow-xl transition relative border-t-8 border-t-amber-500">
+            <div className="bg-white border border-slate-200/90 rounded-3xl p-6 flex flex-col justify-between shadow-lg hover:shadow-2xl hover:-translate-y-1.5 transition-all duration-300 relative group overflow-hidden border-t-8 border-t-amber-500">
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <div className="w-12 h-12 rounded-2xl bg-amber-100 border border-amber-300 flex items-center justify-center text-amber-950">
-                    <Shield className="w-6 h-6 text-amber-900" />
+                  <div className="w-13 h-13 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-slate-950 shadow-md group-hover:scale-105 transition-transform">
+                    <Shield className="w-6 h-6 text-slate-950" />
                   </div>
-                  <span className="px-2.5 py-1 bg-amber-100 text-amber-900 text-[10px] font-black uppercase tracking-wider rounded-md border border-amber-300">
-                    Executive Portal
+                  <span className="px-2.5 py-1 bg-amber-50 text-amber-900 text-[10px] font-black uppercase tracking-wider rounded-full border border-amber-300">
+                    Executive
                   </span>
                 </div>
 
                 <div>
-                  <h3 className="text-lg font-black text-slate-900 font-['Cinzel',serif]">
+                  <h3 className="text-lg font-black text-slate-900 font-['Cinzel',serif] group-hover:text-amber-800 transition-colors">
                     1. Admin Portal
                   </h3>
+                  <span className="text-[11px] font-bold text-amber-700 block mt-0.5">
+                    Executive Directorate
+                  </span>
                   <p className="text-xs text-slate-600 mt-2 leading-relaxed">
-                    General Superintendent, General Secretary, Assistant General Secretary, Treasurer, Record Officer, and Enrollment Officer.
+                    General Superintendent, General Secretary, Treasurer, Record Officer, Enrollment Officer, and Departmental Superintendents.
                   </p>
+                </div>
+
+                <div className="pt-2 flex flex-wrap gap-1.5">
+                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">12-Week Matrix</span>
+                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Treasury</span>
+                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Record Officer</span>
+                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Enrollment</span>
                 </div>
               </div>
 
-              <div className="pt-5 mt-4 border-t border-slate-200">
+              <div className="pt-6 mt-4 border-t border-slate-100">
                 <button
                   id="btn-portal-select-admin"
                   onClick={handleAdminPortalClick}
-                  className="w-full py-3 bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-amber-400 rounded-xl text-xs font-black flex items-center justify-center gap-2 shadow-md transition cursor-pointer"
+                  className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-amber-400 rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-md transition cursor-pointer group-hover:shadow-lg"
                 >
-                  <Shield className="w-3.5 h-3.5 text-amber-400" />
+                  <Shield className="w-4 h-4 text-amber-400" />
                   <span>Enter Admin Portal</span>
-                  <ArrowRight className="w-3.5 h-3.5 text-amber-400" />
+                  <ArrowRight className="w-4 h-4 text-amber-400 group-hover:translate-x-1 transition-transform" />
                 </button>
               </div>
             </div>
 
             {/* 2. Workers Directorate */}
-            <div className="bg-white border-2 border-slate-900 rounded-2xl p-6 flex flex-col justify-between shadow-lg hover:shadow-xl transition relative border-t-8 border-t-emerald-600">
+            <div className="bg-white border border-slate-200/90 rounded-3xl p-6 flex flex-col justify-between shadow-lg hover:shadow-2xl hover:-translate-y-1.5 transition-all duration-300 relative group overflow-hidden border-t-8 border-t-emerald-600">
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <div className="w-12 h-12 rounded-2xl bg-emerald-100 border border-emerald-300 flex items-center justify-center text-emerald-950">
-                    <Sparkles className="w-6 h-6 text-emerald-700" />
+                  <div className="w-13 h-13 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center text-white shadow-md group-hover:scale-105 transition-transform">
+                    <Sparkles className="w-6 h-6 text-white" />
                   </div>
-                  <span className="px-2.5 py-1 bg-emerald-100 text-emerald-900 text-[10px] font-black uppercase tracking-wider rounded-md border border-emerald-300">
-                    Dedicated Module
+                  <span className="px-2.5 py-1 bg-emerald-50 text-emerald-900 text-[10px] font-black uppercase tracking-wider rounded-full border border-emerald-300">
+                    Workforce
                   </span>
                 </div>
 
                 <div>
-                  <h3 className="text-lg font-black text-slate-900 font-['Cinzel',serif]">
+                  <h3 className="text-lg font-black text-slate-900 font-['Cinzel',serif] group-hover:text-emerald-800 transition-colors">
                     2. Workers Directorate
                   </h3>
+                  <span className="text-[11px] font-bold text-emerald-700 block mt-0.5">
+                    Operations & Attendance
+                  </span>
                   <p className="text-xs text-slate-600 mt-2 leading-relaxed">
-                    High-speed Sunday QR Code Clock-In Terminal, Master Worker Directory, and administrative oversight.
+                    High-speed Sunday QR Code Clock-In Terminal, Master Worker Directory, and workers' attendance tracking.
                   </p>
+                </div>
+
+                <div className="pt-2 flex flex-wrap gap-1.5">
+                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">QR Terminal</span>
+                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Preparatory</span>
+                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Directory</span>
+                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Clock-In</span>
                 </div>
               </div>
 
-              <div className="pt-5 mt-4 border-t border-slate-200">
+              <div className="pt-6 mt-4 border-t border-slate-100">
                 <button
                   id="btn-portal-select-workers"
                   onClick={handleWorkersModuleClick}
-                  className="w-full py-3 bg-emerald-700 hover:bg-emerald-600 active:scale-[0.98] text-white rounded-xl text-xs font-black flex items-center justify-center gap-2 shadow-md transition cursor-pointer"
+                  className="w-full py-3.5 bg-emerald-700 hover:bg-emerald-600 active:scale-[0.98] text-white rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-md transition cursor-pointer group-hover:shadow-lg"
                 >
-                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                  <Sparkles className="w-4 h-4 text-amber-300" />
                   <span>Workers Directorate</span>
-                  <ArrowRight className="w-3.5 h-3.5 text-white" />
+                  <ArrowRight className="w-4 h-4 text-white group-hover:translate-x-1 transition-transform" />
                 </button>
               </div>
             </div>
 
             {/* 3. Teacher / Secretary Portal */}
-            <div className="bg-white border-2 border-blue-900 rounded-2xl p-6 flex flex-col justify-between shadow-lg hover:shadow-xl transition relative border-t-8 border-t-blue-900">
+            <div className="bg-white border border-slate-200/90 rounded-3xl p-6 flex flex-col justify-between shadow-lg hover:shadow-2xl hover:-translate-y-1.5 transition-all duration-300 relative group overflow-hidden border-t-8 border-t-[#320b86]">
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <div className="w-12 h-12 rounded-2xl bg-blue-100 border border-blue-300 flex items-center justify-center text-blue-900">
-                    <UserCheck className="w-6 h-6 text-blue-900" />
+                  <div className="w-13 h-13 rounded-2xl bg-gradient-to-br from-[#320b86] to-[#4318ff] flex items-center justify-center text-white shadow-md group-hover:scale-105 transition-transform">
+                    <UserCheck className="w-6 h-6 text-white" />
                   </div>
-                  <span className="px-2.5 py-1 bg-blue-100 text-blue-900 text-[10px] font-black uppercase tracking-wider rounded-md border border-blue-300">
-                    Class Portal
+                  <span className="px-2.5 py-1 bg-purple-50 text-purple-900 text-[10px] font-black uppercase tracking-wider rounded-full border border-purple-300">
+                    Class Console
                   </span>
                 </div>
 
                 <div>
-                  <h3 className="text-lg font-black text-slate-900 font-['Cinzel',serif]">
-                    3. Teacher / Secretary Portal
+                  <h3 className="text-lg font-black text-slate-900 font-['Cinzel',serif] group-hover:text-[#320b86] transition-colors">
+                    3. Class Register
                   </h3>
+                  <span className="text-[11px] font-bold text-purple-800 block mt-0.5">
+                    Teacher & Secretary Suite
+                  </span>
                   <p className="text-xs text-slate-600 mt-2 leading-relaxed">
                     Class registration, weekly student attendance grading, offering remittance, and pastoral registers.
                   </p>
                 </div>
+
+                <div className="pt-2 flex flex-wrap gap-1.5">
+                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Register Matrix</span>
+                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Student Census</span>
+                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Welfare Care</span>
+                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Report Cards</span>
+                </div>
               </div>
 
-              <div className="pt-5 mt-4 border-t border-slate-200">
+              <div className="pt-6 mt-4 border-t border-slate-100">
                 <button
                   id="btn-portal-select-teacher"
                   onClick={() => {
                     void refreshClassesAndWorkers(true);
                     setCurrentStep('TEACHER_PORTAL_HOME');
                   }}
-                  className="w-full py-3 bg-blue-900 hover:bg-blue-800 active:scale-[0.98] text-white rounded-xl text-xs font-black flex items-center justify-center gap-2 shadow-md transition cursor-pointer"
+                  className="w-full py-3.5 bg-[#320b86] hover:bg-[#28076e] active:scale-[0.98] text-white rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-md transition cursor-pointer group-hover:shadow-lg"
                 >
-                  <span>Enter Teachers Portal</span>
-                  <ArrowRight className="w-3.5 h-3.5 text-amber-300" />
+                  <UserCheck className="w-4 h-4 text-amber-300" />
+                  <span>Enter Class Portal</span>
+                  <ArrowRight className="w-4 h-4 text-amber-300 group-hover:translate-x-1 transition-transform" />
                 </button>
               </div>
             </div>
 
             {/* 4. School Intelligence Board (SIB) */}
-            <div className="bg-white border-2 border-slate-900 rounded-2xl p-6 flex flex-col justify-between shadow-lg hover:shadow-xl transition relative border-t-8 border-t-indigo-600">
+            <div className="bg-white border border-slate-200/90 rounded-3xl p-6 flex flex-col justify-between shadow-lg hover:shadow-2xl hover:-translate-y-1.5 transition-all duration-300 relative group overflow-hidden border-t-8 border-t-indigo-600">
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <div className="w-12 h-12 rounded-2xl bg-indigo-100 border border-indigo-300 flex items-center justify-center text-indigo-950">
-                    <Activity className="w-6 h-6 text-indigo-700" />
+                  <div className="w-13 h-13 rounded-2xl bg-gradient-to-br from-indigo-900 to-slate-950 flex items-center justify-center text-amber-300 shadow-md group-hover:scale-105 transition-transform border border-amber-400/20">
+                    <Activity className="w-6 h-6 text-amber-300" />
                   </div>
-                  <span className="px-2.5 py-1 bg-indigo-100 text-indigo-900 text-[10px] font-black uppercase tracking-wider rounded-md border border-indigo-300">
-                    Intelligence Layer
+                  <span className="px-2.5 py-1 bg-indigo-50 text-indigo-900 text-[10px] font-black uppercase tracking-wider rounded-full border border-indigo-300">
+                    AI Layer
                   </span>
                 </div>
 
                 <div>
-                  <h3 className="text-lg font-black text-slate-900 font-['Cinzel',serif]">
-                    4. School Intelligence Board
+                  <h3 className="text-lg font-black text-slate-900 font-['Cinzel',serif] group-hover:text-indigo-900 transition-colors">
+                    4. Intelligence Board
                   </h3>
+                  <span className="text-[11px] font-bold text-indigo-700 block mt-0.5">
+                    Decision Support & AI (SIB)
+                  </span>
                   <p className="text-xs text-slate-600 mt-2 leading-relaxed">
                     Deterministic class health scores, repeated absence alerts, pastoral follow-up tracking, evidence drawers, and Ask SIB AI agent.
                   </p>
                 </div>
+
+                <div className="pt-2 flex flex-wrap gap-1.5">
+                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Health Scores</span>
+                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Absence Alerts</span>
+                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Evidence Audit</span>
+                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Ask SIB AI</span>
+                </div>
               </div>
 
-              <div className="pt-5 mt-4 border-t border-slate-200">
+              <div className="pt-6 mt-4 border-t border-slate-100">
                 <button
                   id="btn-portal-select-sib"
                   onClick={handleSibPortalClick}
-                  className="w-full py-3 bg-indigo-900 hover:bg-indigo-800 active:scale-[0.98] text-white rounded-xl text-xs font-black flex items-center justify-center gap-2 shadow-md transition cursor-pointer"
+                  className="w-full py-3.5 bg-indigo-950 hover:bg-slate-900 active:scale-[0.98] text-white rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-md transition cursor-pointer group-hover:shadow-lg"
                 >
-                  <Activity className="w-3.5 h-3.5 text-indigo-300" />
+                  <Activity className="w-4 h-4 text-indigo-300" />
                   <span>Enter SIB Portal</span>
-                  <ArrowRight className="w-3.5 h-3.5 text-white" />
+                  <ArrowRight className="w-4 h-4 text-white group-hover:translate-x-1 transition-transform" />
                 </button>
               </div>
             </div>

@@ -24,6 +24,7 @@ import {
 } from '../types';
 import { getConsecutiveAbsences, getAbsenceUrgency } from '../utils/calculations';
 import { GOFAMINT_HOF_12_LESSONS } from '../data/mockQuarterLessons';
+import { buildWhatsAppDirectLink } from '../utils/phoneUtils';
 
 interface AbsenceCareViewProps {
   members: Member[];
@@ -314,7 +315,10 @@ export const AbsenceCareView: React.FC<AbsenceCareViewProps> = ({
                     
                     {/* 1 Week: Soft WhatsApp Button */}
                     <a
-                      href={`https://wa.me/${member.phone ? member.phone.replace(/[^0-9]/g, '') : ''}?text=${waEncoded}`}
+                      href={buildWhatsAppDirectLink(
+                        member.phone,
+                        `Dear ${member.fullName}, we missed you in Sunday Bible School today at GOFAMINT House of Favour! We pray all is well with you. Please let us know how we can pray with and support you this week. God bless you richly!`
+                      )}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-lg text-xs font-bold flex items-center gap-1.5 transition"

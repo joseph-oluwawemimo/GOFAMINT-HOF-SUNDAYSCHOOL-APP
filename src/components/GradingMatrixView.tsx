@@ -59,7 +59,8 @@ import {
   checkVisitorQualification,
   calculateCumulativeOffering,
   checkStudentAbsenceCare,
-  checkVisitorStatusReview
+  checkVisitorStatusReview,
+  isMemberStudentAtWeek
 } from '../utils/calculations';
 
 interface GradingMatrixViewProps {
@@ -1775,7 +1776,8 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
           filteredMembers.map((member) => {
             const grade = getMemberGrade(member.id);
             const isLateJoiner = member.firstLessonWeek > 1;
-            const qualification = member.memberType === 'VISITOR' ? checkVisitorQualification(member, grades, selectedWeek) : null;
+            const isStudentInThisWeek = isMemberStudentAtWeek(member, selectedWeek);
+            const qualification = !isStudentInThisWeek ? checkVisitorQualification(member, grades, selectedWeek) : null;
             const isExcludedOrArchived = member.status === 'LEFT_CLASS';
             const isOneTimeVisitor = member.isOneTimeVisitor || member.exclusionType === 'TEMPORARY';
 
@@ -1835,11 +1837,11 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                           {member.fullName}
                         </h4>
                         <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded ${
-                          member.memberType === 'STUDENT'
+                          isStudentInThisWeek
                             ? 'bg-blue-100 text-blue-900 border border-blue-300'
                             : 'bg-purple-100 text-purple-900 border border-purple-300'
                         }`}>
-                          {member.memberType}
+                          {isStudentInThisWeek ? 'STUDENT' : 'VISITOR'}
                         </span>
                       </div>
 
@@ -2033,7 +2035,7 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                   </div>
 
                   {/* Visitor Qualification & Conversion Action */}
-                  {member.memberType === 'VISITOR' && qualification && (
+                  {!isStudentInThisWeek && qualification && (
                     <div className="flex items-center gap-2">
                       {member.conversionStatus === 'PENDING_APPROVAL' ? (
                         <div className="px-3 py-1 bg-amber-50 border border-amber-300 text-amber-900 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs">

@@ -58,16 +58,28 @@ import { GofamintLogo } from '../GofamintLogo';
 import { useDatabaseSync } from '../../hooks/useDatabaseSync';
 import { DepartedMembersPanel } from './DepartedMembersPanel';
 
+export type EnrollmentOfficerTab =
+  | 'WEEKLY_ENROLLMENT'
+  | 'CONSISTENCY_CERTIFICATION'
+  | 'AUDIT_TRAIL'
+  | 'DEPARTMENTAL_CENSUS'
+  | 'DEPARTED_MEMBERS'
+  | 'STUDENT_TRANSFERS';
+
 interface EnrollmentOfficerViewProps {
   currentAdmin: AdminProfile;
   allClasses?: ClassProfile[];
   sundaySchoolYear?: SundaySchoolYear;
+  activeTab?: EnrollmentOfficerTab;
+  onTabChange?: (tab: EnrollmentOfficerTab) => void;
 }
 
 export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
   currentAdmin,
   allClasses = [],
-  sundaySchoolYear
+  sundaySchoolYear,
+  activeTab: controlledTab,
+  onTabChange
 }) => {
   const safeYear = sundaySchoolYear || {
     id: 'DEFAULT',
@@ -85,13 +97,13 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
   const [selectedDepartment, setSelectedDepartment] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   
-  // Navigation Tabs:
-  // 1. 'WEEKLY_ENROLLMENT' -> Table: | Week | Class | Previously Enrolled | Onboarded | New Visitors | Newly Enrolled | Visitor -> Student |
-  // 2. 'CONSISTENCY_CERTIFICATION' -> Review active visitors & certify consistent learners into Student status
-  // 3. 'AUDIT_TRAIL' -> Historical logs of all ratified visitor-to-student conversions
-  // 4. 'DEPARTMENTAL_CENSUS' -> Breakdown by department & classes
-  // 5. 'STUDENT_TRANSFERS' -> Official review & approval of inter-department/inter-class student transfers
-  const [activeTab, setActiveTab] = useState<'WEEKLY_ENROLLMENT' | 'CONSISTENCY_CERTIFICATION' | 'AUDIT_TRAIL' | 'DEPARTMENTAL_CENSUS' | 'DEPARTED_MEMBERS' | 'STUDENT_TRANSFERS'>('WEEKLY_ENROLLMENT');
+  // Navigation State (controlled or internal)
+  const [internalActiveTab, setInternalActiveTab] = useState<EnrollmentOfficerTab>('WEEKLY_ENROLLMENT');
+  const activeTab = controlledTab || internalActiveTab;
+  const setActiveTab = (tab: EnrollmentOfficerTab) => {
+    setInternalActiveTab(tab);
+    onTabChange?.(tab);
+  };
 
   // Collation & Data State
   const [collationData, setCollationData] = useState<EnrollmentOfficerWeeklyCollation | null>(null);
@@ -423,97 +435,7 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
         </div>
       )}
 
-      {/* Navigation Tabs */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-2 shadow-xs flex flex-wrap gap-2">
-        <button
-          onClick={() => setActiveTab('WEEKLY_ENROLLMENT')}
-          className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 cursor-pointer ${
-            activeTab === 'WEEKLY_ENROLLMENT'
-              ? 'bg-teal-900 text-amber-300 shadow-sm'
-              : 'text-slate-600 hover:bg-slate-100'
-          }`}
-        >
-          <FileCheck className="w-4 h-4" />
-          <span>Weekly Enrollment Collation</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('CONSISTENCY_CERTIFICATION')}
-          className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 cursor-pointer ${
-            activeTab === 'CONSISTENCY_CERTIFICATION'
-              ? 'bg-teal-900 text-amber-300 shadow-sm'
-              : 'text-slate-600 hover:bg-slate-100'
-          }`}
-        >
-          <Award className="w-4 h-4" />
-          <span>Consistency & Certification Review</span>
-          {eligibleCandidates.filter(c => c.isEligible).length > 0 && (
-            <span className="bg-amber-400 text-slate-950 px-2 py-0.5 rounded-full text-[10px] font-black">
-              {eligibleCandidates.filter(c => c.isEligible).length} Eligible
-            </span>
-          )}
-        </button>
-
-        <button
-          onClick={() => setActiveTab('AUDIT_TRAIL')}
-          className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 cursor-pointer ${
-            activeTab === 'AUDIT_TRAIL'
-              ? 'bg-teal-900 text-amber-300 shadow-sm'
-              : 'text-slate-600 hover:bg-slate-100'
-          }`}
-        >
-          <History className="w-4 h-4" />
-          <span>Conversion Audit Trail</span>
-          <span className="bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full text-[10px]">
-            {allCertifications.length}
-          </span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('DEPARTMENTAL_CENSUS')}
-          className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 cursor-pointer ${
-            activeTab === 'DEPARTMENTAL_CENSUS'
-              ? 'bg-teal-900 text-amber-300 shadow-sm'
-              : 'text-slate-600 hover:bg-slate-100'
-          }`}
-        >
-          <Building className="w-4 h-4" />
-          <span>Departmental Census Breakdown</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('DEPARTED_MEMBERS')}
-          className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 cursor-pointer ${
-            activeTab === 'DEPARTED_MEMBERS'
-              ? 'bg-teal-900 text-amber-300 shadow-sm'
-              : 'text-slate-600 hover:bg-slate-100'
-          }`}
-        >
-          <UserX className="w-4 h-4" />
-          <span>Departed Members</span>
-          <span className="bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full text-[10px]">
-            {allMembersList.filter(member => member.status === 'LEFT_CLASS' || member.exitReviewOutcome === 'PERMANENT_EXIT').length}
-          </span>
-        </button>
-
-        {/* Phase 10.3: Student Transfers Tab */}
-        <button
-          onClick={() => setActiveTab('STUDENT_TRANSFERS')}
-          className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 cursor-pointer ${
-            activeTab === 'STUDENT_TRANSFERS'
-              ? 'bg-indigo-900 text-amber-300 shadow-sm'
-              : 'text-slate-600 hover:bg-slate-100'
-          }`}
-        >
-          <ArrowRightLeft className="w-4 h-4 text-indigo-400" />
-          <span>Student Transfers</span>
-          {allTransfers.filter(t => t.status === 'PENDING').length > 0 && (
-            <span className="bg-amber-400 text-amber-950 font-black px-2 py-0.5 rounded-full text-[10px] animate-pulse">
-              {allTransfers.filter(t => t.status === 'PENDING').length} pending
-            </span>
-          )}
-        </button>
-      </div>
+      {/* In-page navigation tabs have been moved to the desktop sidebar and mobile sticky taskbar */}
 
       {/* Control Bar: Quarter, Week, Department, and Search Selectors */}
       <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-4">
@@ -1895,6 +1817,40 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
         </div>
       )}
 
+      {/* Mobile Sticky Bottom Taskbar */}
+      <nav aria-label="Enrollment Officer mobile navigation" className="fixed inset-x-0 bottom-0 z-50 overflow-x-auto border-t border-slate-200 bg-white/95 px-2 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-[0_-12px_35px_rgba(15,42,85,0.16)] backdrop-blur-xl no-scrollbar lg:hidden">
+        <div className="flex items-center justify-around gap-1 min-w-max px-2">
+          {[
+            { id: 'WEEKLY_ENROLLMENT' as const, label: 'Weekly Collation', icon: FileCheck },
+            { id: 'CONSISTENCY_CERTIFICATION' as const, label: 'Certification Review', icon: Award, badge: eligibleCandidates.filter(c => c.isEligible).length },
+            { id: 'AUDIT_TRAIL' as const, label: 'Audit Trail', icon: ShieldCheck, badge: allCertifications.length },
+            { id: 'DEPARTMENTAL_CENSUS' as const, label: 'Census', icon: Building },
+            { id: 'DEPARTED_MEMBERS' as const, label: 'Departed', icon: UserX },
+            { id: 'STUDENT_TRANSFERS' as const, label: 'Transfers', icon: ArrowRightLeft, badge: allTransfers.filter(t => t.status === 'PENDING').length },
+          ].map(item => {
+            const isActive = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setActiveTab(item.id)}
+                className={`relative flex flex-col items-center gap-1 py-1 px-3 rounded-2xl transition cursor-pointer ${
+                  isActive
+                    ? 'bg-purple-100 text-[#320b86] font-black'
+                    : 'text-slate-500 font-medium'
+                }`}
+              >
+                <item.icon className="w-4 h-4" />
+                <span className="text-[10px] whitespace-nowrap">{item.label}</span>
+                {item.badge !== undefined && item.badge > 0 && (
+                  <span className="absolute -top-1 right-1 px-1.5 py-0.2 rounded-full text-[9px] font-black bg-amber-400 text-slate-950 shadow-xs">
+                    {item.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
     </div>
   );
 };

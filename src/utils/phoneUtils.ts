@@ -92,3 +92,34 @@ export function findDuplicateMemberByPhone(
 
   return null;
 }
+
+/**
+ * Extracts pure international digits for WhatsApp links.
+ * Normalizes Nigerian mobile numbers to 234XXXXXXXXXX format.
+ * Strips '+' and any non-digits.
+ * e.g. '07035620537' -> '2347035620537'
+ * e.g. '+234 703 562 0537' -> '2347035620537'
+ */
+export function getWhatsAppPhoneDigits(phone?: string | null): string {
+  if (!phone) return '';
+  const normalized = normalizePhoneNumber(phone);
+  const digits = normalized.replace(/\D/g, '');
+  // Valid Nigerian phone digits should be at least 10 digits
+  return digits.length >= 10 ? digits : '';
+}
+
+/**
+ * Builds a direct-to-DM WhatsApp URL:
+ * - If phone is valid, returns https://wa.me/<digits>?text=<encoded>
+ * - If phone is empty/invalid, falls back to https://wa.me/?text=<encoded>
+ */
+export function buildWhatsAppDirectLink(phone?: string | null, message?: string): string {
+  const digits = getWhatsAppPhoneDigits(phone);
+  const encodedText = message ? encodeURIComponent(message) : '';
+  if (digits) {
+    return encodedText ? `https://wa.me/${digits}?text=${encodedText}` : `https://wa.me/${digits}`;
+  }
+  return encodedText ? `https://wa.me/?text=${encodedText}` : `https://wa.me/`;
+}
+
+export const normalizeNigerianPhone = normalizePhoneNumber;

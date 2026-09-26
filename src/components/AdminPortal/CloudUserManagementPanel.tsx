@@ -19,7 +19,9 @@ import {
 } from 'lucide-react';
 import { createStaffLogin, listStaffUsers, deleteStaffUser, approveStaffUser, updateStaffLogin } from '../../services/adminUserApi';
 import { getAllClassesDirectory } from '../../db/indexedDB';
-import { ClassProfile } from '../../types';
+import { ClassProfile, SundaySchoolYear } from '../../types';
+import { DEFAULT_DEPARTMENTS } from '../../data/mockQuarterLessons';
+import { normalizeDepartmentName } from '../../utils/calculations';
 
 const ASSIGNABLE_ADMIN_ROLES = [
   { value: 'GENERAL_SUPERINTENDENT', label: 'General Superintendent (Chief Executive)' },
@@ -36,11 +38,13 @@ const isClassAccount = (roleType?: string) => ['TEACHER', 'CLASS_SECRETARY', 'TE
 interface CloudUserManagementPanelProps {
   recoveryOnly?: boolean;
   adminRole?: string;
+  sundaySchoolYear?: SundaySchoolYear;
 }
 
 export const CloudUserManagementPanel: React.FC<CloudUserManagementPanelProps> = ({
   recoveryOnly = false,
-  adminRole
+  adminRole,
+  sundaySchoolYear
 }) => {
   const canCreateClassLogins = adminRole === 'ASST_GENERAL_SECRETARY' || adminRole === 'ASSISTANT_GENERAL_SECRETARY';
   const [activeTab, setActiveTab] = useState<'CREATE_STAFF' | 'CREATE_CLASS_LOGIN' | 'LIST'>('CREATE_STAFF');
@@ -78,6 +82,14 @@ export const CloudUserManagementPanel: React.FC<CloudUserManagementPanelProps> =
   const [editPassword, setEditPassword] = useState('');
   const [isEditing, setIsEditing] = useState(false);
 
+  const approvedDepartments = React.useMemo(() => {
+    const list = Array.isArray(sundaySchoolYear?.departments) && sundaySchoolYear.departments.length > 0
+      ? sundaySchoolYear.departments
+      : DEFAULT_DEPARTMENTS;
+    const normalized = list.map(d => normalizeDepartmentName(d, list));
+    return Array.from(new Set(normalized)).sort();
+  }, [sundaySchoolYear?.departments]);
+
   const loadClasses = async () => {
     setIsLoadingClasses(true);
     try {
@@ -87,8 +99,9 @@ export const CloudUserManagementPanel: React.FC<CloudUserManagementPanelProps> =
         if (!selectedClassId || !cls.some(c => c.id === selectedClassId)) {
           setSelectedClassId(cls[0].id);
         }
-        const departments = Array.from(new Set(cls.map(c => String(c.department || '').trim()).filter(Boolean))).sort();
-        if (!departmentId || !departments.includes(departmentId)) setDepartmentId(departments[0] || '');
+      }
+      if (!departmentId || !approvedDepartments.includes(departmentId)) {
+        setDepartmentId(approvedDepartments[0] || 'Adult');
       }
     } catch (e) {
       console.warn('Could not load classes directory:', e);
@@ -419,14 +432,13 @@ export const CloudUserManagementPanel: React.FC<CloudUserManagementPanelProps> =
                     onChange={(e) => setDepartmentId(e.target.value)}
                     required
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-amber-400 outline-hidden font-medium"
-                    disabled={isSubmitting || availableClasses.length === 0}
+                    disabled={isSubmitting || approvedDepartments.length === 0}
                   >
-                    {Array.from(new Set(availableClasses.map(c => String(c.department || '').trim()).filter(Boolean))).sort().map(department => (
-                      <option key={department} value={department}>{department}</option>
+                    {approvedDepartments.map(department => (
+                      <option key={department} value={department}>{department} Department</option>
                     ))}
                   </select>
-                  {availableClasses.length === 0 && <p className="mt-1 text-xs text-red-700">No department is available. Create its classes first.</p>}
-                  <p className="mt-1 text-xs text-slate-500">This account can only read analytics for classes and records in the selected department.</p>
+                  <p className="mt-1 text-xs text-slate-500">This account can only read analytics for classes and records in the selected department ({approvedDepartments.join(', ')}).</p>
                 </div>
               )}
 

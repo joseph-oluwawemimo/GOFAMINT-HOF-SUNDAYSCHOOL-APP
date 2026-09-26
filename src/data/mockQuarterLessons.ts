@@ -108,7 +108,7 @@ export const GOFAMINT_HOF_12_LESSONS: LessonInfo[] = [
 export const INITIAL_DEFAULT_CLASS = {
   id: 'class_grace_truth',
   className: 'Grace & Truth Adult Bible Class',
-  department: 'Young Adults' as const,
+  department: 'Adult' as const,
   secretaryName: 'Bro. Emmanuel Adebayo',
   secretaryPhone: '+234 803 123 4567',
   teachers: [
@@ -770,7 +770,7 @@ export const ALL_APPROVED_CLASSES_SEED: ClassProfile[] = [
   {
     id: 'class_living_faith_teens',
     className: 'Living Faith Teens Class',
-    department: 'Teenagers' as const,
+    department: 'Youth' as const,
     secretaryName: 'Bro. Daniel Ojo',
     secretaryPhone: '+234 818 990 0112',
     teachers: [
@@ -889,7 +889,6 @@ export const INITIAL_ADMIN_PROFILES: AdminProfile[] = [
 export const DEFAULT_DEPARTMENTS: string[] = [
   'Adult',
   'Youth',
-  'Teenagers',
   'Children'
 ];
 
