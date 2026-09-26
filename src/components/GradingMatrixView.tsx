@@ -150,21 +150,12 @@ const ScoreInput: React.FC<ScoreInputProps> = ({ id, value, max, disabled, onCha
       onChange={(e) => {
         const valStr = e.target.value.replace(/[^0-9]/g, '');
         setDraft(valStr);
-        if (valStr === '') {
-          onChange(0);
-          return;
-        }
-        const num = parseInt(valStr, 10);
-        if (!isNaN(num)) {
-          const clamped = Math.max(0, Math.min(max, num));
-          onChange(clamped);
-        }
       }}
       onBlur={() => {
         if (draft !== null) {
           const num = parseInt(draft, 10);
           const clamped = Math.max(0, Math.min(max, isNaN(num) ? 0 : num));
-          onChange(clamped);
+          if (clamped !== value) onChange(clamped);
           setDraft(null);
         }
       }}

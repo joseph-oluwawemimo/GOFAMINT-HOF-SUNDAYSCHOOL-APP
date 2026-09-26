@@ -734,6 +734,7 @@ export interface SyncState {
   isSyncing: boolean;
   syncQueueCount: number;
   syncStatusText: string;
+  realtimeStatus?: 'CONNECTING' | 'LIVE' | 'RECONNECTING' | 'ERROR' | 'IDLE';
 }
 
 export interface ChatMessage {

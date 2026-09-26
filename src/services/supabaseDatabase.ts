@@ -215,7 +215,7 @@ export async function fetchDocument<T>(collectionName: string, documentId: strin
   const { data, error } = await getSupabaseClient().from(config.table).select('*').eq('id', documentId).maybeSingle();
   if (error) {
     console.error(`Supabase fetchDocument error [${collectionName}/${documentId}]:`, error);
-    return null;
+    throw error;
   }
   return data ? fromRow<T>(collectionName, data) : null;
 }
@@ -284,12 +284,53 @@ export async function fetchCollectionScoped<T>(collectionName: string, filters: 
 // -----------------------------------------------------------------------------
 // REALTIME SUBSCRIPTIONS
 // -----------------------------------------------------------------------------
-// A change notification is followed by a normal RLS-protected query rather than
-// trusting the event payload as the application record. With RLS enabled,
-// Postgres Changes cannot safely authorize delete events, so subscriptions only
-// receive inserts and updates; deletions converge on the existing sync cycle.
+// Insert/update payloads are converted locally for low-latency rendering.
+// Delete notifications never trust their payload; they trigger an immediate
+// RLS-protected authoritative query so removed rows converge safely.
 type RealtimeUnsubscribe = () => void;
 let realtimeSequence = 0;
+export type RealtimeHealthStatus = 'CONNECTING' | 'LIVE' | 'RECONNECTING' | 'ERROR' | 'IDLE';
+const realtimeChannelStatuses = new Map<string, string>();
+let currentRealtimeHealthStatus: RealtimeHealthStatus = 'IDLE';
+
+export function getRealtimeHealthStatus(): RealtimeHealthStatus {
+  return currentRealtimeHealthStatus;
+}
+
+function emitRealtimeHealth(collectionName: string, channelKey: string, status: string, error?: string) {
+  if (status === 'REMOVED') realtimeChannelStatuses.delete(channelKey);
+  else realtimeChannelStatuses.set(channelKey, status);
+
+  const statuses = Array.from(realtimeChannelStatuses.values());
+  const overall: RealtimeHealthStatus = statuses.length === 0
+    ? 'IDLE'
+    : statuses.some(item => item === 'CHANNEL_ERROR' || item === 'TIMED_OUT')
+      ? 'ERROR'
+      : statuses.every(item => item === 'SUBSCRIBED')
+        ? 'LIVE'
+        : statuses.some(item => item === 'CLOSED')
+          ? 'RECONNECTING'
+          : 'CONNECTING';
+
+  if (overall !== currentRealtimeHealthStatus) {
+    currentRealtimeHealthStatus = overall;
+    console.info(`[RealtimeHealth] ${overall} (${statuses.length} active channel${statuses.length === 1 ? '' : 's'})`);
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('gofamint:realtime-status', {
+      detail: { overall, collectionName, status, error, activeChannels: statuses.length, changedAt: Date.now() },
+    }));
+  }
+}
+
+function requestDeleteReconciliation(collectionName: string) {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('gofamint:realtime-delete', {
+      detail: { collectionName, changedAt: Date.now() },
+    }));
+  }
+}
 
 function realtimeChannelName(collectionName: string, scope: string): string {
   realtimeSequence += 1;
@@ -337,18 +378,32 @@ export function subscribeToCollection<T>(
       const items = Array.from(pendingRows.values()).map(rowValue => fromRow<T>(collectionName, rowValue));
       pendingRows.clear();
       if (items.length > 0) onUpdate(items);
-    }, 400);
+    }, 80);
+  };
+
+  const scheduleAuthoritativeRefresh = () => {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      if (active) {
+        void refresh();
+        requestDeleteReconciliation(collectionName);
+      }
+    }, 80);
   };
 
   if (!skipInitialFetch) {
     void refresh();
   }
 
+  const channelKey = realtimeChannelName(collectionName, 'all');
+  emitRealtimeHealth(collectionName, channelKey, 'CONNECTING');
   const channel = client
-    .channel(realtimeChannelName(collectionName, 'all'))
+    .channel(channelKey)
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: config.table }, debouncedRefresh)
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: config.table }, debouncedRefresh)
+    .on('postgres_changes', { event: 'DELETE', schema: 'public', table: config.table }, scheduleAuthoritativeRefresh)
     .subscribe((status) => {
+      emitRealtimeHealth(collectionName, channelKey, status);
       if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
         reportRealtimeError(collectionName, new Error(`Realtime channel status: ${status}`), onError);
       }
@@ -357,6 +412,7 @@ export function subscribeToCollection<T>(
   return () => {
     active = false;
     if (debounceTimer) clearTimeout(debounceTimer);
+    emitRealtimeHealth(collectionName, channelKey, 'REMOVED');
     void client.removeChannel(channel);
   };
 }
@@ -398,15 +454,27 @@ export function subscribeToCollectionScoped<T>(
       const items = Array.from(pendingRows.values()).map(rowValue => fromRow<T>(collectionName, rowValue));
       pendingRows.clear();
       if (items.length > 0) onUpdate(items);
-    }, 400);
+    }, 80);
+  };
+
+  const scheduleAuthoritativeRefresh = () => {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      if (active) {
+        void refresh();
+        requestDeleteReconciliation(collectionName);
+      }
+    }, 80);
   };
 
   if (!skipInitialFetch) {
     void refresh();
   }
 
+  const channelKey = realtimeChannelName(collectionName, `${column}:${String(realtimeFilter.value)}`);
+  emitRealtimeHealth(collectionName, channelKey, 'CONNECTING');
   const channel = client
-    .channel(realtimeChannelName(collectionName, `${column}:${String(realtimeFilter.value)}`))
+    .channel(channelKey)
     .on(
       'postgres_changes',
       { event: 'INSERT', schema: 'public', table: config.table, filter: `${column}=eq.${realtimeFilter.value}` },
@@ -417,7 +485,9 @@ export function subscribeToCollectionScoped<T>(
       { event: 'UPDATE', schema: 'public', table: config.table, filter: `${column}=eq.${realtimeFilter.value}` },
       debouncedRefresh
     )
+    .on('postgres_changes', { event: 'DELETE', schema: 'public', table: config.table }, scheduleAuthoritativeRefresh)
     .subscribe((status) => {
+      emitRealtimeHealth(collectionName, channelKey, status);
       if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
         reportRealtimeError(collectionName, new Error(`Realtime channel status: ${status}`), onError);
       }
@@ -426,6 +496,7 @@ export function subscribeToCollectionScoped<T>(
   return () => {
     active = false;
     if (debounceTimer) clearTimeout(debounceTimer);
+    emitRealtimeHealth(collectionName, channelKey, 'REMOVED');
     void client.removeChannel(channel);
   };
 }
@@ -450,11 +521,18 @@ export function subscribeToDocument<T>(
   };
 
   void refresh();
+  const channelKey = realtimeChannelName(collectionName, `id:${documentId}`);
+  emitRealtimeHealth(collectionName, channelKey, 'CONNECTING');
   const channel = client
-    .channel(realtimeChannelName(collectionName, `id:${documentId}`))
+    .channel(channelKey)
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: config.table, filter: `id=eq.${documentId}` }, () => void refresh())
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: config.table, filter: `id=eq.${documentId}` }, () => void refresh())
+    .on('postgres_changes', { event: 'DELETE', schema: 'public', table: config.table }, () => {
+      void refresh();
+      requestDeleteReconciliation(collectionName);
+    })
     .subscribe((status) => {
+      emitRealtimeHealth(collectionName, channelKey, status);
       if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
         reportRealtimeError(collectionName, new Error(`Realtime channel status: ${status}`), onError);
       }
@@ -462,6 +540,7 @@ export function subscribeToDocument<T>(
 
   return () => {
     active = false;
+    emitRealtimeHealth(collectionName, channelKey, 'REMOVED');
     void client.removeChannel(channel);
   };
 }
@@ -515,12 +594,8 @@ export const cloudSaveWorkerPrepAttendance = (item: WorkerPrepAttendanceRecord) 
 export const cloudSaveBulkWorkerPrepAttendance = (items: WorkerPrepAttendanceRecord[]) => saveBatchDocuments('workerPrepAttendance', items);
 export const cloudDeleteWorkerPrepAttendance = (id: string) => removeDocument('workerPrepAttendance', id);
 export async function cloudGetAllAdminProfiles(): Promise<AdminProfile[]> {
-  const { data, error } = await getSupabaseClient().from('admin_profiles').select('*');
-  if (error) {
-    console.error('Supabase admin_profiles read failed:', error);
-    throw error;
-  }
-  return (data || []).map(row => ({
+  const rows = await fetchRowsPaginated('adminProfiles');
+  return rows.map(row => ({
     id: row.id,
     roleType: row.role_type,
     title: row.title,

@@ -1,5 +1,21 @@
 @import "tailwindcss";
 
+html,
+body,
+#root {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+.jobie-admin-canvas,
+.workers-directorate-shell,
+main,
+header {
+  min-width: 0;
+  max-width: 100%;
+}
+
 /* Ensure form controls on light backgrounds default to high-contrast deep blue typing text (#0f2b59) */
 input:not([class*="text-white"]):not([class*="text-amber-"]):not([class*="text-emerald-"]):not([class*="text-red-"]),
 textarea:not([class*="text-white"]):not([class*="text-amber-"]):not([class*="text-emerald-"]):not([class*="text-red-"]),

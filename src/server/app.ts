@@ -5,6 +5,7 @@ import { GoogleGenAI } from '@google/genai';
 import { GOFAMINT_ROLES, getBearerToken, getSupabaseAdmin, provisionSupabaseUserProfile, type GofamintRole } from './supabaseAdmin.js';
 import { hasInitializedSystem } from '../utils/systemInitialization.js';
 import { normalizeClassLoginIdentifier } from '../utils/loginIdentifier.js';
+import { collectAllPages } from '../utils/paginatedRead.js';
 
 const EXEC: GofamintRole[] = ['SUPER_ADMIN', 'GENERAL_SUPERINTENDENT', 'GENERAL_SECRETARY'];
 const APPROVERS: GofamintRole[] = ['SUPER_ADMIN', 'GENERAL_SUPERINTENDENT', 'GENERAL_SECRETARY'];
@@ -16,6 +17,33 @@ const WORKER_MANAGERS = new Set<GofamintRole>([...EXEC, 'ASST_GENERAL_SECRETARY'
 const WORKER_EVENT_READERS = new Set<GofamintRole>([...WORKER_MANAGERS, 'RECORD_OFFICER', 'WORKER']);
 const WORKER_DIRECTORY_READERS = new Set<GofamintRole>([...ADMIN_PROFILES, 'WORKER', ...CLASS_PORTAL_ROLES]);
 type Caller = { id: string; email: string | null; role: GofamintRole; classId: string | null; departmentId: string | null };
+type ServerReadFilter = { column: string; value: unknown };
+
+async function readAllServerRows(
+  db: any,
+  table: string,
+  options: { filters?: ServerReadFilter[]; orderColumn?: string; ascending?: boolean } = {}
+): Promise<any[]> {
+  const pageSize = 500;
+  const orderColumn = options.orderColumn || 'id';
+  return collectAllPages<any>(
+    async (from, to, pageIndex) => {
+      let query = db
+        .from(table)
+        .select('*', pageIndex === 0 ? { count: 'exact' } : {})
+        .order(orderColumn, { ascending: options.ascending !== false });
+      if (orderColumn !== 'id') query = query.order('id', { ascending: true });
+      for (const filter of options.filters || []) query = query.eq(filter.column, filter.value);
+      const { data, error, count } = await query.range(from, to);
+      if (error) {
+        console.error(`[Server] Paginated read failed for ${table}, page ${pageIndex + 1}:`, error);
+        throw error;
+      }
+      return { rows: data || [], totalCount: pageIndex === 0 ? count : undefined };
+    },
+    { pageSize, getId: row => row?.id ? String(row.id) : undefined, label: `server ${table}` }
+  );
+}
 
 function limitedText(value: unknown, maxLength: number): string {
   return typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
@@ -146,10 +174,14 @@ export function createApp() {
       if (!token) return res.status(400).json({ error: 'Token is required.' });
 
       const db = getSupabaseAdmin();
-      const { data: rows, error } = await db.from('members').select('*');
+      const { data: rows, error } = await db
+        .from('members')
+        .select('*')
+        .eq('data->oneTimeProfileToken->>token', token)
+        .limit(1);
       if (error) throw error;
 
-      const member = (rows || []).find((r: any) => r.data?.oneTimeProfileToken?.token === token);
+      const member = rows?.[0];
       if (!member) {
         return res.status(404).json({ error: 'Invalid or expired visitor link.' });
       }
@@ -189,10 +221,14 @@ export function createApp() {
       if (!token) return res.status(400).json({ error: 'Token is required.' });
 
       const db = getSupabaseAdmin();
-      const { data: rows, error } = await db.from('members').select('*');
+      const { data: rows, error } = await db
+        .from('members')
+        .select('*')
+        .eq('data->oneTimeProfileToken->>token', token)
+        .limit(1);
       if (error) throw error;
 
-      const member = (rows || []).find((r: any) => r.data?.oneTimeProfileToken?.token === token);
+      const member = rows?.[0];
       if (!member) {
         return res.status(404).json({ error: 'Invalid or expired visitor link.' });
       }
@@ -820,15 +856,15 @@ export function createApp() {
       const classId = limitedText(req.params.id, 120);
       if (!classId) return r.status(400).json({ error: 'Class ID is required.' });
 
-      const [membersRes, gradesRes, offeringsRes, logsRes, commentsRes] = await Promise.all([
-        db.from('members').select('*').eq('class_id', classId),
-        db.from('grades').select('*').eq('class_id', classId),
-        db.from('offerings').select('*').eq('class_id', classId),
-        db.from('absence_logs').select('*').eq('class_id', classId),
-        db.from('admin_comments').select('*').eq('class_id', classId),
+      const [memberRows, gradeRows, offeringRows, logRows, commentRows] = await Promise.all([
+        readAllServerRows(db, 'members', { filters: [{ column: 'class_id', value: classId }] }),
+        readAllServerRows(db, 'grades', { filters: [{ column: 'class_id', value: classId }] }),
+        readAllServerRows(db, 'offerings', { filters: [{ column: 'class_id', value: classId }] }),
+        readAllServerRows(db, 'absence_logs', { filters: [{ column: 'class_id', value: classId }] }),
+        readAllServerRows(db, 'admin_comments', { filters: [{ column: 'class_id', value: classId }] }),
       ]);
 
-      const members = (membersRes.data || []).map(row => ({
+      const members = memberRows.map(row => ({
         id: row.id,
         classId: row.class_id,
         fullName: row.full_name,
@@ -839,7 +875,7 @@ export function createApp() {
         ...(row.data || {})
       }));
 
-      const grades = (gradesRes.data || []).map(row => ({
+      const grades = gradeRows.map(row => ({
         id: row.id,
         classId: row.class_id,
         weekNumber: row.week_number,
@@ -849,7 +885,7 @@ export function createApp() {
         ...(row.data || {})
       }));
 
-      const offerings = (offeringsRes.data || []).map(row => ({
+      const offerings = offeringRows.map(row => ({
         id: row.id,
         classId: row.class_id,
         weekNumber: row.week_number,
@@ -857,14 +893,14 @@ export function createApp() {
         ...(row.data || {})
       }));
 
-      const absenceLogs = (logsRes.data || []).map(row => ({
+      const absenceLogs = logRows.map(row => ({
         id: row.id,
         classId: row.class_id,
         memberId: row.member_id,
         ...(row.data || {})
       }));
 
-      const adminComments = (commentsRes.data || []).map(row => ({
+      const adminComments = commentRows.map(row => ({
         id: row.id,
         classId: row.class_id,
         ...(row.data || {})
@@ -1082,16 +1118,15 @@ export function createApp() {
     try {
       const c = await caller(req, r);
       if (!c) return;
-      let query = db.from('classes').select('*').order('id');
+      const filters: ServerReadFilter[] = [];
       if (CLASS_PORTAL_ROLES.includes(c.role)) {
         if (!c.classId) return r.json({ success: true, classes: [] });
-        query = query.eq('id', c.classId);
+        filters.push({ column: 'id', value: c.classId });
       } else if (c.role === 'DEPARTMENT_SUPERINTENDENT') {
         if (!c.departmentId) return r.json({ success: true, classes: [] });
-        query = query.eq('department_id', c.departmentId);
+        filters.push({ column: 'department_id', value: c.departmentId });
       }
-      const { data, error } = await query;
-      if (error) throw error;
+      const data = await readAllServerRows(db, 'classes', { filters });
       const classes = (data || []).map((row: any) => ({
         ...(row.data && typeof row.data === 'object' ? row.data : {}),
         id: row.id,
@@ -1387,9 +1422,9 @@ export function createApp() {
       const memberData = memberRow.data || {};
 
       // Fetch student's grades (READ ONLY, for this memberId ONLY)
-      const { data: gradesData } = await db.from('grades')
-        .select('*')
-        .eq('member_id', memberRow.id);
+      const gradesData = await readAllServerRows(db, 'grades', {
+        filters: [{ column: 'member_id', value: memberRow.id }],
+      });
 
       const grades = (gradesData || []).map((g: any) => g.data || g);
 
@@ -1437,8 +1472,7 @@ export function createApp() {
     try {
       const c = await caller(req, r, Array.from(WORKER_DIRECTORY_READERS));
       if (!c) return;
-      const { data, error } = await db.from('workers').select('*').order('created_at');
-      if (error) throw error;
+      const data = await readAllServerRows(db, 'workers', { orderColumn: 'created_at' });
       const workers = (data || []).map((row: any) => ({
         ...(row.data && typeof row.data === 'object' ? row.data : {}),
         id: row.id,
@@ -1460,21 +1494,19 @@ export function createApp() {
     try {
       const c = await caller(req, r, Array.from(WORKER_EVENT_READERS));
       if (!c) return;
-      const [evtsRes, attRes] = await Promise.all([
-        db.from('special_events').select('*').order('created_at', { ascending: false }),
-        db.from('special_event_attendance').select('*').order('created_at', { ascending: false })
+      const [eventRows, attendanceRows] = await Promise.all([
+        readAllServerRows(db, 'special_events', { orderColumn: 'created_at', ascending: false }),
+        readAllServerRows(db, 'special_event_attendance', { orderColumn: 'created_at', ascending: false })
       ]);
-      if (evtsRes.error) throw evtsRes.error;
-      if (attRes.error) throw attRes.error;
 
-      const events = (evtsRes.data || []).map((row: any) => ({
+      const events = eventRows.map((row: any) => ({
         ...(row.data && typeof row.data === 'object' ? row.data : {}),
         id: row.id,
         createdAt: row.created_at || row.data?.createdAt,
         updatedAt: row.updated_at || row.data?.updatedAt
       }));
 
-      const attendance = (attRes.data || []).map((row: any) => ({
+      const attendance = attendanceRows.map((row: any) => ({
         ...(row.data && typeof row.data === 'object' ? row.data : {}),
         id: row.id,
         eventId: row.event_id || row.data?.eventId,
@@ -1582,8 +1614,7 @@ export function createApp() {
     try {
       const c = await caller(req, r, Array.from(WORKER_EVENT_READERS));
       if (!c) return;
-      const { data, error } = await db.from('worker_prep_attendance').select('*').order('updated_at', { ascending: false });
-      if (error) throw error;
+      const data = await readAllServerRows(db, 'worker_prep_attendance', { orderColumn: 'updated_at', ascending: false });
 
       const records = (data || []).map((row: any) => ({
         ...(row.data && typeof row.data === 'object' ? row.data : {}),

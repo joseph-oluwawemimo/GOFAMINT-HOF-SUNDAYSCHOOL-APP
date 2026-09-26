@@ -164,8 +164,15 @@ class BackgroundStateManager {
         scrollPosition: scrollPos,
         lastActiveTimestamp: Date.now()
       });
-    } catch {
-      // Ignore background snapshot error
+    } catch (error) {
+      console.error('[BackgroundStateManager] Could not capture the background app state:', error);
+      window.dispatchEvent(new CustomEvent('gofamint:persistence-error', {
+        detail: {
+          operation: 'background-snapshot',
+          key: APP_STATE_KEY,
+          message: error instanceof Error ? error.message : String(error),
+        },
+      }));
     }
   }
 }

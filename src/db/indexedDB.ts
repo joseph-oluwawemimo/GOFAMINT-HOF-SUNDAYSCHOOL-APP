@@ -1980,7 +1980,8 @@ export async function getAllWorkers(forceCloudRefresh = false): Promise<WorkerPr
         await replaceStoreContents('workers', res.workers);
         list = await getAllFromStore<WorkerProfile>('workers');
       } catch (err) {
-        console.warn('Could not fetch workers from server API, falling back to local store:', err);
+        console.error('Could not complete the forced Workers directory refresh:', err);
+        if (forceCloudRefresh) throw err;
         list = await getAllFromStore<WorkerProfile>('workers');
       }
     }
@@ -2007,9 +2008,9 @@ export async function getAllWorkers(forceCloudRefresh = false): Promise<WorkerPr
 
     return list;
   } catch (e) {
-    console.warn('Error reading workers store:', e);
+    console.error('Error reading workers store:', e);
     if (forceCloudRefresh) throw e;
-    return [];
+    throw e;
   }
 }
 
@@ -2060,27 +2061,16 @@ export async function getAllWorkerAttendance(serviceDate?: string, forceCloudRef
     }
     return list || [];
   } catch (e) {
-    console.warn('Error reading worker attendance:', e);
+    console.error('Error reading worker attendance:', e);
     if (forceCloudRefresh) throw e;
-    return [];
+    throw e;
   }
 }
 
 export async function saveWorkerAttendance(record: WorkerAttendanceRecord): Promise<WorkerAttendanceRecord> {
-  // 1. Local write first — always succeeds regardless of network state.
-  const res = await putInStore<WorkerAttendanceRecord>('workerAttendance', record);
-  notifyLocalStoreChange('workerAttendance');
-
-  // 2. Immediate durable cloud push — serialised per record, with outbox retry on failure.
-  //    Uses the same pushToCloud pattern as every other write path in this file.
-  const { cloudSaveWorkerAttendance } = await import('../services/supabaseDatabase');
-  void pushToCloud(
-    `Save worker attendance ${record.id}`,
-    () => cloudSaveWorkerAttendance(record),
-    { collectionName: 'workerAttendance', action: 'save', docId: record.id, data: record }
-  );
-
-  return res;
+  // putInStore already commits locally, emits one store-scoped notification,
+  // and creates the durable cloud operation. Do not enqueue the same write twice.
+  return putInStore<WorkerAttendanceRecord>('workerAttendance', record);
 }
 
 export async function saveBulkWorkerAttendance(records: WorkerAttendanceRecord[]): Promise<WorkerAttendanceRecord[]> {
@@ -2088,18 +2078,6 @@ export async function saveBulkWorkerAttendance(records: WorkerAttendanceRecord[]
     // Local write first for every record.
     await putInStore<WorkerAttendanceRecord>('workerAttendance', r);
   }
-  notifyLocalStoreChange('workerAttendance');
-
-  // Push each record to Supabase durably.
-  const { cloudSaveWorkerAttendance } = await import('../services/supabaseDatabase');
-  for (const r of records) {
-    void pushToCloud(
-      `Save worker attendance ${r.id}`,
-      () => cloudSaveWorkerAttendance(r),
-      { collectionName: 'workerAttendance', action: 'save', docId: r.id, data: r }
-    );
-  }
-
   return records;
 }
 
@@ -2146,9 +2124,9 @@ export async function getAllWorkerPrepAttendance(prepDate?: string, forceCloudRe
     }
     return list || [];
   } catch (e) {
-    console.warn('Error reading worker prep attendance:', e);
+    console.error('Error reading worker prep attendance:', e);
     if (forceCloudRefresh) throw e;
-    return [];
+    throw e;
   }
 }
 
@@ -2370,8 +2348,8 @@ export async function getAllAdminProfiles(): Promise<AdminProfile[]> {
     const profiles = await getAllFromStore<AdminProfile>('adminProfiles');
     return profiles || [];
   } catch (e) {
-    console.warn('Error reading admin profiles store:', e);
-    return [];
+    console.error('Error reading admin profiles store:', e);
+    throw e;
   }
 }
 
@@ -2674,9 +2652,9 @@ export async function getAllClassesDirectory(forceCloudRefresh = false): Promise
 
     return Array.from(map.values());
   } catch (e) {
-    console.warn('Error reading allClasses store:', e);
+    console.error('Error reading allClasses store:', e);
     if (forceCloudRefresh) throw e;
-    return [];
+    throw e;
   }
 }
 
@@ -4519,4 +4497,3 @@ export async function archiveDepartmentInYear(departmentName: string): Promise<S
   await saveSundaySchoolYear(updatedYear);
   return updatedYear;
 }
-

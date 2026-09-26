@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useMemo, useRef } from 'react';
 import {
   ActiveTab,
   ClassProfile,
@@ -58,22 +58,20 @@ import type { SyncScope } from './services/cloudSyncManager';
 import { Header } from './components/Header';
 import { Navigation } from './components/Navigation';
 import { AuthModal } from './components/AuthModal';
-import { OpeningFlowView } from './components/OpeningFlowView';
-import { GradingMatrixView } from './components/GradingMatrixView';
-import { RosterManagementView } from './components/RosterManagementView';
-import { WelfareFollowUpView } from './components/WelfareFollowUpView';
-import { AbsenceCareView } from './components/AbsenceCareView';
-import { QuarterAnalysisView } from './components/QuarterAnalysisView';
-import { Week12AnalyticsView } from './components/Week12AnalyticsView';
-import { ClassDiscussionView } from './components/ClassDiscussionView';
-import { QRPortalView } from './components/QRPortalView';
-import { VisitorReportCardView } from './components/VisitorReportCardView';
-import { AIAssistantView } from './components/AIAssistantView';
-import { SyncSettingsView } from './components/SyncSettingsView';
-import { AdminPortalRoot } from './components/AdminPortal/AdminPortalRoot';
-import { WorkersModuleView } from './components/WorkersModule/WorkersModuleView';
-import { SibPortalRoot } from './sib/components/SibPortalRoot';
-import { QuarterTransitionModal } from './components/QuarterTransitionModal';
+const OpeningFlowView = lazy(() => import('./components/OpeningFlowView').then(module => ({ default: module.OpeningFlowView })));
+const GradingMatrixView = lazy(() => import('./components/GradingMatrixView').then(module => ({ default: module.GradingMatrixView })));
+const RosterManagementView = lazy(() => import('./components/RosterManagementView').then(module => ({ default: module.RosterManagementView })));
+const WelfareFollowUpView = lazy(() => import('./components/WelfareFollowUpView').then(module => ({ default: module.WelfareFollowUpView })));
+const QuarterAnalysisView = lazy(() => import('./components/QuarterAnalysisView').then(module => ({ default: module.QuarterAnalysisView })));
+const ClassDiscussionView = lazy(() => import('./components/ClassDiscussionView').then(module => ({ default: module.ClassDiscussionView })));
+const QRPortalView = lazy(() => import('./components/QRPortalView').then(module => ({ default: module.QRPortalView })));
+const VisitorReportCardView = lazy(() => import('./components/VisitorReportCardView').then(module => ({ default: module.VisitorReportCardView })));
+const AIAssistantView = lazy(() => import('./components/AIAssistantView').then(module => ({ default: module.AIAssistantView })));
+const SyncSettingsView = lazy(() => import('./components/SyncSettingsView').then(module => ({ default: module.SyncSettingsView })));
+const AdminPortalRoot = lazy(() => import('./components/AdminPortal/AdminPortalRoot').then(module => ({ default: module.AdminPortalRoot })));
+const WorkersModuleView = lazy(() => import('./components/WorkersModule/WorkersModuleView').then(module => ({ default: module.WorkersModuleView })));
+const SibPortalRoot = lazy(() => import('./sib/components/SibPortalRoot').then(module => ({ default: module.SibPortalRoot })));
+const QuarterTransitionModal = lazy(() => import('./components/QuarterTransitionModal').then(module => ({ default: module.QuarterTransitionModal })));
 import { CloudLoginGate } from './components/CloudLoginGate';
 import { LockScreen } from './components/LockScreen';
 import { OversightBanner } from './components/OversightBanner';
@@ -127,6 +125,15 @@ const ADMIN_PORTAL_ROLES = new Set([
 ]);
 const WORKERS_MODULE_ROLES = new Set(['ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY', 'WORKER']);
 const CLASS_PORTAL_ROLES = new Set(['TEACHER', 'CLASS_SECRETARY', 'TEACHER / CLASS_SECRETARY']);
+
+const PortalChunkFallback = ({ label = 'Opening workspace' }: { label?: string }) => (
+  <div role="status" className="min-h-[35vh] grid place-items-center bg-[#f4f7fb] text-slate-600">
+    <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-bold shadow-sm">
+      <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-blue-600" />
+      {label}…
+    </div>
+  </div>
+);
 
 type ProfileResolutionState = 'idle' | 'loading' | 'ready' | 'missing' | 'unapproved' | 'invalid' | 'error';
 
@@ -330,12 +337,26 @@ export default function App() {
   const [isRegisteringNew, setIsRegisteringNew] = useState(false);
   const [isQuarterTransitionOpen, setIsQuarterTransitionOpen] = useState(false);
 
-  const [activeTab, setActiveTab] = usePersistedState<ActiveTab>('gofamint_active_tab', 'GRADING_MATRIX');
-  const [selectedWeek, setSelectedWeek] = usePersistedState<number>('gofamint_selected_week', 1);
-  const [selectedQuarter, setSelectedQuarter] = usePersistedState<QuarterNumber>('gofamint_selected_quarter', 1);
+  const navigationScope = `${currentUserProfile?.id || 'anonymous'}_${currentUserProfile?.classId || 'global'}`;
+  const [activeTab, setActiveTab] = usePersistedState<ActiveTab>(
+    `gofamint_nav_${navigationScope}_active_tab`,
+    'GRADING_MATRIX',
+    { validate: (value): value is ActiveTab => typeof value === 'string', legacyKeys: ['gofamint_active_tab'] }
+  );
+  const [selectedWeek, setSelectedWeek] = usePersistedState<number>(
+    `gofamint_nav_${navigationScope}_selected_week`,
+    1,
+    { validate: (value): value is number => Number.isInteger(value) && Number(value) >= 1 && Number(value) <= 12, legacyKeys: ['gofamint_selected_week'] }
+  );
+  const [selectedQuarter, setSelectedQuarter] = usePersistedState<QuarterNumber>(
+    `gofamint_nav_${navigationScope}_selected_quarter`,
+    1,
+    { validate: (value): value is QuarterNumber => Number.isInteger(value) && Number(value) >= 1 && Number(value) <= 4, legacyKeys: ['gofamint_selected_quarter'] }
+  );
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatusText, setSyncStatusText] = useState('Local DB Ready');
+  const [realtimeStatus, setRealtimeStatus] = useState<'CONNECTING' | 'LIVE' | 'RECONNECTING' | 'ERROR' | 'IDLE'>('IDLE');
 
   // Database Data States
   const [classProfile, setClassProfile] = useState<ClassProfile | null>(null);
@@ -364,6 +385,20 @@ export default function App() {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
+  }, []);
+
+  useEffect(() => {
+    const handleRealtimeStatus = (event: Event) => {
+      const detail = (event as CustomEvent).detail as { overall?: typeof realtimeStatus; error?: string } | undefined;
+      if (!detail?.overall) return;
+      setRealtimeStatus(detail.overall);
+      if (detail.overall === 'ERROR') setSyncStatusText(`Realtime connection issue${detail.error ? `: ${detail.error}` : ''}`);
+      else if (detail.overall === 'RECONNECTING') setSyncStatusText('Realtime connection interrupted — reconnecting…');
+      else if (detail.overall === 'CONNECTING') setSyncStatusText('Connecting to realtime updates…');
+      else if (detail.overall === 'LIVE') setSyncStatusText('Realtime updates live');
+    };
+    window.addEventListener('gofamint:realtime-status', handleRealtimeStatus);
+    return () => window.removeEventListener('gofamint:realtime-status', handleRealtimeStatus);
   }, []);
 
   // Hardware / Browser Back-Button Support (UX Audit Issue 1)
@@ -587,11 +622,19 @@ export default function App() {
     setComments(loadedComments);
     setSundaySchoolYear(loadedYear);
 
-    const savedQ = sessionStorage.getItem('gofamint_selected_quarter');
+    const quarterStateKey = `gofamint_nav_${navigationScope}_selected_quarter`;
+    const weekStateKey = `gofamint_nav_${navigationScope}_selected_week`;
+    const savedQ = sessionStorage.getItem(quarterStateKey)
+      || localStorage.getItem(quarterStateKey)
+      || sessionStorage.getItem('gofamint_selected_quarter')
+      || localStorage.getItem('gofamint_selected_quarter');
     const activeQ = savedQ ? (JSON.parse(savedQ) as QuarterNumber) : (loadedYear?.activeQuarterNumber || profile?.quarter || 1);
     setSelectedQuarter(activeQ);
 
-    const savedWk = sessionStorage.getItem('gofamint_selected_week');
+    const savedWk = sessionStorage.getItem(weekStateKey)
+      || localStorage.getItem(weekStateKey)
+      || sessionStorage.getItem('gofamint_selected_week')
+      || localStorage.getItem('gofamint_selected_week');
     if (!savedWk && loadedYear) {
       const qData = loadedYear.quarters.find(q => q.quarterNumber === activeQ);
       const calWeek = getCurrentCalendarWeek(qData);
@@ -671,6 +714,14 @@ export default function App() {
   const realtimeOversightClassId = realtimeOversightPortal === 'CLASS_REGISTER'
     ? oversightTarget?.classId
     : undefined;
+  const currentSyncScopeKey = [
+    currentUserProfile?.role || 'anon',
+    currentUserProfile?.classId || 'noclass',
+    realtimeOversightPortal || 'no-oversight',
+    realtimeOversightClassId || 'no-oversight-class',
+  ].join(':');
+  const activeSyncScopeKeyRef = useRef(currentSyncScopeKey);
+  activeSyncScopeKeyRef.current = currentSyncScopeKey;
 
   const syncWithCloud = async (silent = true) => {
     if (!cloudUser || profileResolution !== 'ready' || !currentUserProfile?.role) {
@@ -687,7 +738,20 @@ export default function App() {
         targetOversightPortal: realtimeOversightPortal,
         targetOversightClassId: realtimeOversightClassId,
       };
+      const requestedScopeKey = [
+        scope.roleType || 'anon',
+        scope.classId || 'noclass',
+        scope.targetOversightPortal || 'no-oversight',
+        scope.targetOversightClassId || 'no-oversight-class',
+      ].join(':');
       const result = await runFullCloudSyncCycle(scope);
+      if (activeSyncScopeKeyRef.current !== requestedScopeKey) {
+        console.info('[CloudSync] A newer portal scope superseded this completed hydration.', {
+          completed: requestedScopeKey,
+          active: activeSyncScopeKeyRef.current,
+        });
+        return result;
+      }
       await refreshStateFromLocalDB();
       if (scope.targetOversightPortal === 'WORKERS' || ['WORKER', 'ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY'].includes(scope.roleType || '')) {
         window.dispatchEvent(new CustomEvent('gofamint:worker-sync', {
@@ -803,9 +867,11 @@ export default function App() {
       }
     };
     const handleOnlineReconnect = () => void syncWithCloud(true);
+    const handleRealtimeDelete = () => void syncWithCloud(true);
     window.addEventListener('focus', handleReturnToApp);
     document.addEventListener('visibilitychange', handleReturnToApp);
     window.addEventListener('online', handleOnlineReconnect);
+    window.addEventListener('gofamint:realtime-delete', handleRealtimeDelete);
 
     return () => {
       unsubscribeRealtime();
@@ -814,6 +880,7 @@ export default function App() {
       window.removeEventListener('focus', handleReturnToApp);
       document.removeEventListener('visibilitychange', handleReturnToApp);
       window.removeEventListener('online', handleOnlineReconnect);
+      window.removeEventListener('gofamint:realtime-delete', handleRealtimeDelete);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cloudUser, currentUserProfile?.role, currentUserProfile?.classId, realtimeOversightPortal, realtimeOversightClassId, profileResolution]);
@@ -1157,17 +1224,30 @@ export default function App() {
       updatedAt: new Date().toISOString()
     };
 
-    await saveGradeToDB(updatedGrade);
-    await loadClassQuarterData(classProfile.id, selectedQuarter);
-
-    await addToSyncQueue({
-      id: `sync_grade_${grade.id}_${Date.now()}`,
-      action: 'UPDATE',
-      entity: 'GRADE',
-      data: updatedGrade,
-      createdAt: new Date().toISOString()
+    let previous: WeeklyGradeRecord | undefined;
+    setGrades(current => {
+      previous = current.find(item => item.id === updatedGrade.id);
+      return [...current.filter(item => item.id !== updatedGrade.id), updatedGrade];
     });
-    setSyncQueue(await getSyncQueue());
+
+    try {
+      await saveGradeToDB(updatedGrade);
+      await addToSyncQueue({
+        id: `sync_grade_${grade.id}_${Date.now()}`,
+        action: 'UPDATE',
+        entity: 'GRADE',
+        data: updatedGrade,
+        createdAt: new Date().toISOString()
+      });
+      setSyncQueue(await getSyncQueue());
+    } catch (error) {
+      console.error(`Could not save grade ${updatedGrade.id}:`, error);
+      setGrades(current => {
+        const withoutFailed = current.filter(item => item.id !== updatedGrade.id);
+        return previous ? [...withoutFailed, previous] : withoutFailed;
+      });
+      throw error;
+    }
   };
 
   const handleUpdateOffering = async (offering: WeeklyOfferingRecord) => {
@@ -1650,7 +1730,7 @@ export default function App() {
   // If user entered the Workers Directorate Module
   if (showWorkersModule) {
     return (
-      <>
+      <Suspense fallback={<PortalChunkFallback label="Opening Workers Directorate" />}>
         {isProfileLocked && (
           <LockScreen
             userEmail={cloudUser.email || ''}
@@ -1693,14 +1773,14 @@ export default function App() {
             setIsProfileLocked(true);
           }}
         />
-      </>
+      </Suspense>
     );
   }
 
   // If user entered the Admin Portal
   if (showAdminPortal) {
     return (
-      <>
+      <Suspense fallback={<PortalChunkFallback label="Opening Directorate" />}>
         {isProfileLocked && (
           <LockScreen
             userEmail={cloudUser.email || ''}
@@ -1741,14 +1821,14 @@ export default function App() {
           }}
           onEnterOversight={handleEnterOversight}
         />
-      </>
+      </Suspense>
     );
   }
 
   // If user entered SIB (School Intelligence Board - Fourth Portal)
   if (showSibPortal) {
     return (
-      <>
+      <Suspense fallback={<PortalChunkFallback label="Opening Intelligence Board" />}>
         {isProfileLocked && (
           <LockScreen
             userEmail={cloudUser.email || ''}
@@ -1787,7 +1867,7 @@ export default function App() {
             }
           }}
         />
-      </>
+      </Suspense>
     );
   }
 
@@ -1808,7 +1888,8 @@ export default function App() {
             onExitOversight={handleExitOversight}
           />
         )}
-        <OpeningFlowView
+        <Suspense fallback={<PortalChunkFallback label="Opening portal selector" />}>
+          <OpeningFlowView
           classProfile={classProfile}
           members={members}
           isUnlocked={isUnlocked}
@@ -1836,7 +1917,8 @@ export default function App() {
           onDatabaseRestored={loadAppData}
           currentUserProfile={currentUserProfile}
           cloudUser={cloudUser}
-        />
+          />
+        </Suspense>
 
         <AuthModal
           isOpen={isAuthModalOpen}
@@ -1879,7 +1961,8 @@ export default function App() {
           isOnline,
           isSyncing,
           syncQueueCount: syncQueue.length,
-          syncStatusText
+          syncStatusText,
+          realtimeStatus,
         }}
         quarters={sundaySchoolYear?.quarters}
         onSyncClick={handlePushSync}
@@ -1919,6 +2002,7 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-[1440px] w-full mx-auto px-3 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
+        <Suspense fallback={<PortalChunkFallback label="Opening section" />}>
         {activeTab === 'GRADING_MATRIX' && (
           <GradingMatrixView
             selectedWeek={selectedWeek}
@@ -2100,6 +2184,7 @@ export default function App() {
             onDatabaseRestored={loadAppData}
           />
         )}
+        </Suspense>
       </main>
 
       {/* Geometric Balance Telemetry Footer */}
@@ -2127,20 +2212,22 @@ export default function App() {
 
       {/* Intelligent Quarter Transition & Initialization Modal */}
       {isQuarterTransitionOpen && (
-        <QuarterTransitionModal
-          isOpen={isQuarterTransitionOpen}
-          onClose={() => setIsQuarterTransitionOpen(false)}
-          classProfile={classProfile}
-          fromQuarter={(selectedQuarter > 1 ? (selectedQuarter - 1) : 1) as QuarterNumber}
-          toQuarter={selectedQuarter}
-          onTransitionComplete={async () => {
-            setIsQuarterTransitionOpen(false);
-            if (classProfile) {
-              await loadClassQuarterData(classProfile.id, selectedQuarter);
-            }
-          }}
-          sundaySchoolYear={sundaySchoolYear}
-        />
+        <Suspense fallback={null}>
+          <QuarterTransitionModal
+            isOpen={isQuarterTransitionOpen}
+            onClose={() => setIsQuarterTransitionOpen(false)}
+            classProfile={classProfile}
+            fromQuarter={(selectedQuarter > 1 ? (selectedQuarter - 1) : 1) as QuarterNumber}
+            toQuarter={selectedQuarter}
+            onTransitionComplete={async () => {
+              setIsQuarterTransitionOpen(false);
+              if (classProfile) {
+                await loadClassQuarterData(classProfile.id, selectedQuarter);
+              }
+            }}
+            sundaySchoolYear={sundaySchoolYear}
+          />
+        </Suspense>
       )}
     </div>
   );

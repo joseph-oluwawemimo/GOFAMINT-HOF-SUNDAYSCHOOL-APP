@@ -1309,6 +1309,7 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
               <button
                 type="button"
                 onClick={() => setIsMobileMenuOpen(false)}
+                aria-label="Close Directorate navigation"
                 className="p-1.5 rounded-lg text-purple-200 hover:text-white hover:bg-white/10 cursor-pointer"
               >
                 <X className="w-5 h-5" />
@@ -1462,6 +1463,7 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
               <button
                 type="button"
                 onClick={() => setIsMobileMoreOpen(false)}
+                aria-label="Close additional executive controls"
                 className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
               >
                 <X className="w-5 h-5" />

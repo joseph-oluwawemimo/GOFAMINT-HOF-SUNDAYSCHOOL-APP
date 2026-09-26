@@ -163,8 +163,10 @@ export const Header: React.FC<HeaderProps> = ({
                   ? 'border-amber-500/70 bg-amber-950/80 text-amber-300'
                   : syncState.isSyncing
                     ? 'border-blue-400 bg-blue-900 text-white'
-                    : syncState.syncQueueCount > 0
+                    : syncState.syncQueueCount > 0 || syncState.realtimeStatus === 'ERROR'
                       ? 'border-amber-400/60 bg-amber-900/60 text-amber-200'
+                      : syncState.realtimeStatus === 'CONNECTING' || syncState.realtimeStatus === 'RECONNECTING'
+                        ? 'border-blue-400 bg-blue-900 text-white'
                       : 'border-emerald-500/50 bg-emerald-950/70 text-emerald-300'
               }`}
               title={syncState.syncStatusText}
@@ -176,8 +178,12 @@ export const Header: React.FC<HeaderProps> = ({
                 <><RefreshCw className="h-3.5 w-3.5 animate-spin" /><span>Syncing</span></>
               ) : syncState.syncQueueCount > 0 ? (
                 <><RefreshCw className="h-3.5 w-3.5" /><span>{syncState.syncQueueCount} pending</span></>
+              ) : syncState.realtimeStatus === 'ERROR' ? (
+                <><WifiOff className="h-3.5 w-3.5" /><span>Sync issue</span></>
+              ) : syncState.realtimeStatus === 'CONNECTING' || syncState.realtimeStatus === 'RECONNECTING' ? (
+                <><RefreshCw className="h-3.5 w-3.5 animate-spin" /><span>Connecting</span></>
               ) : (
-                <><Wifi className="h-3.5 w-3.5" /><span>Synced</span></>
+                <><Wifi className="h-3.5 w-3.5" /><span>{syncState.realtimeStatus === 'LIVE' ? 'Live' : 'Ready'}</span></>
               )}
             </button>
 

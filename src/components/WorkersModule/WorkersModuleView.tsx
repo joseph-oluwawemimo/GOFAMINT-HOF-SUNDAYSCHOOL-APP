@@ -61,6 +61,9 @@ import {
   Trophy, Calendar, ChevronRight, ShieldCheck, Home, ClipboardList
 } from 'lucide-react';
 import { GofamintLogo } from '../GofamintLogo';
+import { usePersistedState } from '../../hooks/usePersistedState';
+import { useScrollRestoration } from '../../hooks/useScrollRestoration';
+import { getRealtimeHealthStatus, RealtimeHealthStatus } from '../../services/supabaseDatabase';
 
 export type WorkersModuleTab = 
   | 'INSPECTION'
@@ -106,25 +109,22 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
   const isPersonalWorker = currentUserRole === 'WORKER' && !isOversight;
   
   // Persist and restore activeTab on page refresh (Complaint 8)
-  const [activeTab, setActiveTabState] = useState<WorkersModuleTab>(() => {
-    if (currentUserRole === 'WORKER' && !isOversight) return 'MY_ATTENDANCE';
-    const saved = sessionStorage.getItem('gofamint_workers_active_tab') || localStorage.getItem('gofamint_workers_active_tab');
-    if (saved && ['DIRECTORY', 'SUNDAY_CLOCK_IN', 'PREP_ATTENDANCE', 'SPECIAL_EVENTS', 'ADMONITION_HONORS', 'MY_ATTENDANCE', 'DASHBOARD', 'INSPECTION'].includes(saved)) {
-      return saved as WorkersModuleTab;
+  const workersStateScope = currentWorkerId || currentUserRole || 'directorate';
+  const [activeTab, setActiveTabState] = usePersistedState<WorkersModuleTab>(
+    `gofamint_workers_${workersStateScope}_active_tab`,
+    isPersonalWorker ? 'MY_ATTENDANCE' : 'DASHBOARD',
+    {
+      validate: (value): value is WorkersModuleTab => typeof value === 'string' && ['DIRECTORY', 'SUNDAY_CLOCK_IN', 'PREP_ATTENDANCE', 'SPECIAL_EVENTS', 'ADMONITION_HONORS', 'MY_ATTENDANCE', 'DASHBOARD', 'INSPECTION'].includes(value),
+      legacyKeys: ['gofamint_workers_active_tab'],
     }
-    return 'DASHBOARD';
-  });
+  );
 
   const setActiveTab = (tab: WorkersModuleTab) => {
     if (isPersonalWorker && tab !== 'MY_ATTENDANCE') return;
     setActiveTabState(tab);
-    sessionStorage.setItem('gofamint_workers_active_tab', tab);
-    localStorage.setItem('gofamint_workers_active_tab', tab);
   };
 
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, [activeTab]);
+  useScrollRestoration(`workers_${workersStateScope}_${activeTab}`);
   
   const [adminProfiles, setAdminProfiles] = useState<AdminProfile[]>([]);
 
@@ -172,8 +172,9 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
   const [selectedAdmonitionQuarter, setSelectedAdmonitionQuarter] = useState<QuarterNumber>(1);
   const [specialEvents, setSpecialEvents] = useState<SpecialWorkersEvent[]>([]);
   const [specialAttendance, setSpecialAttendance] = useState<SpecialEventAttendanceRecord[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [realtimeHealth, setRealtimeHealth] = useState<RealtimeHealthStatus>(() => navigator.onLine ? getRealtimeHealthStatus() : 'ERROR');
   const refreshInFlightRef = useRef<Promise<void> | null>(null);
 
   // Modal states
@@ -220,26 +221,8 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
 
       setWorkers(loadedWorkers);
       setCategories(loadedCats);
-      setSundayAttendance(prev => {
-        const map = new Map<string, WorkerAttendanceRecord>();
-        loadedSundayAtt.forEach(r => map.set(r.id, r));
-        prev.forEach(r => {
-          if (!map.has(r.id)) {
-            map.set(r.id, r);
-          }
-        });
-        return Array.from(map.values());
-      });
-      setPrepAttendance(prev => {
-        const map = new Map<string, WorkerPrepAttendanceRecord>();
-        loadedPrepAtt.forEach(r => map.set(r.id, r));
-        prev.forEach(r => {
-          if (!map.has(r.id)) {
-            map.set(r.id, r);
-          }
-        });
-        return Array.from(map.values());
-      });
+      setSundayAttendance(loadedSundayAtt);
+      setPrepAttendance(loadedPrepAtt);
       setConfig(loadedConfig);
       setAdminDepartments(loadedDepts);
       setAdminProfiles(loadedProfiles);
@@ -264,6 +247,24 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
     return refreshTask;
   }, []);
 
+  const refreshWorkerStores = useCallback(async (stores: string[]): Promise<void> => {
+    if (stores.length === 0) {
+      await refreshAllData(false);
+      return;
+    }
+
+    const changed = new Set(stores);
+    const tasks: Promise<unknown>[] = [];
+    if (changed.has('workers')) tasks.push(getAllWorkers(false).then(setWorkers));
+    if (changed.has('workerAttendance')) tasks.push(getAllWorkerAttendance().then(setSundayAttendance));
+    if (changed.has('workerPrepAttendance')) tasks.push(getAllWorkerPrepAttendance().then(setPrepAttendance));
+    if (changed.has('workerCategories')) tasks.push(getAllWorkerCategories().then(setCategories));
+    if (changed.has('clockInConfig')) tasks.push(getClockInConfig().then(setConfig));
+    if (changed.has('specialEvents')) tasks.push(getAllSpecialEvents(false).then(setSpecialEvents));
+    if (changed.has('specialEventAttendance')) tasks.push(getAllSpecialEventAttendance(false).then(setSpecialAttendance));
+    await Promise.all(tasks);
+  }, [refreshAllData]);
+
   useEffect(() => {
     // App-level scoped hydration owns the network pull. Render immediately
     // from IndexedDB here, then consume the worker-sync event it emits. This
@@ -280,7 +281,10 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
       const stores: string[] = Array.isArray(e?.detail?.stores) ? e.detail.stores : (store ? [store] : []);
       if (stores.length === 0 || stores.some(changedStore => ['workers', 'workerAttendance', 'workerPrepAttendance', 'specialEvents', 'specialEventAttendance', 'workerCategories', 'clockInConfig'].includes(changedStore))) {
         window.clearTimeout(refreshTimer);
-        refreshTimer = window.setTimeout(() => void refreshAllData(false), 50);
+        refreshTimer = window.setTimeout(() => void refreshWorkerStores(stores).catch(error => {
+          console.error('Could not refresh the changed Workers Directorate stores:', error);
+          setLoadError(`Workers Directorate could not display a saved change: ${error instanceof Error ? error.message : String(error)}`);
+        }), 50);
       }
     };
     window.addEventListener('gofamint:worker-sync', handleWorkerSync);
@@ -288,7 +292,24 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
       window.clearTimeout(refreshTimer);
       window.removeEventListener('gofamint:worker-sync', handleWorkerSync);
     };
-  }, [refreshAllData]);
+  }, [refreshWorkerStores]);
+
+  useEffect(() => {
+    const handleRealtimeStatus = (event: Event) => {
+      const overall = (event as CustomEvent).detail?.overall;
+      if (overall) setRealtimeHealth(overall);
+    };
+    const handleOffline = () => setRealtimeHealth('ERROR');
+    const handleOnline = () => setRealtimeHealth('CONNECTING');
+    window.addEventListener('gofamint:realtime-status', handleRealtimeStatus);
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('online', handleOnline);
+    return () => {
+      window.removeEventListener('gofamint:realtime-status', handleRealtimeStatus);
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, []);
 
   const asstGsecProfile = adminProfiles.find(p => p.roleType === 'ASST_GENERAL_SECRETARY');
   const gsProfile = adminProfiles.find(p => p.roleType === 'GENERAL_SUPERINTENDENT');
@@ -370,8 +391,6 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
     });
     try {
       await recordWorkerAttendance(record);
-      const updated = await getAllWorkerAttendance();
-      setSundayAttendance(updated);
     } catch (err) {
       console.error('Failed to record worker attendance:', err);
       setSundayAttendance(previousAttendance);
@@ -393,8 +412,6 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
     });
     try {
       await recordBulkWorkerAttendance(records);
-      const updated = await getAllWorkerAttendance();
-      setSundayAttendance(updated);
     } catch (err) {
       console.error('Failed to record bulk worker attendance:', err);
       setSundayAttendance(previousAttendance);
@@ -417,8 +434,6 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
     });
     try {
       await recordWorkerPrepAttendance(record);
-      const updated = await getAllWorkerPrepAttendance();
-      setPrepAttendance(updated);
     } catch (err) {
       console.error('Failed to record prep attendance:', err);
       setPrepAttendance(previousAttendance);
@@ -436,8 +451,6 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
     });
     try {
       await recordBulkWorkerPrepAttendance(records);
-      const updated = await getAllWorkerPrepAttendance();
-      setPrepAttendance(updated);
     } catch (err) {
       console.error('Failed to record bulk prep attendance:', err);
       setPrepAttendance(previousAttendance);
@@ -473,9 +486,15 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
               <span className="text-lg font-black tabular-nums">{activeWorkersCount}</span>
               <span className="ml-1 text-[10px] text-blue-100">active</span>
             </div>
-            <div className="flex items-center gap-1.5 rounded-full bg-emerald-400/15 px-2.5 py-1 text-[10px] font-bold text-emerald-200 ring-1 ring-emerald-300/20">
-              <span className="h-2 w-2 rounded-full bg-emerald-300 animate-pulse" />
-              Synced
+            <div className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold ring-1 ${
+              realtimeHealth === 'LIVE'
+                ? 'bg-emerald-400/15 text-emerald-200 ring-emerald-300/20'
+                : realtimeHealth === 'ERROR'
+                  ? 'bg-red-400/15 text-red-200 ring-red-300/20'
+                  : 'bg-amber-400/15 text-amber-100 ring-amber-300/20'
+            }`} title={`Realtime status: ${realtimeHealth.toLowerCase()}`}>
+              <span className={`h-2 w-2 rounded-full ${realtimeHealth === 'LIVE' ? 'bg-emerald-300 animate-pulse' : realtimeHealth === 'ERROR' ? 'bg-red-300' : 'bg-amber-300 animate-pulse'}`} />
+              {realtimeHealth === 'LIVE' ? 'Live' : realtimeHealth === 'ERROR' ? 'Sync issue' : 'Connecting'}
             </div>
           </div>
         </div>
