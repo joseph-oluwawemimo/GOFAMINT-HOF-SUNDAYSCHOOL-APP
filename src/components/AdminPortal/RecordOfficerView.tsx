@@ -87,7 +87,8 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
   // Class Register Inspection Modal State
   const [inspectedClassRow, setInspectedClassRow] = useState<RecordOfficerClassRow | null>(null);
   const [inspectedClassMembers, setInspectedClassMembers] = useState<any[]>([]);
-  const [inspectFilter, setInspectFilter] = useState<'ALL' | 'PRESENT' | 'ABSENT'>('ALL');
+  type InspectFilterType = 'ALL' | 'PRESENT' | 'ABSENT' | 'STUDENTS_PRESENT' | 'VISITORS_PRESENT' | 'STUDENTS_ABSENT' | 'VISITORS_ABSENT';
+  const [inspectFilter, setInspectFilter] = useState<InspectFilterType>('ALL');
   const [isInspecting, setIsInspecting] = useState(false);
 
   const activeQuarterObj = (safeYear.quarters || []).find(q => q.quarterNumber === selectedQuarter) || safeYear.quarters?.[0] || { totalLessonWeeks: 12, lessons: [] };
@@ -1047,19 +1048,34 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
                             {rowVisitors}
                           </td>
                           <td className="p-3.5 text-center font-black text-slate-950 bg-slate-100">
-                            {rowTotalMembers}
+                            <div>{rowTotalMembers}</div>
+                            {(Boolean(row.maleCount) || Boolean(row.femaleCount)) && (
+                              <div className="text-[9px] font-medium text-slate-500">
+                                {row.maleCount ?? 0}M • {row.femaleCount ?? 0}F
+                              </div>
+                            )}
                           </td>
                           <td className="p-3.5 text-center font-black text-emerald-700 bg-emerald-50/30">
                             <div>{rowPresent}</div>
                             <div className="text-[9px] font-normal text-slate-400">
                               {row.studentPresent} std • {row.visitorPresent ?? row.currentVisitorPresent} vis
                             </div>
+                            {(Boolean(row.malePresent) || Boolean(row.femalePresent)) && (
+                              <div className="text-[9px] font-semibold text-emerald-800">
+                                {row.malePresent ?? 0}M • {row.femalePresent ?? 0}F
+                              </div>
+                            )}
                           </td>
                           <td className="p-3.5 text-center font-bold text-rose-700 bg-rose-50/30">
                             <div>{rowAbsent}</div>
                             <div className="text-[9px] font-normal text-slate-400">
                               {row.studentAbsent ?? (rowStudents - row.studentPresent)} std • {row.visitorAbsent ?? (rowVisitors - (row.visitorPresent ?? row.currentVisitorPresent))} vis
                             </div>
+                            {(Boolean(row.maleAbsent) || Boolean(row.femaleAbsent)) && (
+                              <div className="text-[9px] font-semibold text-rose-800">
+                                {row.maleAbsent ?? 0}M • {row.femaleAbsent ?? 0}F
+                              </div>
+                            )}
                           </td>
                           <td className="p-3.5 text-right font-black text-slate-900">
                             ₦{row.offering.toLocaleString()}
@@ -1091,13 +1107,28 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
                         {filteredVisitorsCount}
                       </td>
                       <td className="p-4 text-center bg-slate-800 text-amber-300 font-black text-sm">
-                        {filteredTotalClassMembers}
+                        <div>{filteredTotalClassMembers}</div>
+                        {(Boolean(collationData?.totalMaleCount) || Boolean(collationData?.totalFemaleCount)) && (
+                          <div className="text-[9px] font-normal text-slate-300">
+                            {collationData?.totalMaleCount ?? 0}M • {collationData?.totalFemaleCount ?? 0}F
+                          </div>
+                        )}
                       </td>
                       <td className="p-4 text-center text-emerald-300 font-black text-sm">
-                        {filteredTotalPresent}
+                        <div>{filteredTotalPresent}</div>
+                        {(Boolean(collationData?.totalMalePresent) || Boolean(collationData?.totalFemalePresent)) && (
+                          <div className="text-[9px] font-normal text-emerald-200">
+                            {collationData?.totalMalePresent ?? 0}M • {collationData?.totalFemalePresent ?? 0}F
+                          </div>
+                        )}
                       </td>
                       <td className="p-4 text-center text-rose-300 font-black text-sm">
-                        {filteredTotalAbsent}
+                        <div>{filteredTotalAbsent}</div>
+                        {(Boolean(collationData?.totalMaleAbsent) || Boolean(collationData?.totalFemaleAbsent)) && (
+                          <div className="text-[9px] font-normal text-rose-200">
+                            {collationData?.totalMaleAbsent ?? 0}M • {collationData?.totalFemaleAbsent ?? 0}F
+                          </div>
+                        )}
                       </td>
                       <td className="p-4 text-right text-amber-300 font-black text-sm">
                         ₦{filteredOffering.toLocaleString()}
@@ -1944,14 +1975,40 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-2 pt-1">
-                    <div className="bg-white p-2.5 rounded-xl border border-emerald-200">
-                      <span className="text-[10px] text-slate-500 font-bold block">Students Present</span>
-                      <span className="text-lg font-black text-emerald-900">{inspectedClassRow.studentPresent}</span>
-                    </div>
-                    <div className="bg-white p-2.5 rounded-xl border border-emerald-200">
-                      <span className="text-[10px] text-slate-500 font-bold block">Visitors Present</span>
-                      <span className="text-lg font-black text-emerald-900">{inspectedClassRow.visitorPresent}</span>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setInspectFilter(inspectFilter === 'STUDENTS_PRESENT' ? 'ALL' : 'STUDENTS_PRESENT')}
+                      className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                        inspectFilter === 'STUDENTS_PRESENT'
+                          ? 'bg-emerald-600 text-white border-emerald-700 shadow-sm ring-2 ring-emerald-400'
+                          : 'bg-white hover:bg-emerald-100/50 border-emerald-200'
+                      }`}
+                      title="Click to view students who came"
+                    >
+                      <span className={`text-[10px] font-bold block ${inspectFilter === 'STUDENTS_PRESENT' ? 'text-emerald-100' : 'text-slate-500'}`}>
+                        Students Present
+                      </span>
+                      <span className={`text-lg font-black ${inspectFilter === 'STUDENTS_PRESENT' ? 'text-white' : 'text-emerald-900'}`}>
+                        {inspectedClassRow.studentPresent}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setInspectFilter(inspectFilter === 'VISITORS_PRESENT' ? 'ALL' : 'VISITORS_PRESENT')}
+                      className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                        inspectFilter === 'VISITORS_PRESENT'
+                          ? 'bg-emerald-600 text-white border-emerald-700 shadow-sm ring-2 ring-emerald-400'
+                          : 'bg-white hover:bg-emerald-100/50 border-emerald-200'
+                      }`}
+                      title="Click to view visitors who came"
+                    >
+                      <span className={`text-[10px] font-bold block ${inspectFilter === 'VISITORS_PRESENT' ? 'text-emerald-100' : 'text-slate-500'}`}>
+                        Visitors Present
+                      </span>
+                      <span className={`text-lg font-black ${inspectFilter === 'VISITORS_PRESENT' ? 'text-white' : 'text-emerald-900'}`}>
+                        {inspectedClassRow.visitorPresent}
+                      </span>
+                    </button>
                   </div>
                 </div>
 
@@ -1967,14 +2024,40 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-2 pt-1">
-                    <div className="bg-white p-2.5 rounded-xl border border-rose-200">
-                      <span className="text-[10px] text-slate-500 font-bold block">Students Absent</span>
-                      <span className="text-lg font-black text-rose-900">{inspectedClassRow.studentAbsent}</span>
-                    </div>
-                    <div className="bg-white p-2.5 rounded-xl border border-rose-200">
-                      <span className="text-[10px] text-slate-500 font-bold block">Visitors Absent</span>
-                      <span className="text-lg font-black text-rose-900">{inspectedClassRow.visitorAbsent}</span>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setInspectFilter(inspectFilter === 'STUDENTS_ABSENT' ? 'ALL' : 'STUDENTS_ABSENT')}
+                      className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                        inspectFilter === 'STUDENTS_ABSENT'
+                          ? 'bg-rose-600 text-white border-rose-700 shadow-sm ring-2 ring-rose-400'
+                          : 'bg-white hover:bg-rose-100/50 border-rose-200'
+                      }`}
+                      title="Click to view students who did not come"
+                    >
+                      <span className={`text-[10px] font-bold block ${inspectFilter === 'STUDENTS_ABSENT' ? 'text-rose-100' : 'text-slate-500'}`}>
+                        Students Absent
+                      </span>
+                      <span className={`text-lg font-black ${inspectFilter === 'STUDENTS_ABSENT' ? 'text-white' : 'text-rose-900'}`}>
+                        {inspectedClassRow.studentAbsent}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setInspectFilter(inspectFilter === 'VISITORS_ABSENT' ? 'ALL' : 'VISITORS_ABSENT')}
+                      className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
+                        inspectFilter === 'VISITORS_ABSENT'
+                          ? 'bg-rose-600 text-white border-rose-700 shadow-sm ring-2 ring-rose-400'
+                          : 'bg-white hover:bg-rose-100/50 border-rose-200'
+                      }`}
+                      title="Click to view visitors who did not come"
+                    >
+                      <span className={`text-[10px] font-bold block ${inspectFilter === 'VISITORS_ABSENT' ? 'text-rose-100' : 'text-slate-500'}`}>
+                        Visitors Absent
+                      </span>
+                      <span className={`text-lg font-black ${inspectFilter === 'VISITORS_ABSENT' ? 'text-white' : 'text-rose-900'}`}>
+                        {inspectedClassRow.visitorAbsent}
+                      </span>
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1987,8 +2070,9 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
                   </h4>
 
                   {/* Filter tabs */}
-                  <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+                  <div className="flex flex-wrap items-center gap-1 bg-slate-100 p-1 rounded-xl">
                     <button
+                      type="button"
                       onClick={() => setInspectFilter('ALL')}
                       className={`px-2.5 py-1 rounded-lg text-[10px] font-black cursor-pointer transition ${
                         inspectFilter === 'ALL' ? 'bg-indigo-900 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
@@ -1997,20 +2081,44 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
                       All ({inspectedClassMembers.length})
                     </button>
                     <button
-                      onClick={() => setInspectFilter('PRESENT')}
+                      type="button"
+                      onClick={() => setInspectFilter('STUDENTS_PRESENT')}
                       className={`px-2.5 py-1 rounded-lg text-[10px] font-black cursor-pointer transition ${
-                        inspectFilter === 'PRESENT' ? 'bg-emerald-700 text-white shadow-xs' : 'text-slate-600 hover:text-emerald-700'
+                        inspectFilter === 'STUDENTS_PRESENT' ? 'bg-emerald-700 text-white shadow-xs' : 'text-slate-600 hover:text-emerald-700'
                       }`}
+                      title="Who were the students that came?"
                     >
-                      Present ({inspectedClassRow.totalPresent})
+                      Students Present ({inspectedClassRow.studentPresent})
                     </button>
                     <button
-                      onClick={() => setInspectFilter('ABSENT')}
+                      type="button"
+                      onClick={() => setInspectFilter('VISITORS_PRESENT')}
                       className={`px-2.5 py-1 rounded-lg text-[10px] font-black cursor-pointer transition ${
-                        inspectFilter === 'ABSENT' ? 'bg-rose-700 text-white shadow-xs' : 'text-slate-600 hover:text-rose-700'
+                        inspectFilter === 'VISITORS_PRESENT' ? 'bg-emerald-700 text-white shadow-xs' : 'text-slate-600 hover:text-emerald-700'
                       }`}
+                      title="Who were the visitors that came?"
                     >
-                      Absent ({inspectedClassRow.totalAbsent})
+                      Visitors Present ({inspectedClassRow.visitorPresent})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setInspectFilter('STUDENTS_ABSENT')}
+                      className={`px-2.5 py-1 rounded-lg text-[10px] font-black cursor-pointer transition ${
+                        inspectFilter === 'STUDENTS_ABSENT' ? 'bg-rose-700 text-white shadow-xs' : 'text-slate-600 hover:text-rose-700'
+                      }`}
+                      title="Who were the students that did not come?"
+                    >
+                      Students Absent ({inspectedClassRow.studentAbsent})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setInspectFilter('VISITORS_ABSENT')}
+                      className={`px-2.5 py-1 rounded-lg text-[10px] font-black cursor-pointer transition ${
+                        inspectFilter === 'VISITORS_ABSENT' ? 'bg-rose-700 text-white shadow-xs' : 'text-slate-600 hover:text-rose-700'
+                      }`}
+                      title="Who were the visitors that did not come?"
+                    >
+                      Visitors Absent ({inspectedClassRow.visitorAbsent})
                     </button>
                   </div>
                 </div>
@@ -2023,8 +2131,9 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
                       <thead>
                         <tr className="bg-slate-100 text-slate-700 font-black text-[10px] uppercase">
                           <th className="p-2.5 pl-3">Member Name</th>
-                          <th className="p-2.5">Category</th>
-                          <th className="p-2.5 text-center">Week {selectedWeek} Attendance</th>
+                          <th className="p-2.5 text-center">Gender</th>
+                          <th className="p-2.5">Category (Week {selectedWeek})</th>
+                          <th className="p-2.5 text-center">Attendance</th>
                           <th className="p-2.5 text-right pr-3">Score</th>
                         </tr>
                       </thead>
@@ -2033,6 +2142,10 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
                           .filter(m => {
                             if (inspectFilter === 'PRESENT') return m.gradeAttendance === 'PRESENT';
                             if (inspectFilter === 'ABSENT') return m.gradeAttendance === 'ABSENT';
+                            if (inspectFilter === 'STUDENTS_PRESENT') return m.memberType === 'STUDENT' && m.gradeAttendance === 'PRESENT';
+                            if (inspectFilter === 'VISITORS_PRESENT') return m.memberType === 'VISITOR' && m.gradeAttendance === 'PRESENT';
+                            if (inspectFilter === 'STUDENTS_ABSENT') return m.memberType === 'STUDENT' && m.gradeAttendance === 'ABSENT';
+                            if (inspectFilter === 'VISITORS_ABSENT') return m.memberType === 'VISITOR' && m.gradeAttendance === 'ABSENT';
                             return true;
                           })
                           .map((m, idx) => (
@@ -2044,6 +2157,9 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
                                   Transferred
                                 </span>
                               )}
+                            </td>
+                            <td className="p-2.5 text-center font-bold text-slate-500">
+                              {m.gender ? (m.gender === 'MALE' ? 'M' : 'F') : '—'}
                             </td>
                             <td className="p-2.5">
                               <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${

@@ -221,3 +221,124 @@ test('Part 1 & 14 — Record Officer Mathematical Verification', () => {
   assert.equal(studentPresent + studentAbsent, studentsCount, 'STUDENT PRESENT + STUDENT ABSENT = STUDENTS');
   assert.equal(visitorPresent + visitorAbsent, visitorsCount, 'VISITOR PRESENT + VISITOR ABSENT = VISITORS');
 });
+
+test('Section 4 — Concise Record Male/Female Breakdown', () => {
+  const members = [
+    { id: '1', gender: 'MALE', isPresent: true },
+    { id: '2', gender: 'MALE', isPresent: false },
+    { id: '3', gender: 'FEMALE', isPresent: true },
+    { id: '4', gender: 'FEMALE', isPresent: true },
+    { id: '5', gender: 'FEMALE', isPresent: false }
+  ];
+
+  const maleCount = members.filter(m => m.gender === 'MALE').length; // 2
+  const femaleCount = members.filter(m => m.gender === 'FEMALE').length; // 3
+  const malePresent = members.filter(m => m.gender === 'MALE' && m.isPresent).length; // 1
+  const femalePresent = members.filter(m => m.gender === 'FEMALE' && m.isPresent).length; // 2
+  const maleAbsent = maleCount - malePresent; // 1
+  const femaleAbsent = femaleCount - femalePresent; // 1
+
+  assert.equal(maleCount + femaleCount, 5);
+  assert.equal(malePresent + femalePresent, 3);
+  assert.equal(maleAbsent + femaleAbsent, 2);
+  assert.equal(malePresent + maleAbsent, maleCount);
+  assert.equal(femalePresent + femaleAbsent, femaleCount);
+});
+
+test('Section 5 & 6 — Elaborate Inspection: Answering the 4 Composition Questions and Preserving Historical Status', () => {
+  // Scenario:
+  // Alice is an existing student. Present in Week 1, Absent in Week 4.
+  // Bob is a visitor who attended Weeks 1, 2, 3 and qualifies as a Student in Week 4.
+  // Charlie is a visitor who joins in Week 1, Present in Week 1, Absent in Week 4.
+  // David is an existing student. Absent in Week 1, Present in Week 4.
+
+  interface RosterMember {
+    id: string;
+    fullName: string;
+    statusAtWeek: (w: number) => 'STUDENT' | 'VISITOR';
+    attendanceAtWeek: (w: number) => 'PRESENT' | 'ABSENT';
+  }
+
+  const roster: RosterMember[] = [
+    {
+      id: 'alice',
+      fullName: 'Alice Student',
+      statusAtWeek: () => 'STUDENT',
+      attendanceAtWeek: (w) => (w === 1 ? 'PRESENT' : 'ABSENT')
+    },
+    {
+      id: 'bob',
+      fullName: 'Bob Converted',
+      // In Weeks 1, 2, 3 Bob is 100% VISITOR. Only in Week 4 does Bob become STUDENT.
+      statusAtWeek: (w) => (w >= 4 ? 'STUDENT' : 'VISITOR'),
+      attendanceAtWeek: () => 'PRESENT'
+    },
+    {
+      id: 'charlie',
+      fullName: 'Charlie Visitor',
+      statusAtWeek: () => 'VISITOR',
+      attendanceAtWeek: (w) => (w === 1 ? 'PRESENT' : 'ABSENT')
+    },
+    {
+      id: 'david',
+      fullName: 'David Student',
+      statusAtWeek: () => 'STUDENT',
+      attendanceAtWeek: (w) => (w === 1 ? 'ABSENT' : 'PRESENT')
+    }
+  ];
+
+  // WEEK 1 INSPECTION
+  const w1Members = roster.map(m => ({
+    fullName: m.fullName,
+    category: m.statusAtWeek(1),
+    attendance: m.attendanceAtWeek(1)
+  }));
+
+  // Week 1 historical status check: Bob MUST be a VISITOR in Week 1
+  const bobW1 = w1Members.find(m => m.fullName === 'Bob Converted');
+  assert.equal(bobW1?.category, 'VISITOR', 'Bob MUST remain a Visitor in Week 1');
+
+  // Question 1: "Who were the students that came?" (Week 1)
+  const w1StudentsPresent = w1Members.filter(m => m.category === 'STUDENT' && m.attendance === 'PRESENT');
+  assert.deepEqual(w1StudentsPresent.map(m => m.fullName), ['Alice Student']);
+
+  // Question 2: "Who were the visitors that came?" (Week 1)
+  const w1VisitorsPresent = w1Members.filter(m => m.category === 'VISITOR' && m.attendance === 'PRESENT');
+  assert.deepEqual(w1VisitorsPresent.map(m => m.fullName), ['Bob Converted', 'Charlie Visitor']);
+
+  // Question 3: "Who were the students that did not come?" (Week 1)
+  const w1StudentsAbsent = w1Members.filter(m => m.category === 'STUDENT' && m.attendance === 'ABSENT');
+  assert.deepEqual(w1StudentsAbsent.map(m => m.fullName), ['David Student']);
+
+  // Question 4: "Who were the visitors that did not come?" (Week 1)
+  const w1VisitorsAbsent = w1Members.filter(m => m.category === 'VISITOR' && m.attendance === 'ABSENT');
+  assert.deepEqual(w1VisitorsAbsent.map(m => m.fullName), []);
+
+  // WEEK 4 INSPECTION (After Bob qualifies as Student)
+  const w4Members = roster.map(m => ({
+    fullName: m.fullName,
+    category: m.statusAtWeek(4),
+    attendance: m.attendanceAtWeek(4)
+  }));
+
+  // Week 4 status check: Bob is now a STUDENT in Week 4
+  const bobW4 = w4Members.find(m => m.fullName === 'Bob Converted');
+  assert.equal(bobW4?.category, 'STUDENT', 'Bob is now a Student in Week 4');
+
+  // Question 1: "Who were the students that came?" (Week 4)
+  const w4StudentsPresent = w4Members.filter(m => m.category === 'STUDENT' && m.attendance === 'PRESENT');
+  assert.deepEqual(w4StudentsPresent.map(m => m.fullName).sort(), ['Bob Converted', 'David Student'].sort());
+
+  // Question 2: "Who were the visitors that came?" (Week 4)
+  const w4VisitorsPresent = w4Members.filter(m => m.category === 'VISITOR' && m.attendance === 'PRESENT');
+  assert.deepEqual(w4VisitorsPresent.map(m => m.fullName), []);
+
+  // Question 3: "Who were the students that did not come?" (Week 4)
+  const w4StudentsAbsent = w4Members.filter(m => m.category === 'STUDENT' && m.attendance === 'ABSENT');
+  assert.deepEqual(w4StudentsAbsent.map(m => m.fullName), ['Alice Student']);
+
+  // Question 4: "Who were the visitors that did not come?" (Week 4)
+  const w4VisitorsAbsent = w4Members.filter(m => m.category === 'VISITOR' && m.attendance === 'ABSENT');
+  assert.deepEqual(w4VisitorsAbsent.map(m => m.fullName), ['Charlie Visitor']);
+});
+

@@ -309,6 +309,13 @@ export interface RecordOfficerClassRow {
   visitorAbsent: number;
   totalAbsent: number; // studentAbsent + visitorAbsent
   offering: number;
+  // Male/Female Breakdown (Concise Class Record)
+  maleCount?: number;
+  femaleCount?: number;
+  malePresent?: number;
+  femalePresent?: number;
+  maleAbsent?: number;
+  femaleAbsent?: number;
   // Compatibility & inspection fields
   currentVisitorPresent: number;
   newVisitors: number;
@@ -336,6 +343,13 @@ export interface RecordOfficerWeeklyCollation {
   totalVisitorAbsent: number;
   totalClassMembersAbsent: number;
   totalOffering: number;
+  // Male/Female Grand Totals
+  totalMaleCount?: number;
+  totalFemaleCount?: number;
+  totalMalePresent?: number;
+  totalFemalePresent?: number;
+  totalMaleAbsent?: number;
+  totalFemaleAbsent?: number;
   // Compatibility fields
   totalCurrentVisitorPresent?: number;
   totalNewVisitors?: number;

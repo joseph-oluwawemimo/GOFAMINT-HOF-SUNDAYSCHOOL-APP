@@ -3597,6 +3597,10 @@ export async function getRealRecordOfficerCollation(
     let studentAbsent = 0;
     let visitorAbsent = 0;
     let newVisitors = 0;
+    let maleCount = 0;
+    let femaleCount = 0;
+    let malePresent = 0;
+    let femalePresent = 0;
 
     for (const mem of qMembers) {
       const qEnr = mem.quarterEnrollments?.[quarterNumber as QuarterNumber];
@@ -3632,6 +3636,15 @@ export async function getRealRecordOfficerCollation(
 
       const isPresent = grade && !grade.isNoRecordWeek && grade.attendance === 'PRESENT';
 
+      const gender = (mem.gender || '').toUpperCase();
+      if (gender === 'MALE') {
+        maleCount++;
+        if (isPresent) malePresent++;
+      } else if (gender === 'FEMALE') {
+        femaleCount++;
+        if (isPresent) femalePresent++;
+      }
+
       if (isStudentAtThisWeek) {
         studentsCount++;
         if (isPresent) {
@@ -3655,6 +3668,8 @@ export async function getRealRecordOfficerCollation(
     const totalClassMembers = studentsCount + visitorsCount;
     const totalPresent = studentPresent + visitorPresent;
     const totalAbsent = studentAbsent + visitorAbsent;
+    const maleAbsent = Math.max(0, maleCount - malePresent);
+    const femaleAbsent = Math.max(0, femaleCount - femalePresent);
 
     // Offering for this week
     const offeringRecord = allOfferings.find(
@@ -3680,6 +3695,12 @@ export async function getRealRecordOfficerCollation(
       visitorAbsent,
       totalAbsent,
       offering,
+      maleCount,
+      femaleCount,
+      malePresent,
+      femalePresent,
+      maleAbsent,
+      femaleAbsent,
       // Compatibility fields
       currentVisitorPresent: visitorPresent,
       newVisitors,
@@ -3705,6 +3726,12 @@ export async function getRealRecordOfficerCollation(
   const totalVisitorAbsent = rows.reduce((s, r) => s + r.visitorAbsent, 0);
   const totalClassMembersAbsent = rows.reduce((s, r) => s + r.totalAbsent, 0);
   const totalOffering = rows.reduce((s, r) => s + r.offering, 0);
+  const totalMaleCount = rows.reduce((s, r) => s + (r.maleCount || 0), 0);
+  const totalFemaleCount = rows.reduce((s, r) => s + (r.femaleCount || 0), 0);
+  const totalMalePresent = rows.reduce((s, r) => s + (r.malePresent || 0), 0);
+  const totalFemalePresent = rows.reduce((s, r) => s + (r.femalePresent || 0), 0);
+  const totalMaleAbsent = rows.reduce((s, r) => s + (r.maleAbsent || 0), 0);
+  const totalFemaleAbsent = rows.reduce((s, r) => s + (r.femaleAbsent || 0), 0);
 
   return {
     quarterNumber,
@@ -3720,6 +3747,12 @@ export async function getRealRecordOfficerCollation(
     totalVisitorAbsent,
     totalClassMembersAbsent,
     totalOffering,
+    totalMaleCount,
+    totalFemaleCount,
+    totalMalePresent,
+    totalFemalePresent,
+    totalMaleAbsent,
+    totalFemaleAbsent,
     // Compatibility fields
     totalCurrentVisitorPresent: totalVisitorPresent,
     totalNewVisitors: rows.reduce((s, r) => s + r.newVisitors, 0),
@@ -3805,9 +3838,9 @@ export async function getRealEnrollmentOfficerCollation(
       return !isMemberStudentAtWeek(m, 1);
     }).length;
 
-    let prevTotalOnboarded = broughtForwardStudents + broughtForwardVisitors;
-    let prevTotalVisitors = broughtForwardVisitors;
-    let prevTotalEnrolled = broughtForwardStudents;
+    let prevTotalOnboarded = 0;
+    let prevTotalVisitors = 0;
+    let prevTotalEnrolled = 0;
 
     let newlyOnboarded = 0;
     let previouslyOnboarded = 0;
@@ -3823,12 +3856,14 @@ export async function getRealEnrollmentOfficerCollation(
     // Week-by-week canonical progression up to selectedWeek
     for (let w = 1; w <= selectedWeek; w++) {
       // Newly Onboarded in week w: people added to class during week w
+      // In Week 1: all members who joined at or by Week 1
+      // In Week w > 1: members whose firstLessonWeek === w
       const wNewlyOnboardedMembers = qMembers.filter(m => {
         const qEnr = m.quarterEnrollments?.[quarterNumber as QuarterNumber];
         const status = qEnr?.status || m.status || 'ACTIVE';
         if (hasPermanentlyExitedBy(m, quarterNumber, w, status)) return false;
         const firstWeek = qEnr?.firstLessonWeek || m.firstLessonWeek || 1;
-        return firstWeek === w;
+        return w === 1 ? firstWeek <= 1 : firstWeek === w;
       });
       const wNewlyOnboarded = wNewlyOnboardedMembers.length;
       const wPreviouslyOnboarded = prevTotalOnboarded;

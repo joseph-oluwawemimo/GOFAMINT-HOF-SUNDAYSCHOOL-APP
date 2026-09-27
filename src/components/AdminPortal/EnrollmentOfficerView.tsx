@@ -113,6 +113,8 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
   const [allTransfers, setAllTransfers] = useState<StudentTransferRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [actionSuccessMessage, setActionSuccessMessage] = useState<string | null>(null);
+  const [allQuarterEnrollmentCollations, setAllQuarterEnrollmentCollations] = useState<EnrollmentOfficerWeeklyCollation[]>([]);
+  const [enrollmentViewMode, setEnrollmentViewMode] = useState<'HORIZONTAL_PROGRESSION' | 'SINGLE_WEEK_RETURN'>('HORIZONTAL_PROGRESSION');
 
   // Drill-down Modal for Visitor -> Student Converted Members
   const [drillDownRow, setDrillDownRow] = useState<EnrollmentOfficerClassRow | null>(null);
@@ -127,18 +129,25 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
   const loadAllData = async () => {
     setIsLoading(true);
     try {
-      const [collation, candidates, certs, loadedMembers, loadedTransfers] = await Promise.all([
+      const weekPromises: Promise<EnrollmentOfficerWeeklyCollation>[] = [];
+      for (let w = 1; w <= totalWeeks; w++) {
+        weekPromises.push(getRealEnrollmentOfficerCollation(selectedQuarter, w));
+      }
+
+      const [collation, candidates, certs, loadedMembers, loadedTransfers, allWeeks] = await Promise.all([
         getRealEnrollmentOfficerCollation(selectedQuarter, selectedWeek),
         getEligibleVisitorCandidates(selectedQuarter, selectedWeek),
         getAllEnrollmentCertifications(),
         getAllMembers(),
-        getAllStudentTransfers()
+        getAllStudentTransfers(),
+        Promise.all(weekPromises)
       ]);
       setCollationData(collation);
       setEligibleCandidates(candidates);
       setAllCertifications(certs);
       setAllMembersList(loadedMembers);
       setAllTransfers(loadedTransfers);
+      setAllQuarterEnrollmentCollations(allWeeks);
     } catch (err) {
       console.error('Failed to load enrollment officer data:', err);
     } finally {
@@ -722,16 +731,23 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
           </div>
 
           {/* Weekly Enrollment Table */}
+          {/* Weekly Enrollment Table Container */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             
             <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
               <div className="space-y-0.5">
                 <h2 className="text-base sm:text-lg font-black text-slate-900 flex items-center gap-2">
                   <FileCheck className="w-5 h-5 text-teal-600" />
-                  <span>Weekly Enrollment Table (Week {selectedWeek}, Quarter {selectedQuarter})</span>
+                  <span>
+                    {enrollmentViewMode === 'HORIZONTAL_PROGRESSION'
+                      ? `Horizontal Weekly Progression Table (Quarter ${selectedQuarter})`
+                      : `Single-Week Class Return (Week ${selectedWeek}, Quarter ${selectedQuarter})`}
+                  </span>
                 </h2>
                 <p className="text-xs text-slate-500">
-                  Arranged in two canonical sides: LEFT = Onboarding (Intake History) | RIGHT = Status (Visitors & Enrollment Progression).
+                  {enrollmentViewMode === 'HORIZONTAL_PROGRESSION'
+                    ? `Authoritative longitudinal weekly table across all ${totalWeeks} weeks of Quarter ${selectedQuarter}. Distinctly grouped: Section A (Onboarding), Section B (Visitors), and Section C (Enrollment).`
+                    : 'Arranged in two canonical sides: LEFT = Onboarding (Intake History) | RIGHT = Status (Visitors & Enrollment Progression).'}
                 </p>
               </div>
 
@@ -739,6 +755,44 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
                 <span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-lg">
                   Reporting Classes: <strong>{filteredRows.length}</strong>
                 </span>
+              </div>
+            </div>
+
+            {/* View Mode Switcher Bar */}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50/70 p-3 px-4 sm:px-5">
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-black uppercase text-slate-500 tracking-wider">
+                  View Mode:
+                </span>
+                <div className="inline-flex rounded-xl bg-slate-200/80 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setEnrollmentViewMode('HORIZONTAL_PROGRESSION')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer ${
+                      enrollmentViewMode === 'HORIZONTAL_PROGRESSION'
+                        ? 'bg-slate-900 text-teal-300 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Horizontal Weekly Progression (Weeks 1 to {totalWeeks})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEnrollmentViewMode('SINGLE_WEEK_RETURN')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-black transition cursor-pointer ${
+                      enrollmentViewMode === 'SINGLE_WEEK_RETURN'
+                        ? 'bg-slate-900 text-teal-300 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Single-Week Class Return (Week {selectedWeek})
+                  </button>
+                </div>
+              </div>
+
+              <div className="text-[11px] text-slate-500 font-semibold flex items-center gap-1.5">
+                <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
+                <span>Master Rule: Total Onboarded = Total Visitors + Total Enrolled</span>
               </div>
             </div>
 
@@ -752,7 +806,221 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
                 <AlertCircle className="w-8 h-8 text-amber-500 mx-auto" />
                 <p className="font-bold text-slate-700">No enrollment records found for Week {selectedWeek}, Quarter {selectedQuarter}.</p>
               </div>
+            ) : enrollmentViewMode === 'HORIZONTAL_PROGRESSION' ? (
+              /* ========================================================= */
+              /* AUTHORITATIVE HORIZONTAL WEEKLY PROGRESSION TABLE (SEC 9) */
+              /* ========================================================= */
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs whitespace-nowrap">
+                  <thead>
+                    {/* Tier 1 Header: Weeks */}
+                    <tr className="bg-slate-950 text-white text-[11px] font-black uppercase tracking-wider border-b border-slate-800">
+                      <th rowSpan={3} className="p-3 pl-4 sticky left-0 z-30 bg-slate-950 text-white border-r-2 border-slate-700 min-w-[200px] align-bottom shadow-sm">
+                        Class & Department
+                      </th>
+                      {Array.from({ length: totalWeeks }, (_, i) => i + 1).map(w => {
+                        const wCol = allQuarterEnrollmentCollations[w - 1];
+                        const wTot = wCol?.weeklyTotals;
+                        const isBal = wTot ? wTot.totalOnboarded === (wTot.totalVisitors + wTot.totalEnrolled) : true;
+                        return (
+                          <th
+                            key={w}
+                            colSpan={9}
+                            className={`p-2.5 text-center border-r-2 border-slate-700 font-black tracking-wider text-xs ${
+                              w === selectedWeek ? 'bg-teal-950 text-amber-300' : 'bg-slate-900 text-white'
+                            }`}
+                          >
+                            <div className="flex items-center justify-center gap-1.5">
+                              <span>WEEK {w}</span>
+                              {w === selectedWeek && (
+                                <span className="text-[9px] bg-amber-400 text-slate-950 px-1.5 py-0.2 rounded-full font-black">
+                                  Current
+                                </span>
+                              )}
+                            </div>
+                            {wTot && (
+                              <div className="text-[10px] font-normal tracking-normal opacity-90 mt-0.5">
+                                {isBal ? (
+                                  <span className="text-emerald-400">✓ {wTot.totalOnboarded} Onb = {wTot.totalVisitors} Vis + {wTot.totalEnrolled} Enr</span>
+                                ) : (
+                                  <span className="text-rose-400">⚠ Discrepancy</span>
+                                )}
+                              </div>
+                            )}
+                          </th>
+                        );
+                      })}
+                    </tr>
+
+                    {/* Tier 2 Header: 3 Logical Sections per Week */}
+                    <tr className="text-[10px] font-black uppercase tracking-wider border-b border-slate-700">
+                      {Array.from({ length: totalWeeks }, (_, i) => i + 1).map(w => (
+                        <React.Fragment key={w}>
+                          <th colSpan={3} className="p-1.5 text-center border-r border-teal-800 bg-teal-950 text-teal-300">
+                            SECTION A — ONBOARDING
+                          </th>
+                          <th colSpan={3} className="p-1.5 text-center border-r border-purple-800 bg-purple-950 text-purple-300">
+                            SECTION B — VISITORS
+                          </th>
+                          <th colSpan={3} className="p-1.5 text-center border-r-2 border-slate-700 bg-emerald-950 text-emerald-300">
+                            SECTION C — ENROLLMENT
+                          </th>
+                        </React.Fragment>
+                      ))}
+                    </tr>
+
+                    {/* Tier 3 Header: Section Columns */}
+                    <tr className="bg-slate-800 text-slate-200 text-[9px] font-bold uppercase tracking-wider border-b border-slate-700">
+                      {Array.from({ length: totalWeeks }, (_, i) => i + 1).map(w => (
+                        <React.Fragment key={w}>
+                          {/* Section A columns */}
+                          <th className="p-2 text-center border-r border-slate-700 bg-teal-900/60 text-teal-200">Newly Onb</th>
+                          <th className="p-2 text-center border-r border-slate-700 bg-teal-900/60 text-teal-200">Prev Onb</th>
+                          <th className="p-2 text-center border-r border-teal-700 bg-teal-900/90 text-amber-300 font-black">TOTAL ONB</th>
+                          {/* Section B columns */}
+                          <th className="p-2 text-center border-r border-slate-700 bg-purple-900/60 text-purple-200">New Vis</th>
+                          <th className="p-2 text-center border-r border-slate-700 bg-purple-900/60 text-purple-200">Current Vis</th>
+                          <th className="p-2 text-center border-r border-purple-700 bg-purple-900/90 text-purple-100 font-black">TOTAL VIS</th>
+                          {/* Section C columns */}
+                          <th className="p-2 text-center border-r border-slate-700 bg-emerald-900/60 text-emerald-200">Newly Enr</th>
+                          <th className="p-2 text-center border-r border-slate-700 bg-emerald-900/60 text-emerald-200">Prev Enr</th>
+                          <th className="p-2 text-center border-r-2 border-slate-700 bg-emerald-900/90 text-emerald-100 font-black">TOTAL ENR</th>
+                        </React.Fragment>
+                      ))}
+                    </tr>
+                  </thead>
+
+                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                    {/* Top Pinned Aggregate Row: ALL CLASSES */}
+                    <tr className="bg-slate-100 font-black text-slate-900 border-b-2 border-slate-300">
+                      <td className="p-3 pl-4 sticky left-0 z-20 bg-slate-900 text-white font-black text-xs border-r-2 border-slate-700 shadow-sm">
+                        <div className="text-amber-300">ALL CLASSES</div>
+                        <div className="text-[10px] text-slate-300 font-normal">School-Wide Aggregate</div>
+                      </td>
+                      {Array.from({ length: totalWeeks }, (_, i) => i + 1).map(w => {
+                        const wCol = allQuarterEnrollmentCollations[w - 1];
+                        const tot = wCol?.weeklyTotals;
+                        const newOnb = tot?.newlyOnboarded ?? 0;
+                        const prevOnb = tot?.previouslyOnboarded ?? 0;
+                        const totOnb = tot?.totalOnboarded ?? 0;
+                        const newVis = tot?.newVisitors ?? 0;
+                        const curVis = tot?.currentVisitors ?? 0;
+                        const totVis = tot?.totalVisitors ?? 0;
+                        const newEnr = tot?.newlyEnrolled ?? 0;
+                        const prevEnr = tot?.previouslyEnrolled ?? 0;
+                        const totEnr = tot?.totalEnrolled ?? 0;
+
+                        return (
+                          <React.Fragment key={w}>
+                            {/* Section A */}
+                            <td className="p-2.5 text-center border-r border-slate-200 text-teal-900 font-bold bg-teal-100/40">
+                              {newOnb > 0 ? `+${newOnb}` : '0'}
+                            </td>
+                            <td className="p-2.5 text-center border-r border-slate-200 text-slate-700 font-bold bg-teal-100/30">
+                              {prevOnb}
+                            </td>
+                            <td className="p-2.5 text-center border-r border-teal-300 text-teal-950 font-black bg-teal-200/60">
+                              {totOnb}
+                            </td>
+
+                            {/* Section B */}
+                            <td className="p-2.5 text-center border-r border-slate-200 text-purple-900 font-bold bg-purple-100/40">
+                              {newVis > 0 ? `+${newVis}` : '0'}
+                            </td>
+                            <td className="p-2.5 text-center border-r border-slate-200 text-slate-700 font-bold bg-purple-100/30">
+                              {curVis}
+                            </td>
+                            <td className="p-2.5 text-center border-r border-purple-300 text-purple-950 font-black bg-purple-200/60">
+                              {totVis}
+                            </td>
+
+                            {/* Section C */}
+                            <td className="p-2.5 text-center border-r border-slate-200 text-emerald-900 font-bold bg-emerald-100/40">
+                              {newEnr > 0 ? `+${newEnr}` : '0'}
+                            </td>
+                            <td className="p-2.5 text-center border-r border-slate-200 text-slate-700 font-bold bg-emerald-100/30">
+                              {prevEnr}
+                            </td>
+                            <td className="p-2.5 text-center border-r-2 border-slate-400 text-emerald-950 font-black bg-emerald-200/60">
+                              {totEnr}
+                            </td>
+                          </React.Fragment>
+                        );
+                      })}
+                    </tr>
+
+                    {/* Class Rows */}
+                    {filteredRows.map((row, idx) => (
+                      <tr key={row.classId || idx} className="hover:bg-slate-50 transition border-b border-slate-100">
+                        <td className="p-3 pl-4 sticky left-0 z-10 bg-white font-black text-xs text-slate-900 border-r-2 border-slate-200 shadow-2xs">
+                          <div>{row.className}</div>
+                          <div className="text-[10px] text-slate-400 font-semibold">{row.department}</div>
+                        </td>
+                        {Array.from({ length: totalWeeks }, (_, i) => i + 1).map(w => {
+                          const wCol = allQuarterEnrollmentCollations[w - 1];
+                          const clsRow = wCol?.rows?.find(r => r.classId === row.classId);
+                          const newOnb = clsRow?.newlyOnboarded ?? 0;
+                          const prevOnb = clsRow?.previouslyOnboarded ?? 0;
+                          const totOnb = clsRow?.totalOnboarded ?? 0;
+                          const newVis = clsRow?.newVisitors ?? 0;
+                          const curVis = clsRow?.currentVisitors ?? 0;
+                          const totVis = clsRow?.totalVisitors ?? 0;
+                          const newEnr = clsRow?.newlyEnrolled ?? 0;
+                          const prevEnr = clsRow?.previouslyEnrolled ?? 0;
+                          const totEnr = clsRow?.totalEnrolled ?? 0;
+
+                          return (
+                            <React.Fragment key={w}>
+                              {/* Section A: Onboarding */}
+                              <td className="p-2 text-center border-r border-slate-100 text-slate-700 font-medium bg-teal-50/15">
+                                {newOnb > 0 ? <span className="text-teal-700 font-bold">+{newOnb}</span> : '0'}
+                              </td>
+                              <td className="p-2 text-center border-r border-slate-100 text-slate-500 font-medium bg-teal-50/15">
+                                {prevOnb}
+                              </td>
+                              <td className="p-2 text-center border-r border-teal-200 font-black text-teal-950 bg-teal-50/60">
+                                {totOnb}
+                              </td>
+
+                              {/* Section B: Visitors */}
+                              <td className="p-2 text-center border-r border-slate-100 text-slate-700 font-medium bg-purple-50/15">
+                                {newVis > 0 ? <span className="text-purple-700 font-bold">+{newVis}</span> : '0'}
+                              </td>
+                              <td className="p-2 text-center border-r border-slate-100 text-slate-500 font-medium bg-purple-50/15">
+                                {curVis}
+                              </td>
+                              <td className="p-2 text-center border-r border-purple-200 font-black text-purple-950 bg-purple-50/60">
+                                {totVis}
+                              </td>
+
+                              {/* Section C: Enrollment */}
+                              <td className="p-2 text-center border-r border-slate-100 font-semibold bg-emerald-50/15">
+                                {newEnr > 0 ? (
+                                  <span className="bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded-md font-black text-[10px]">
+                                    +{newEnr}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400">0</span>
+                                )}
+                              </td>
+                              <td className="p-2 text-center border-r border-slate-100 text-slate-500 font-medium bg-emerald-50/15">
+                                {prevEnr}
+                              </td>
+                              <td className="p-2 text-center border-r-2 border-slate-300 font-black text-emerald-950 bg-emerald-50/60">
+                                {totEnr}
+                              </td>
+                            </React.Fragment>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             ) : (
+              /* ========================================================= */
+              /* PRESERVED SINGLE-WEEK CLASS RETURN TABLE                  */
+              /* ========================================================= */
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
