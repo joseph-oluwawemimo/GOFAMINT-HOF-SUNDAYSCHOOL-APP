@@ -26,8 +26,7 @@ export type AttendanceAccessStatus =
   | 'PAST_UNLOCKED_MANUAL_OPEN'
   | 'PAST_MANUALLY_LOCKED'
   | 'PAST_CHANGE_REQUEST_APPROVED'
-  | 'DATE_MISMATCH'
-  | 'TEST_MODE';
+  | 'DATE_MISMATCH';
 
 export interface AttendanceAccessParams {
   sessionType: AttendanceSessionType;
@@ -109,35 +108,6 @@ export function evaluateAttendanceAccess(params: AttendanceAccessParams): Attend
   const hasApprovedChangeRequest = params.hasApprovedChangeRequest !== undefined
     ? params.hasApprovedChangeRequest
     : (weekLockRecord?.activeChangeRequest?.status === 'APPROVED');
-
-  // Admin rehearsal override
-  if (adminTestOverride) {
-    return {
-      status: 'TEST_MODE',
-      sessionType,
-      weekNumber,
-      scheduledDate,
-      canClockIn: true,
-      canManualAttendance: true,
-      isDateMatch: true,
-      isToday: true,
-      isFuture: false,
-      isPast: false,
-      isManuallyLocked: false,
-      isChangeRequestRequired: false,
-      isChangeModeActive: false,
-      badgeLabel: 'Admin Test Mode',
-      badgeColor: 'blue',
-      lockReason: undefined,
-      allowedActions: {
-        clockIn: true,
-        manualEdit: true,
-        lockEntry: false,
-        requestChanges: false,
-        completeChanges: false,
-      }
-    };
-  }
 
   // 1. DATE EVALUATION in Nigeria Timezone
   const todayIso = getNigeriaDateISO(now);
@@ -372,7 +342,7 @@ export function getThursdayClockInSecurity(
   isToday: boolean;
   isPast: boolean;
   isFuture: boolean;
-  status: 'OPEN' | 'DATE_MISMATCH' | 'BEFORE_WINDOW' | 'AFTER_WINDOW' | 'TEST_MODE';
+  status: 'OPEN' | 'DATE_MISMATCH' | 'BEFORE_WINDOW' | 'AFTER_WINDOW';
   reason: string;
 } {
   const config = (configOrDate instanceof Date ? {} : configOrDate) || {};
@@ -388,10 +358,8 @@ export function getThursdayClockInSecurity(
     adminTestOverride
   });
 
-  let mappedStatus: 'OPEN' | 'DATE_MISMATCH' | 'BEFORE_WINDOW' | 'AFTER_WINDOW' | 'TEST_MODE';
-  if (evalResult.status === 'TEST_MODE') {
-    mappedStatus = 'TEST_MODE';
-  } else if (evalResult.status === 'FUTURE_LOCKED' || evalResult.isPast) {
+  let mappedStatus: 'OPEN' | 'DATE_MISMATCH' | 'BEFORE_WINDOW' | 'AFTER_WINDOW';
+  if (evalResult.status === 'FUTURE_LOCKED' || evalResult.isPast) {
     mappedStatus = 'DATE_MISMATCH';
   } else if (evalResult.status === 'BEFORE_WINDOW_LOCKED') {
     mappedStatus = 'BEFORE_WINDOW';
@@ -430,7 +398,7 @@ export function getAttendanceSecurityState(
   canClockIn: boolean;
   manualAttendanceAllowed: boolean;
   canTakeManualAttendance: boolean;
-  status: 'LOCKED_FUTURE' | 'BEFORE_WINDOW' | 'OPEN' | 'AFTER_WINDOW_MANUAL_OPEN' | 'PAST_MANUAL_OPEN' | 'TEST_MODE';
+  status: 'LOCKED_FUTURE' | 'BEFORE_WINDOW' | 'OPEN' | 'AFTER_WINDOW_MANUAL_OPEN' | 'PAST_MANUAL_OPEN';
   lockReason?: string;
 } {
   const evalResult = evaluateAttendanceAccess({
@@ -443,10 +411,8 @@ export function getAttendanceSecurityState(
     adminTestOverride
   });
 
-  let mappedStatus: 'LOCKED_FUTURE' | 'BEFORE_WINDOW' | 'OPEN' | 'AFTER_WINDOW_MANUAL_OPEN' | 'PAST_MANUAL_OPEN' | 'TEST_MODE';
-  if (evalResult.status === 'TEST_MODE') {
-    mappedStatus = 'TEST_MODE';
-  } else if (evalResult.status === 'FUTURE_LOCKED') {
+  let mappedStatus: 'LOCKED_FUTURE' | 'BEFORE_WINDOW' | 'OPEN' | 'AFTER_WINDOW_MANUAL_OPEN' | 'PAST_MANUAL_OPEN';
+  if (evalResult.status === 'FUTURE_LOCKED') {
     mappedStatus = 'LOCKED_FUTURE';
   } else if (evalResult.status === 'BEFORE_WINDOW_LOCKED') {
     mappedStatus = 'BEFORE_WINDOW';

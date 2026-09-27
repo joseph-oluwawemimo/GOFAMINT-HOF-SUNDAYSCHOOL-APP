@@ -211,10 +211,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
-  const handleFastDemoUnlock = () => {
-    onUnlock('');
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
       <div className="bg-white border border-slate-200 rounded-2xl max-w-xl w-full shadow-2xl overflow-hidden my-8">

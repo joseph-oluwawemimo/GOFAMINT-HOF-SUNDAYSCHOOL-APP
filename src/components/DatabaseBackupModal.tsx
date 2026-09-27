@@ -1427,7 +1427,7 @@ export const DatabaseBackupModal: React.FC<DatabaseBackupModalProps> = ({
 
                   <div className="border-t-2 border-red-200 pt-4 space-y-3">
                     <div className="text-xs font-black uppercase tracking-wide text-red-950">Full reset to first-time initialization</div>
-                    <p className="text-xs text-red-800">Use only after all demo testing is complete and immediately before real deployment. The server keeps this disabled unless <code>FACTORY_RESET_ENABLED=true</code>.</p>
+                    <p className="text-xs text-red-800">Use only after all testing is complete and immediately before real deployment. The server keeps this disabled unless <code>FACTORY_RESET_ENABLED=true</code>.</p>
                     <input value={fullResetConfirm} onChange={event => { setFullResetConfirm(event.target.value); setFactoryResetError(''); }} placeholder="FACTORY RESET GOFAMINT" className="w-full rounded-xl border-2 border-red-400 bg-white px-3.5 py-2.5 font-mono text-xs text-slate-950 outline-hidden" />
                     <button type="button" onClick={() => void handleFullFactoryReset()} disabled={isFactoryResetting || fullResetConfirm !== 'FACTORY RESET GOFAMINT'} className="w-full rounded-xl bg-slate-950 py-3 text-xs font-black text-white hover:bg-black disabled:cursor-not-allowed disabled:opacity-40">Archive & Return Entire System to Initialization</button>
                   </div>

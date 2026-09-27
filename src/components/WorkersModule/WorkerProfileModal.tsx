@@ -22,6 +22,7 @@ import {
   formatDateISO,
   parseDateSafe
 } from '../../utils/quarterScheduleUtils';
+import { getLessonByWeek } from '../../utils/whatsappMessages';
 import { useModalBackHandler } from '../../hooks/useModalBackHandler';
 
 interface WorkerProfileModalProps {
@@ -123,12 +124,15 @@ export const WorkerProfileModal: React.FC<WorkerProfileModalProps> = ({
       
       const sunStr = formatDateISO(sun);
       const thursStr = formatDateISO(thurs);
+      const lesson = getLessonByWeek(w);
 
       schedule.push({
         weekNumber: w,
         sundayDate: sunStr,
         prepDate: thursStr,
-        topic: `Quarter 1 Lesson ${w}`,
+        topic: lesson.topic,
+        scriptureReading: lesson.scriptureReading,
+        memoryVerse: lesson.memoryVerse,
         isSharingAdmonitionWeek: false
       });
     }
@@ -737,13 +741,25 @@ export const WorkerProfileModal: React.FC<WorkerProfileModalProps> = ({
                     >
                       {/* Week Header */}
                       <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 mb-2.5 border-b border-slate-100">
-                        <div className="flex items-center gap-2">
-                          <span className="px-2 py-0.5 bg-slate-900 text-amber-300 rounded font-black text-xs font-mono">
-                            Week {ws.weekNumber}
-                          </span>
-                          <span className="text-xs font-bold text-slate-800">
-                            {ws.topic}
-                          </span>
+                        <div className="flex flex-col gap-0.5">
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-0.5 bg-slate-900 text-amber-300 rounded font-black text-xs font-mono">
+                              Week {ws.weekNumber}
+                            </span>
+                            <span className="text-xs font-bold text-slate-800">
+                              {ws.topic}
+                            </span>
+                          </div>
+                          {ws.scriptureReading && (
+                            <span className="text-[11px] text-blue-900 font-medium">
+                              Text: {ws.scriptureReading}
+                            </span>
+                          )}
+                          {ws.memoryVerse && (
+                            <span className="text-[11px] text-amber-900/90 italic">
+                              Memory Verse: "{ws.memoryVerse}"
+                            </span>
+                          )}
                         </div>
 
                         <div className="flex items-center gap-3 text-xs">

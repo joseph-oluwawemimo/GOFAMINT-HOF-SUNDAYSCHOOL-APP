@@ -6,6 +6,7 @@ import {
   WorkerAttendanceRecord, 
   WorkerPrepAttendanceRecord 
 } from '../types';
+import { getLessonByWeek } from './whatsappMessages';
 
 export interface WeekScheduleInfo {
   weekNumber: number;
@@ -295,14 +296,17 @@ export function getQuarterWeeklySchedule(
     thurs.setDate(baseThursday.getDate() + (w - 1) * 7);
 
     const lesson = quarter.lessons?.find(l => l.weekNumber === w);
+    const distributedLesson = (lesson?.topic && !/^Lesson\s+\d+(\s+Topic)?$/i.test(lesson.topic.trim()))
+      ? lesson
+      : getLessonByWeek(w, quarter.lessons);
 
     schedule.push({
       weekNumber: w,
       sundayDate: formatDateISO(sun),
       prepDate: formatDateISO(thurs),
-      topic: lesson?.topic || `Lesson ${w}`,
-      scriptureReading: lesson?.scriptureReading,
-      memoryVerse: lesson?.memoryVerse,
+      topic: distributedLesson.topic,
+      scriptureReading: distributedLesson.scriptureReading,
+      memoryVerse: distributedLesson.memoryVerse,
       isSharingAdmonitionWeek: lesson?.isSharingAdmonitionWeek || w === 13
     });
   }
@@ -856,7 +860,7 @@ export function getThursdayClockInSecurity(
   targetPrepDate: string,
   configOrDate?: { thursdayOpenTime?: string; thursdayCloseTime?: string } | Date,
   nowInput?: Date,
-  adminTestOverride: boolean = false
+  _adminTestOverride: boolean = false
 ): {
   allowed: boolean;
   isOpen: boolean;
@@ -864,24 +868,11 @@ export function getThursdayClockInSecurity(
   isToday: boolean;
   isPast: boolean;
   isFuture: boolean;
-  status: 'OPEN' | 'DATE_MISMATCH' | 'BEFORE_WINDOW' | 'AFTER_WINDOW' | 'TEST_MODE';
+  status: 'OPEN' | 'DATE_MISMATCH' | 'BEFORE_WINDOW' | 'AFTER_WINDOW';
   reason: string;
 } {
   const config = (configOrDate instanceof Date ? {} : configOrDate) || {};
   const now = (configOrDate instanceof Date ? configOrDate : nowInput) || new Date();
-
-  if (adminTestOverride) {
-    return {
-      allowed: true,
-      isOpen: true,
-      isDateMatch: true,
-      isToday: true,
-      isPast: false,
-      isFuture: false,
-      status: 'TEST_MODE',
-      reason: 'Admin Rehearsal / Test Mode Active'
-    };
-  }
 
   const todayIso = getNigeriaDateISO(now);
   const isToday = todayIso === targetPrepDate;
@@ -971,7 +962,7 @@ export function getAttendanceSecurityState(
   openTime: string = '07:00',
   closeTime: string = '11:30',
   now: Date = new Date(),
-  adminTestOverride: boolean = false
+  _adminTestOverride: boolean = false
 ): {
   isFuture: boolean;
   isToday: boolean;
@@ -980,22 +971,9 @@ export function getAttendanceSecurityState(
   canClockIn: boolean;
   manualAttendanceAllowed: boolean;
   canTakeManualAttendance: boolean;
-  status: 'LOCKED_FUTURE' | 'BEFORE_WINDOW' | 'OPEN' | 'AFTER_WINDOW_MANUAL_OPEN' | 'PAST_MANUAL_OPEN' | 'TEST_MODE';
+  status: 'LOCKED_FUTURE' | 'BEFORE_WINDOW' | 'OPEN' | 'AFTER_WINDOW_MANUAL_OPEN' | 'PAST_MANUAL_OPEN';
   lockReason?: string;
 } {
-  if (adminTestOverride) {
-    return {
-      isFuture: false,
-      isToday: true,
-      isPast: false,
-      clockingAllowed: true,
-      canClockIn: true,
-      manualAttendanceAllowed: true,
-      canTakeManualAttendance: true,
-      status: 'TEST_MODE'
-    };
-  }
-
   const todayIso = getNigeriaDateISO(now);
   const isFuture = todayIso < serviceDate;
   const isPast = todayIso > serviceDate;

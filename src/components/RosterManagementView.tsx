@@ -29,17 +29,29 @@ import {
   MoreVertical,
   Award,
   Printer,
-  Download
+  Download,
+  Send,
+  BookOpen,
+  FileText,
+  Bookmark
 } from 'lucide-react';
 import { normalizePhoneNumber, findDuplicateMemberByPhone, buildWhatsAppDirectLink } from '../utils/phoneUtils';
-import { generateVisitorWeeklyFollowUpMessage, generateStudentWeeklyReminderMessage } from '../utils/whatsappMessages';
+import {
+  generateVisitorWeeklyFollowUpMessage,
+  generateStudentWeeklyReminderMessage,
+  generateChildStudentFollowUpMessage,
+  generateStudentCheckInFollowUpMessage,
+  getLessonByWeek
+} from '../utils/whatsappMessages';
 import { GofamintLogo } from './GofamintLogo';
 import {
   Member,
   MemberType,
   WeeklyGradeRecord,
   ClassProfile,
-  VisitorQualification
+  VisitorQualification,
+  LessonInfo,
+  SundaySchoolYear
 } from '../types';
 import { getConsecutiveVisits, checkVisitorQualification } from '../utils/calculations';
 import { CameraModal } from './CameraModal';
@@ -54,6 +66,8 @@ interface RosterManagementViewProps {
   classProfile: ClassProfile | null;
   quarterStatus?: 'ACTIVE' | 'ARCHIVED' | 'UPCOMING';
   selectedQuarter?: number;
+  lessons?: LessonInfo[];
+  sundaySchoolYear?: SundaySchoolYear;
   onSaveMember: (member: Member) => Promise<void> | void;
   onSaveBulkMembers?: (members: Member[]) => Promise<void> | void;
   onDeleteMember: (id: string) => void;
@@ -69,6 +83,8 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
   classProfile,
   quarterStatus = 'ACTIVE',
   selectedQuarter = 1,
+  lessons,
+  sundaySchoolYear,
   onSaveMember,
   onSaveBulkMembers,
   onDeleteMember,
@@ -111,6 +127,221 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
   const [transferFeedback, setTransferFeedback] = useState<string | null>(null);
   const [availableDirectoryClasses, setAvailableDirectoryClasses] = useState<ClassProfile[]>([]);
   const [availableDepartmentsList, setAvailableDepartmentsList] = useState<string[]>([]);
+
+  // Curriculum & Member Classification Helpers
+  const isChildMember = (member: Member): boolean => {
+    if (member.ageGroup === 'Children') return true;
+    const classNameLower = (classProfile?.className || '').toLowerCase();
+    const deptLower = (classProfile?.department || '').toLowerCase();
+    if (
+      classNameLower.includes('child') ||
+      classNameLower.includes('primary') ||
+      classNameLower.includes('junior') ||
+      classNameLower.includes('toddler') ||
+      classNameLower.includes('teen')
+    ) {
+      return true;
+    }
+    if (deptLower.includes('child') || deptLower.includes('junior')) return true;
+    return false;
+  };
+
+  const getMemberContactPhone = (member: Member): string => {
+    return member.phone || member.nextOfKinPhone || '';
+  };
+
+  const resolveQuarterLesson = (weekNum: number): LessonInfo => {
+    if (lessons && lessons.length > 0) {
+      const match = lessons.find(l => l.weekNumber === weekNum || l.lessonNumber === weekNum);
+      if (match) return match;
+    }
+    if (sundaySchoolYear && sundaySchoolYear.quarters) {
+      const q = sundaySchoolYear.quarters.find(quarter => quarter.quarterNumber === selectedQuarter);
+      if (q && q.lessons && q.lessons.length > 0) {
+        const match = q.lessons.find(l => l.weekNumber === weekNum || l.lessonNumber === weekNum);
+        if (match) return match;
+      }
+    }
+    return getLessonByWeek(weekNum, lessons);
+  };
+
+  // Follow-Up & Reminder Message Composer Modal State
+  const [composerState, setComposerState] = useState<{
+    isOpen: boolean;
+    member: Member | null;
+    targetPhone: string;
+    messageType: 'REMINDER' | 'FOLLOW_UP' | 'CHILD_FOLLOW_UP' | 'VISITOR_FOLLOW_UP';
+    weekNumber: number;
+    topic: string;
+    scriptureReading: string;
+    memoryVerse: string;
+    memoryVerseReference: string;
+    aim: string;
+    customNote: string;
+    parentName: string;
+  } | null>(null);
+
+  const [copiedComposerMessage, setCopiedComposerMessage] = useState(false);
+
+  const openComposerForMember = (
+    member: Member,
+    initialType?: 'REMINDER' | 'FOLLOW_UP' | 'CHILD_FOLLOW_UP' | 'VISITOR_FOLLOW_UP',
+    targetWeek?: number
+  ) => {
+    const isChild = isChildMember(member);
+    const resolvedType = initialType || (
+      isChild
+        ? 'CHILD_FOLLOW_UP'
+        : member.memberType === 'VISITOR' || member.isOneTimeVisitor
+          ? 'VISITOR_FOLLOW_UP'
+          : 'REMINDER'
+    );
+    const week = targetWeek !== undefined
+      ? targetWeek
+      : (resolvedType === 'REMINDER' ? (currentWeek < 12 ? currentWeek + 1 : currentWeek) : currentWeek);
+
+    const lesson = resolveQuarterLesson(week);
+    const phone = getMemberContactPhone(member);
+
+    setComposerState({
+      isOpen: true,
+      member,
+      targetPhone: phone,
+      messageType: resolvedType,
+      weekNumber: week,
+      topic: lesson.topic || lesson.title || '',
+      scriptureReading: lesson.scriptureReading || lesson.scriptureReferences || '',
+      memoryVerse: lesson.memoryVerse || '',
+      memoryVerseReference: lesson.memoryVerseReference || '',
+      aim: lesson.aim || '',
+      customNote: '',
+      parentName: member.nextOfKinName || 'Beloved Parent'
+    });
+    setCopiedComposerMessage(false);
+  };
+
+  const handleComposerWeekChange = (newWeek: number) => {
+    if (!composerState) return;
+    const lesson = resolveQuarterLesson(newWeek);
+    setComposerState(prev => prev ? {
+      ...prev,
+      weekNumber: newWeek,
+      topic: lesson.topic || lesson.title || '',
+      scriptureReading: lesson.scriptureReading || lesson.scriptureReferences || '',
+      memoryVerse: lesson.memoryVerse || '',
+      memoryVerseReference: lesson.memoryVerseReference || '',
+      aim: lesson.aim || ''
+    } : null);
+  };
+
+  const getComposedPreviewText = (): string => {
+    if (!composerState || !composerState.member) return '';
+    const { member, messageType, weekNumber, topic, scriptureReading, memoryVerse, memoryVerseReference, aim, customNote, parentName } = composerState;
+    const churchHeader = '🏰 *GOFAMINT SUNDAY SCHOOL — HOUSE OF FAVOR*';
+    const className = classProfile?.className || 'Sunday School Class';
+    const teacherName = classProfile?.secretaryName || classProfile?.teacherName || 'Sunday School Teacher';
+
+    if (messageType === 'CHILD_FOLLOW_UP') {
+      return [
+        churchHeader,
+        `*Children Department — Weekly Pastoral Care*`,
+        ``,
+        `Calvary greetings in Christ Jesus, Beloved *${parentName}*! 🙏`,
+        ``,
+        `We praise God for the life of your blessed child, *${member.fullName}*, in our *${className}*.`,
+        ``,
+        `📖 *UPCOMING SUNDAY SCHOOL LESSON:*`,
+        `• *Lesson ${weekNumber}:* ${topic}`,
+        scriptureReading ? `• *Lesson Text (Scripture Reading):* ${scriptureReading}` : '',
+        memoryVerse ? `• *Memory Verse:* "${memoryVerse}"${memoryVerseReference ? ` — ${memoryVerseReference}` : ''}` : '',
+        aim ? `• *Spiritual Aim:* ${aim}` : '',
+        ``,
+        `⏰ *Schedule:* Sunday at *8:00 AM Prompt*.`,
+        `Kindly assist *${member.fullName}* in reciting the memory verse and preparing prayerfully for this Sunday's class.`,
+        customNote ? `\n📝 *Special Teacher Note:*\n${customNote}\n` : '',
+        `May the Lord bless your family abundantly. See you on Sunday! ✨`,
+        ``,
+        `With Christ's love,`,
+        `*${teacherName}*`,
+        `*GOFAMINT House of Favor*`
+      ].filter(Boolean).join('\n');
+    }
+
+    if (messageType === 'VISITOR_FOLLOW_UP') {
+      return [
+        churchHeader,
+        `*Weekly Pastoral Care & Follow-Up*`,
+        ``,
+        `Calvary greetings in the name of our Lord Jesus Christ, Beloved *${member.fullName}*! 🙏`,
+        ``,
+        `We were truly blessed to have you worship and learn with us in *${className}*. We pray that the Word of God continues to bear rich spiritual fruit in your life.`,
+        ``,
+        `📖 *OUR LESSON FOR THIS WEEK (Week ${weekNumber}):*`,
+        `• *Topic:* ${topic}`,
+        scriptureReading ? `• *Lesson Text (Scripture Reading):* ${scriptureReading}` : '',
+        memoryVerse ? `• *Memory Verse:* "${memoryVerse}"${memoryVerseReference ? ` — ${memoryVerseReference}` : ''}` : '',
+        aim ? `• *Spiritual Aim:* ${aim}` : '',
+        ``,
+        `⏰ *Time:* Sunday Morning at *8:00 AM Prompt*.`,
+        `We warmly invite you to join us this coming Sunday. Our class family looks forward to welcoming you!`,
+        customNote ? `\n📝 *Personal Note from Teacher:*\n${customNote}\n` : '',
+        `Grace and peace be multiplied unto you. Have a victorious week! 🕊️`,
+        ``,
+        `Warm regards in Christ,`,
+        `*${teacherName}*`,
+        `*GOFAMINT House of Favor*`
+      ].filter(Boolean).join('\n');
+    }
+
+    if (messageType === 'FOLLOW_UP') {
+      return [
+        churchHeader,
+        `*Pastoral Care & Weekly Welfare Check-in*`,
+        ``,
+        `Calvary greetings in Christ, Dear *${member.fullName}*! 🙏`,
+        ``,
+        `This is *${teacherName}* checking in on you from *${className}*. You are constantly in our prayers, and we want to know how your week is going.`,
+        ``,
+        `📖 *SUNDAY SCHOOL CURRICULUM — WEEK ${weekNumber}:*`,
+        `• *Topic:* ${topic}`,
+        scriptureReading ? `• *Lesson Text (Scripture Reading):* ${scriptureReading}` : '',
+        memoryVerse ? `• *Memory Verse:* "${memoryVerse}"${memoryVerseReference ? ` — ${memoryVerseReference}` : ''}` : '',
+        aim ? `• *Spiritual Aim:* ${aim}` : '',
+        ``,
+        customNote ? `\n📝 *Teacher's Note:*\n${customNote}\n` : '',
+        `⏰ *Service Reminder:* Sunday morning at *8:00 AM Prompt*.`,
+        `If you need prayers or support, please feel free to reply directly to this message.`,
+        ``,
+        `Yours in His Vineyard,`,
+        `*${teacherName}*`,
+        `*GOFAMINT House of Favor*`
+      ].filter(Boolean).join('\n');
+    }
+
+    return [
+      churchHeader,
+      `*Sunday School Weekly Preparation Reminder*`,
+      ``,
+      `Calvary greetings in Christ Jesus, Dear *${member.fullName}*! 🙏`,
+      ``,
+      `This is a gentle reminder to prepare prayerfully for our upcoming Sunday School session in *${className}*.`,
+      ``,
+      `📖 *LESSON FOR SUNDAY (Week ${weekNumber}):*`,
+      `• *Topic:* ${topic}`,
+      scriptureReading ? `• *Lesson Text (Scripture Reading):* ${scriptureReading}` : '',
+      memoryVerse ? `• *Memory Verse:* "${memoryVerse}"${memoryVerseReference ? ` — ${memoryVerseReference}` : ''}` : '',
+      aim ? `• *Spiritual Aim:* ${aim}` : '',
+      ``,
+      `⏰ *Time:* Sunday Morning at *8:00 AM Prompt*.`,
+      `Please remember to come with your Bible, Sunday School Manual, and an expectant heart!`,
+      customNote ? `\n📝 *Personal Note:*\n${customNote}\n` : '',
+      `Have a blessed and spiritually enriching rest of the week! ✨`,
+      ``,
+      `In His service,`,
+      `*${teacherName}*`,
+      `*GOFAMINT House of Favor*`
+    ].filter(Boolean).join('\n');
+  };
 
   // Form Fields
   const [fullName, setFullName] = useState('');
@@ -845,10 +1076,69 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                         <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                         <span className="font-semibold text-slate-800">{member.phone}</span>
                         <a
-                          href={buildWhatsAppDirectLink(member.phone)}
+                          href={buildWhatsAppDirectLink(
+                            member.phone,
+                            isChildMember(member)
+                              ? generateChildStudentFollowUpMessage({
+                                  childName: member.fullName,
+                                  parentName: member.nextOfKinName,
+                                  className: classProfile?.className,
+                                  weekNumber: currentWeek < 12 ? currentWeek + 1 : currentWeek,
+                                  lesson: resolveQuarterLesson(currentWeek < 12 ? currentWeek + 1 : currentWeek),
+                                  staffName: classProfile?.secretaryName || classProfile?.teacherName
+                                })
+                              : member.memberType === 'VISITOR' || member.isOneTimeVisitor
+                                ? generateVisitorWeeklyFollowUpMessage({
+                                    visitorName: member.fullName,
+                                    weekNumber: currentWeek,
+                                    className: classProfile?.className,
+                                    staffName: classProfile?.secretaryName || classProfile?.teacherName,
+                                    lesson: resolveQuarterLesson(currentWeek)
+                                  })
+                                : generateStudentWeeklyReminderMessage({
+                                    studentName: member.fullName,
+                                    className: classProfile?.className,
+                                    weekNumber: currentWeek < 12 ? currentWeek + 1 : currentWeek,
+                                    staffName: classProfile?.secretaryName || classProfile?.teacherName,
+                                    lesson: resolveQuarterLesson(currentWeek < 12 ? currentWeek + 1 : currentWeek)
+                                  })
+                          )}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="ml-auto text-[10px] text-emerald-600 hover:text-emerald-700 font-bold flex items-center gap-1"
+                          title="Direct WhatsApp DM with current lesson curriculum"
+                        >
+                          <MessageCircle className="w-3 h-3" />
+                          <span>WhatsApp</span>
+                        </a>
+                      </div>
+                    )}
+
+                    {member.nextOfKinPhone && (
+                      <div className="flex items-center gap-2">
+                        <Phone className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                        <span className="font-semibold text-slate-800">
+                          {member.nextOfKinPhone}
+                          <span className="text-[10px] text-purple-700 ml-1.5 font-bold">
+                            ({member.nextOfKinName || 'Parent / Guardian'})
+                          </span>
+                        </span>
+                        <a
+                          href={buildWhatsAppDirectLink(
+                            member.nextOfKinPhone,
+                            generateChildStudentFollowUpMessage({
+                              childName: member.fullName,
+                              parentName: member.nextOfKinName,
+                              className: classProfile?.className,
+                              weekNumber: currentWeek < 12 ? currentWeek + 1 : currentWeek,
+                              lesson: resolveQuarterLesson(currentWeek < 12 ? currentWeek + 1 : currentWeek),
+                              staffName: classProfile?.secretaryName || classProfile?.teacherName
+                            })
+                          )}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="ml-auto text-[10px] text-emerald-600 hover:text-emerald-700 font-bold flex items-center gap-1"
+                          title="Message Parent/Guardian on WhatsApp with distributed curriculum"
                         >
                           <MessageCircle className="w-3 h-3" />
                           <span>WhatsApp</span>
@@ -929,27 +1219,51 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                         <span>Student Profile Link</span>
                       </button>
 
-                      {/* Item 3: One-Click Weekly Follow-Up for One-Time Visitors */}
-                      {(member.isOneTimeVisitor || member.exclusionType === 'TEMPORARY' || member.memberType === 'VISITOR') && member.phone && (
-                        <a
-                          id={`btn-visitor-followup-${member.id}`}
-                          href={buildWhatsAppDirectLink(
-                            member.phone,
-                            generateVisitorWeeklyFollowUpMessage({
-                              visitorName: member.fullName,
-                              weekNumber: currentWeek,
-                              className: classProfile?.className,
-                              staffName: classProfile?.secretaryName
-                            })
-                          )}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
-                          title="Send current lesson follow-up on WhatsApp"
-                        >
-                          <MessageCircle className="w-3.5 h-3.5" />
-                          <span>Follow Up</span>
-                        </a>
+                      {/* One-Click Weekly Follow-Up for One-Time Visitors */}
+                      {(member.isOneTimeVisitor || member.exclusionType === 'TEMPORARY' || member.memberType === 'VISITOR') && getMemberContactPhone(member) && (
+                        <>
+                          <a
+                            id={`btn-visitor-followup-${member.id}`}
+                            href={buildWhatsAppDirectLink(
+                              getMemberContactPhone(member),
+                              isChildMember(member)
+                                ? generateChildStudentFollowUpMessage({
+                                    childName: member.fullName,
+                                    parentName: member.nextOfKinName,
+                                    className: classProfile?.className,
+                                    weekNumber: currentWeek,
+                                    lesson: resolveQuarterLesson(currentWeek),
+                                    staffName: classProfile?.secretaryName || classProfile?.teacherName,
+                                    isAbsence: true
+                                  })
+                                : generateVisitorWeeklyFollowUpMessage({
+                                    visitorName: member.fullName,
+                                    weekNumber: currentWeek,
+                                    className: classProfile?.className,
+                                    staffName: classProfile?.secretaryName || classProfile?.teacherName,
+                                    lesson: resolveQuarterLesson(currentWeek)
+                                  })
+                            )}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
+                            title="Send current lesson follow-up on WhatsApp"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5" />
+                            <span>Follow Up</span>
+                          </a>
+
+                          <button
+                            type="button"
+                            id={`btn-visitor-write-edit-${member.id}`}
+                            onClick={() => openComposerForMember(member, 'VISITOR_FOLLOW_UP', currentWeek)}
+                            className="px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 shadow-xs bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 cursor-pointer"
+                            title="Write / customize Sunday School topic, text, and memory verse before sending"
+                          >
+                            <Edit2 className="w-3 h-3 text-slate-500" />
+                            <span>Write / Edit</span>
+                          </button>
+                        </>
                       )}
 
                       {!isReadOnly && (
@@ -996,26 +1310,50 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                         </button>
 
                         {/* One-Click Weekly Follow-up for Active Visitors */}
-                        {member.phone && (
-                          <a
-                            id={`btn-active-visitor-followup-${member.id}`}
-                            href={buildWhatsAppDirectLink(
-                              member.phone,
-                              generateVisitorWeeklyFollowUpMessage({
-                                visitorName: member.fullName,
-                                weekNumber: currentWeek,
-                                className: classProfile?.className,
-                                staffName: classProfile?.secretaryName
-                              })
-                            )}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
-                            title="Send current lesson follow-up on WhatsApp"
-                          >
-                            <MessageCircle className="w-3.5 h-3.5" />
-                            <span>Follow Up</span>
-                          </a>
+                        {getMemberContactPhone(member) && (
+                          <>
+                            <a
+                              id={`btn-active-visitor-followup-${member.id}`}
+                              href={buildWhatsAppDirectLink(
+                                getMemberContactPhone(member),
+                                isChildMember(member)
+                                  ? generateChildStudentFollowUpMessage({
+                                      childName: member.fullName,
+                                      parentName: member.nextOfKinName,
+                                      className: classProfile?.className,
+                                      weekNumber: currentWeek,
+                                      lesson: resolveQuarterLesson(currentWeek),
+                                      staffName: classProfile?.secretaryName || classProfile?.teacherName,
+                                      isAbsence: false
+                                    })
+                                  : generateVisitorWeeklyFollowUpMessage({
+                                      visitorName: member.fullName,
+                                      weekNumber: currentWeek,
+                                      className: classProfile?.className,
+                                      staffName: classProfile?.secretaryName || classProfile?.teacherName,
+                                      lesson: resolveQuarterLesson(currentWeek)
+                                    })
+                              )}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
+                              title="Send current lesson follow-up on WhatsApp"
+                            >
+                              <MessageCircle className="w-3.5 h-3.5" />
+                              <span>Follow Up</span>
+                            </a>
+
+                            <button
+                              type="button"
+                              id={`btn-active-visitor-write-edit-${member.id}`}
+                              onClick={() => openComposerForMember(member, 'VISITOR_FOLLOW_UP', currentWeek)}
+                              className="px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 shadow-xs bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 cursor-pointer"
+                              title="Write / customize Sunday School topic, text, and memory verse before sending"
+                            >
+                              <Edit2 className="w-3 h-3 text-slate-500" />
+                              <span>Write / Edit</span>
+                            </button>
+                          </>
                         )}
 
                         {member.conversionStatus === 'PENDING_APPROVAL' ? (
@@ -1041,10 +1379,14 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                     </div>
                   );
                 })() : (
-                  /* Certified Student Footer */
+                  /* Certified Student & Child Student Footer */
                   <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
-                    <span className="text-[11px] font-bold text-blue-900 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                      Certified Student
+                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded border ${
+                      isChildMember(member)
+                        ? 'text-purple-900 bg-purple-50 border-purple-200'
+                        : 'text-blue-900 bg-blue-50 border-blue-200'
+                    }`}>
+                      {isChildMember(member) ? 'Child Student' : 'Certified Student'}
                     </span>
                     <div className="flex items-center gap-2 flex-wrap">
                       <button
@@ -1059,18 +1401,29 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                         <span>Student Profile Link</span>
                       </button>
 
-                      {/* Item 4: Weekly Reminder for Students */}
-                      {member.phone && (
+                      {/* Weekly Reminder for Students */}
+                      {getMemberContactPhone(member) && (
                         <a
                           id={`btn-student-reminder-${member.id}`}
                           href={buildWhatsAppDirectLink(
-                            member.phone,
-                            generateStudentWeeklyReminderMessage({
-                              studentName: member.fullName,
-                              className: classProfile?.className,
-                              weekNumber: currentWeek < 12 ? currentWeek + 1 : currentWeek,
-                              staffName: classProfile?.secretaryName
-                            })
+                            getMemberContactPhone(member),
+                            isChildMember(member)
+                              ? generateChildStudentFollowUpMessage({
+                                  childName: member.fullName,
+                                  parentName: member.nextOfKinName,
+                                  className: classProfile?.className,
+                                  weekNumber: currentWeek < 12 ? currentWeek + 1 : currentWeek,
+                                  lesson: resolveQuarterLesson(currentWeek < 12 ? currentWeek + 1 : currentWeek),
+                                  staffName: classProfile?.secretaryName || classProfile?.teacherName,
+                                  isAbsence: false
+                                })
+                              : generateStudentWeeklyReminderMessage({
+                                  studentName: member.fullName,
+                                  className: classProfile?.className,
+                                  weekNumber: currentWeek < 12 ? currentWeek + 1 : currentWeek,
+                                  staffName: classProfile?.secretaryName || classProfile?.teacherName,
+                                  lesson: resolveQuarterLesson(currentWeek < 12 ? currentWeek + 1 : currentWeek)
+                                })
                           )}
                           target="_blank"
                           rel="noopener noreferrer"
@@ -1080,6 +1433,58 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                           <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
                           <span>Weekly Reminder</span>
                         </a>
+                      )}
+
+                      {/* Pastoral Care & Welfare Follow-Up */}
+                      {getMemberContactPhone(member) && (
+                        <a
+                          id={`btn-student-followup-${member.id}`}
+                          href={buildWhatsAppDirectLink(
+                            getMemberContactPhone(member),
+                            isChildMember(member)
+                              ? generateChildStudentFollowUpMessage({
+                                  childName: member.fullName,
+                                  parentName: member.nextOfKinName,
+                                  className: classProfile?.className,
+                                  weekNumber: currentWeek,
+                                  lesson: resolveQuarterLesson(currentWeek),
+                                  staffName: classProfile?.secretaryName || classProfile?.teacherName,
+                                  isAbsence: true
+                                })
+                              : generateStudentCheckInFollowUpMessage({
+                                  studentName: member.fullName,
+                                  className: classProfile?.className,
+                                  weekNumber: currentWeek,
+                                  lesson: resolveQuarterLesson(currentWeek),
+                                  staffName: classProfile?.secretaryName || classProfile?.teacherName
+                                })
+                          )}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-300 cursor-pointer"
+                          title="Send pastoral care and follow-up message on WhatsApp"
+                        >
+                          <HeartHandshake className="w-3.5 h-3.5 text-purple-600" />
+                          <span>Follow Up</span>
+                        </a>
+                      )}
+
+                      {/* Write / Edit Follow-Up Modal Trigger */}
+                      {getMemberContactPhone(member) && (
+                        <button
+                          type="button"
+                          id={`btn-student-write-edit-${member.id}`}
+                          onClick={() => openComposerForMember(
+                            member,
+                            isChildMember(member) ? 'CHILD_FOLLOW_UP' : 'REMINDER',
+                            currentWeek < 12 ? currentWeek + 1 : currentWeek
+                          )}
+                          className="px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1 shadow-xs bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 cursor-pointer"
+                          title="Write / customize Sunday School topic, text, and memory verse before sending"
+                        >
+                          <Edit2 className="w-3 h-3 text-slate-500" />
+                          <span>Write / Edit</span>
+                        </button>
                       )}
 
                       <button
@@ -1784,6 +2189,321 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Follow-Up & Reminder Message Composer Modal */}
+      {composerState?.isOpen && composerState.member && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs overflow-y-auto"
+          onClick={() => setComposerState(null)}
+        >
+          <div
+            className="bg-white border border-slate-200 rounded-3xl max-w-2xl w-full shadow-2xl overflow-hidden my-8 animate-in fade-in zoom-in duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="px-6 py-4 bg-gradient-to-r from-emerald-800 to-teal-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center border border-white/20">
+                  <MessageCircle className="w-5 h-5 text-emerald-300" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black font-['Cinzel',serif] tracking-wide">
+                    WhatsApp DM & Follow-Up Composer
+                  </h3>
+                  <p className="text-[11px] text-emerald-200">
+                    Official curriculum distributed by the General Secretary • House of Favor
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setComposerState(null)}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition cursor-pointer text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto">
+              {/* Recipient Overview Badge */}
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-black text-slate-900 text-sm">
+                      {composerState.member.fullName}
+                    </span>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+                      isChildMember(composerState.member)
+                        ? 'text-purple-800 bg-purple-50 border-purple-200'
+                        : composerState.member.memberType === 'VISITOR'
+                          ? 'text-amber-800 bg-amber-50 border-amber-200'
+                          : 'text-blue-800 bg-blue-50 border-blue-200'
+                    }`}>
+                      {isChildMember(composerState.member)
+                        ? 'Child Student'
+                        : composerState.member.memberType === 'VISITOR'
+                          ? 'Visitor'
+                          : 'Certified Student'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {classProfile?.className || 'Sunday School Class'} • {classProfile?.department || 'Department'}
+                  </p>
+                  {isChildMember(composerState.member) && composerState.parentName && (
+                    <p className="text-xs text-purple-700 font-semibold mt-1">
+                      Parent / Guardian: <strong>{composerState.parentName}</strong>
+                    </p>
+                  )}
+                </div>
+                <div className="text-right sm:border-l sm:border-slate-200 sm:pl-4">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block">WhatsApp Destination</span>
+                  <span className="text-xs font-black text-emerald-700 flex items-center justify-end gap-1">
+                    <Phone className="w-3.5 h-3.5 text-emerald-600" />
+                    {composerState.targetPhone || 'No Phone Registered'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Message Mode Tabs */}
+              <div>
+                <label className="block text-xs font-black uppercase text-slate-600 tracking-wider mb-2">
+                  1. Message Type / Purpose
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setComposerState(prev => prev ? { ...prev, messageType: 'REMINDER' } : null)}
+                    className={`p-2.5 rounded-xl border text-xs font-bold transition flex flex-col items-center gap-1 cursor-pointer ${
+                      composerState.messageType === 'REMINDER'
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span>📅 Reminder</span>
+                    <span className="text-[10px] opacity-80 font-normal">8:00 AM Prompt</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setComposerState(prev => prev ? { ...prev, messageType: 'CHILD_FOLLOW_UP' } : null)}
+                    className={`p-2.5 rounded-xl border text-xs font-bold transition flex flex-col items-center gap-1 cursor-pointer ${
+                      composerState.messageType === 'CHILD_FOLLOW_UP'
+                        ? 'bg-purple-600 text-white border-purple-600 shadow-sm'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span>🧒 Child Care</span>
+                    <span className="text-[10px] opacity-80 font-normal">Parent Message</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setComposerState(prev => prev ? { ...prev, messageType: 'FOLLOW_UP' } : null)}
+                    className={`p-2.5 rounded-xl border text-xs font-bold transition flex flex-col items-center gap-1 cursor-pointer ${
+                      composerState.messageType === 'FOLLOW_UP'
+                        ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span>🤝 Pastoral Care</span>
+                    <span className="text-[10px] opacity-80 font-normal">Welfare Check-in</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setComposerState(prev => prev ? { ...prev, messageType: 'VISITOR_FOLLOW_UP' } : null)}
+                    className={`p-2.5 rounded-xl border text-xs font-bold transition flex flex-col items-center gap-1 cursor-pointer ${
+                      composerState.messageType === 'VISITOR_FOLLOW_UP'
+                        ? 'bg-teal-600 text-white border-teal-600 shadow-sm'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span>🌟 Visitor Follow-Up</span>
+                    <span className="text-[10px] opacity-80 font-normal">Warm Welcome</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Lesson Week Selector */}
+              <div>
+                <label className="block text-xs font-black uppercase text-slate-600 tracking-wider mb-2">
+                  2. Select Sunday School Curriculum Week (Distributed by General Secretary)
+                </label>
+                <select
+                  value={composerState.weekNumber}
+                  onChange={(e) => handleComposerWeekChange(parseInt(e.target.value) || 1)}
+                  className="w-full px-3.5 py-2.5 border-2 border-slate-200 rounded-xl text-xs bg-white font-bold text-slate-800 focus:border-emerald-600 focus:outline-hidden"
+                >
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map((w) => {
+                    const l = resolveQuarterLesson(w);
+                    return (
+                      <option key={w} value={w}>
+                        Week {w}: {l.topic || l.title || `Lesson ${w}`}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              {/* Editable Lesson Details */}
+              <div className="p-4 bg-emerald-50/50 border border-emerald-200 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between pb-1 border-b border-emerald-200">
+                  <span className="text-xs font-black uppercase text-emerald-900 tracking-wider flex items-center gap-1.5">
+                    <BookOpen className="w-3.5 h-3.5 text-emerald-700" />
+                    3. Lesson Curriculum Details (Editable)
+                  </span>
+                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
+                    General Secretary Authorized
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Sunday School Topic *
+                  </label>
+                  <input
+                    type="text"
+                    value={composerState.topic}
+                    onChange={(e) => setComposerState(prev => prev ? { ...prev, topic: e.target.value } : null)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white font-semibold text-slate-900 focus:ring-2 focus:ring-emerald-500"
+                    placeholder="Enter Sunday School Topic"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Lesson Text / Scripture Reading *
+                  </label>
+                  <input
+                    type="text"
+                    value={composerState.scriptureReading}
+                    onChange={(e) => setComposerState(prev => prev ? { ...prev, scriptureReading: e.target.value } : null)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white font-semibold text-slate-900 focus:ring-2 focus:ring-emerald-500"
+                    placeholder="e.g. Genesis 12:1-9; Hebrews 11:8-10"
+                    required
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Memory Verse *
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={composerState.memoryVerse}
+                      onChange={(e) => setComposerState(prev => prev ? { ...prev, memoryVerse: e.target.value } : null)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white font-medium text-slate-900 focus:ring-2 focus:ring-emerald-500"
+                      placeholder="Enter memory verse wording"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Scripture Reference *
+                    </label>
+                    <input
+                      type="text"
+                      value={composerState.memoryVerseReference}
+                      onChange={(e) => setComposerState(prev => prev ? { ...prev, memoryVerseReference: e.target.value } : null)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white font-semibold text-slate-900 focus:ring-2 focus:ring-emerald-500"
+                      placeholder="e.g. John 3:16"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Spiritual Aim / Objective (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={composerState.aim}
+                    onChange={(e) => setComposerState(prev => prev ? { ...prev, aim: e.target.value } : null)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white font-normal text-slate-800 focus:ring-2 focus:ring-emerald-500"
+                    placeholder="Spiritual takeaway for the student"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Teacher's Personal Pastoral Note / Prayer Point (Optional)
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={composerState.customNote}
+                    onChange={(e) => setComposerState(prev => prev ? { ...prev, customNote: e.target.value } : null)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white font-medium text-slate-900 focus:ring-2 focus:ring-emerald-500"
+                    placeholder="e.g. Praying for divine wisdom in your exams this week... or We truly missed you last Sunday!"
+                  />
+                </div>
+              </div>
+
+              {/* Message Preview */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-black uppercase text-slate-600 tracking-wider flex items-center gap-1.5">
+                    <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
+                    4. Live WhatsApp DM Preview
+                  </label>
+                  <span className="text-[10px] text-slate-400 font-semibold">
+                    Formatted with bold headers and emojis
+                  </span>
+                </div>
+                <div className="p-4 bg-slate-900 text-slate-100 rounded-2xl text-xs font-mono leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto border border-slate-800 shadow-inner">
+                  {getComposedPreviewText()}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer Controls */}
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => setComposerState(null)}
+                className="w-full sm:w-auto px-4 py-2 text-slate-600 hover:text-slate-800 text-xs font-bold transition cursor-pointer"
+              >
+                Close
+              </button>
+
+              <div className="w-full sm:w-auto flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(getComposedPreviewText());
+                    setCopiedComposerMessage(true);
+                    setTimeout(() => setCopiedComposerMessage(false), 3000);
+                  }}
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 cursor-pointer shadow-xs"
+                >
+                  {copiedComposerMessage ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Copy Message</span>
+                    </>
+                  )}
+                </button>
+
+                <a
+                  href={buildWhatsAppDirectLink(composerState.targetPhone, getComposedPreviewText())}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 sm:flex-none px-5 py-2.5 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer shadow-sm active:scale-95"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Send via WhatsApp DM</span>
+                </a>
+              </div>
+            </div>
           </div>
         </div>
       )}

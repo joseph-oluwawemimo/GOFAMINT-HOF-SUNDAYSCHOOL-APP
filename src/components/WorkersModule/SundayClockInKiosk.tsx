@@ -12,7 +12,7 @@ import {
   QrCode, Search, Camera, CheckCircle, AlertTriangle, 
   Clock, Sparkles, Settings, Volume2, VolumeX, Users, 
   RefreshCw, ArrowRight, ShieldCheck, UserCheck, Flame,
-  Edit3, Calendar, Download, Printer, CheckCircle2, Lock, BookOpen
+  Edit3, Calendar, Download, Printer, CheckCircle2, Lock, Unlock, BookOpen
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import jsQR from 'jsqr';
@@ -22,6 +22,7 @@ import { getQuarterWeeklySchedule, getCurrentCalendarWeek } from '../../utils/qu
 import { evaluateAttendanceAccess, getAttendanceWeekLockKey } from '../../utils/attendanceAccessSecurity';
 import { 
   lockAttendanceWeek, 
+  unlockAttendanceWeek,
   requestAttendanceWeekChanges, 
   approveAttendanceWeekChanges, 
   completeAttendanceWeekChanges 
@@ -214,6 +215,22 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
       await onUpdateConfig(updated);
     } catch (err: any) {
       alert(`Failed to unlock for changes: ${err.message}`);
+    } finally {
+      setIsProcessingLockAction(false);
+    }
+  };
+
+  // Complete Unlock Register Handler (Removes lock completely)
+  const handleUnlockRegister = async () => {
+    if (!window.confirm(`Fully unlock Sunday Week ${selectedWeek} register? This will re-open attendance for unrestricted manual updates until locked again.`)) {
+      return;
+    }
+    setIsProcessingLockAction(true);
+    try {
+      const updated = await unlockAttendanceWeek('SUNDAY', selectedQuarterNumber, selectedWeek);
+      await onUpdateConfig(updated);
+    } catch (err: any) {
+      alert(`Failed to unlock register: ${err.message}`);
     } finally {
       setIsProcessingLockAction(false);
     }
@@ -958,7 +975,17 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
               <div className="text-sm font-bold text-white line-clamp-1">
                 {activeWeekInfo?.topic || `Lesson ${selectedWeek}`}
               </div>
-              <span className="text-[11px] font-mono flex items-center gap-1.5">
+              {activeWeekInfo?.scriptureReading && (
+                <div className="text-[11px] text-blue-200">
+                  <span className="font-semibold text-slate-300">Text:</span> {activeWeekInfo.scriptureReading}
+                </div>
+              )}
+              {activeWeekInfo?.memoryVerse && (
+                <div className="text-[11px] text-amber-200/90 italic">
+                  <span className="font-semibold text-slate-300 not-italic">Memory Verse:</span> "{activeWeekInfo.memoryVerse}"
+                </div>
+              )}
+              <span className="text-[11px] font-mono flex items-center gap-1.5 pt-0.5">
                 <span className={isCurrentWeekLive ? 'text-emerald-400' : isTargetDatePast ? 'text-slate-400' : 'text-blue-300'}>
                   {targetSundayDate}
                 </span>
@@ -1026,31 +1053,55 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
             </button>
           )}
 
-          {/* Make Changes Button */}
+          {/* Make Changes & Unlock Register Buttons */}
           {sundayAccess.isManuallyLocked && !sundayAccess.isChangeModeActive && (
-            <button
-              id="btn-sunday-make-changes"
-              onClick={handleDirectMakeChanges}
-              disabled={isProcessingLockAction}
-              className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 shadow-sm transition cursor-pointer"
-              title="Unlock to make corrections to Sunday register"
-            >
-              <Edit3 className="w-3.5 h-3.5 text-amber-200" />
-              <span>Make Changes</span>
-            </button>
+            <>
+              <button
+                id="btn-sunday-make-changes"
+                onClick={handleDirectMakeChanges}
+                disabled={isProcessingLockAction}
+                className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 shadow-sm transition cursor-pointer"
+                title="Enable Changes Mode to make corrections and lock again"
+              >
+                <Edit3 className="w-3.5 h-3.5 text-amber-200" />
+                <span>Make Changes</span>
+              </button>
+              <button
+                id="btn-sunday-unlock-register"
+                onClick={handleUnlockRegister}
+                disabled={isProcessingLockAction}
+                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+                title="Remove lock completely and re-open register"
+              >
+                <Unlock className="w-3.5 h-3.5 text-slate-600" />
+                <span>Unlock Register</span>
+              </button>
+            </>
           )}
 
           {sundayAccess.isChangeModeActive && (
-            <button
-              id="btn-sunday-changes-done"
-              onClick={handleCompleteChanges}
-              disabled={isProcessingLockAction}
-              className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-md transition cursor-pointer animate-pulse"
-              title="Save corrections and lock register again"
-            >
-              <CheckCircle2 className="w-4 h-4 text-amber-300" />
-              <span>Save & Lock Again</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                id="btn-sunday-changes-done"
+                onClick={handleCompleteChanges}
+                disabled={isProcessingLockAction}
+                className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-md transition cursor-pointer"
+                title="Save corrections and lock register again"
+              >
+                <CheckCircle2 className="w-4 h-4 text-emerald-200" />
+                <span>Save & Lock Again</span>
+              </button>
+              <button
+                id="btn-sunday-leave-unlocked"
+                onClick={handleUnlockRegister}
+                disabled={isProcessingLockAction}
+                className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                title="Keep register unlocked"
+              >
+                <Unlock className="w-3.5 h-3.5 text-slate-600" />
+                <span>Keep Unlocked</span>
+              </button>
+            </div>
           )}
 
           {viewMode === 'REGISTER' && sundayAccess.canManualAttendance && (isTargetDatePast || sundayAccess.isChangeModeActive) && (
@@ -1120,6 +1171,16 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
                   <Edit3 className="w-4 h-4" />
                   <span>Make Changes</span>
                 </button>
+                <button
+                  type="button"
+                  id="btn-sunday-banner-unlock"
+                  onClick={handleUnlockRegister}
+                  disabled={isProcessingLockAction}
+                  className="px-3.5 py-2.5 bg-white/90 hover:bg-white text-rose-900 border border-rose-300 rounded-xl text-xs font-bold shadow-sm transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Unlock className="w-3.5 h-3.5" />
+                  <span>Unlock Register</span>
+                </button>
               </div>
             </div>
           )}
@@ -1145,16 +1206,28 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
                 </div>
               </div>
 
-              <button
-                type="button"
-                id="btn-sunday-banner-lock-again"
-                onClick={handleCompleteChanges}
-                disabled={isProcessingLockAction}
-                className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-black shadow-md transition flex items-center gap-2 cursor-pointer shrink-0 animate-pulse"
-              >
-                <CheckCircle2 className="w-4 h-4 text-amber-300" />
-                <span>Save & Lock Again</span>
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  id="btn-sunday-banner-lock-again"
+                  onClick={handleCompleteChanges}
+                  disabled={isProcessingLockAction}
+                  className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-black shadow-md transition flex items-center gap-2 cursor-pointer shrink-0"
+                >
+                  <CheckCircle2 className="w-4 h-4 text-emerald-200" />
+                  <span>Save & Lock Again</span>
+                </button>
+                <button
+                  type="button"
+                  id="btn-sunday-banner-keep-unlocked"
+                  onClick={handleUnlockRegister}
+                  disabled={isProcessingLockAction}
+                  className="px-3 py-2 bg-amber-200 hover:bg-amber-300 text-amber-950 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
+                >
+                  <Unlock className="w-3.5 h-3.5 text-amber-900" />
+                  <span>Keep Unlocked</span>
+                </button>
+              </div>
             </div>
           )}
 

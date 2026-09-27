@@ -12,7 +12,7 @@ import {
 import { 
   Calendar, Check, X, Clock, Filter, 
   Download, Printer, Sparkles, BookOpen, UserCheck, Search, 
-  CheckCircle2, Lock, Edit3, ChevronRight, Layers, Award,
+  CheckCircle2, Lock, Unlock, Edit3, ChevronRight, Layers, Award,
   QrCode, AlertCircle, ShieldCheck, Settings
 } from 'lucide-react';
 import { 
@@ -23,6 +23,7 @@ import {
 import { evaluateAttendanceAccess, getAttendanceWeekLockKey } from '../../utils/attendanceAccessSecurity';
 import { 
   lockAttendanceWeek, 
+  unlockAttendanceWeek,
   requestAttendanceWeekChanges, 
   approveAttendanceWeekChanges, 
   completeAttendanceWeekChanges 
@@ -165,6 +166,22 @@ export const PreparatoryAttendanceView: React.FC<PreparatoryAttendanceViewProps>
       if (onUpdateConfig) await onUpdateConfig(updated);
     } catch (err: any) {
       alert(`Failed to unlock for changes: ${err.message}`);
+    } finally {
+      setIsProcessingLockAction(false);
+    }
+  };
+
+  // Complete Unlock Register Handler (Removes lock completely)
+  const handleUnlockRegister = async () => {
+    if (!window.confirm(`Fully unlock Thursday Week ${selectedWeek} register? This will re-open attendance for unrestricted manual updates until locked again.`)) {
+      return;
+    }
+    setIsProcessingLockAction(true);
+    try {
+      const updated = await unlockAttendanceWeek('THURSDAY', selectedQuarterNumber, selectedWeek);
+      if (onUpdateConfig) await onUpdateConfig(updated);
+    } catch (err: any) {
+      alert(`Failed to unlock register: ${err.message}`);
     } finally {
       setIsProcessingLockAction(false);
     }
@@ -445,31 +462,55 @@ export const PreparatoryAttendanceView: React.FC<PreparatoryAttendanceViewProps>
             </button>
           )}
 
-          {/* Make Changes Button when locked */}
+          {/* Make Changes & Unlock Register Buttons when locked */}
           {attendanceAccess.isManuallyLocked && !attendanceAccess.isChangeModeActive && (
-            <button
-              id="btn-thursday-make-changes"
-              onClick={handleDirectMakeChanges}
-              disabled={isProcessingLockAction}
-              className="px-3.5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 shadow-sm transition cursor-pointer"
-              title="Unlock to make corrections to Thursday register"
-            >
-              <Edit3 className="w-3.5 h-3.5 text-amber-200" />
-              <span>Make Changes</span>
-            </button>
+            <>
+              <button
+                id="btn-thursday-make-changes"
+                onClick={handleDirectMakeChanges}
+                disabled={isProcessingLockAction}
+                className="px-3.5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 shadow-sm transition cursor-pointer"
+                title="Unlock to make corrections to Thursday register"
+              >
+                <Edit3 className="w-3.5 h-3.5 text-amber-200" />
+                <span>Make Changes</span>
+              </button>
+              <button
+                id="btn-thursday-unlock-register"
+                onClick={handleUnlockRegister}
+                disabled={isProcessingLockAction}
+                className="px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+                title="Remove lock completely and re-open Thursday register"
+              >
+                <Unlock className="w-3.5 h-3.5 text-slate-600" />
+                <span>Unlock Register</span>
+              </button>
+            </>
           )}
 
           {attendanceAccess.isChangeModeActive && (
-            <button
-              id="btn-thursday-changes-done"
-              onClick={handleCompleteChanges}
-              disabled={isProcessingLockAction}
-              className="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-md transition cursor-pointer animate-pulse"
-              title="Finalize corrections and automatically lock again"
-            >
-              <CheckCircle2 className="w-4 h-4 text-amber-300" />
-              <span>Save & Lock Again</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                id="btn-thursday-changes-done"
+                onClick={handleCompleteChanges}
+                disabled={isProcessingLockAction}
+                className="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-md transition cursor-pointer animate-pulse"
+                title="Finalize corrections and automatically lock again"
+              >
+                <CheckCircle2 className="w-4 h-4 text-amber-300" />
+                <span>Save & Lock Again</span>
+              </button>
+              <button
+                id="btn-thursday-leave-unlocked"
+                onClick={handleUnlockRegister}
+                disabled={isProcessingLockAction}
+                className="px-3 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                title="Keep register unlocked"
+              >
+                <Unlock className="w-3.5 h-3.5 text-slate-600" />
+                <span>Keep Unlocked</span>
+              </button>
+            </div>
           )}
 
           <button
@@ -622,7 +663,17 @@ export const PreparatoryAttendanceView: React.FC<PreparatoryAttendanceViewProps>
             <div className="text-sm font-bold text-white line-clamp-1">
               {activeWeekInfo?.topic || `Lesson ${selectedWeek}`}
             </div>
-            <span className="text-[11px] text-amber-300 font-mono">
+            {activeWeekInfo?.scriptureReading && (
+              <div className="text-[11px] text-blue-200">
+                <span className="font-semibold text-slate-300">Text:</span> {activeWeekInfo.scriptureReading}
+              </div>
+            )}
+            {activeWeekInfo?.memoryVerse && (
+              <div className="text-[11px] text-amber-200/90 italic">
+                <span className="font-semibold text-slate-300 not-italic">Memory Verse:</span> "{activeWeekInfo.memoryVerse}"
+              </div>
+            )}
+            <span className="text-[11px] text-amber-300 font-mono block">
               Date: {targetPrepDate} ({isTargetDatePast ? 'Past Date' : isTargetDateToday ? 'Today' : 'Future Date'})
             </span>
           </div>
@@ -674,6 +725,16 @@ export const PreparatoryAttendanceView: React.FC<PreparatoryAttendanceViewProps>
               <Edit3 className="w-4 h-4" />
               <span>Make Changes</span>
             </button>
+            <button
+              type="button"
+              id="btn-banner-unlock"
+              onClick={handleUnlockRegister}
+              disabled={isProcessingLockAction}
+              className="px-3.5 py-2.5 bg-white/90 hover:bg-white text-rose-900 border border-rose-300 rounded-xl text-xs font-bold shadow-sm transition flex items-center gap-1.5 cursor-pointer"
+            >
+              <Unlock className="w-3.5 h-3.5" />
+              <span>Unlock Register</span>
+            </button>
           </div>
         </div>
       )}
@@ -699,16 +760,28 @@ export const PreparatoryAttendanceView: React.FC<PreparatoryAttendanceViewProps>
             </div>
           </div>
 
-          <button
-            type="button"
-            id="btn-banner-lock-again"
-            onClick={handleCompleteChanges}
-            disabled={isProcessingLockAction}
-            className="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-black shadow-md transition flex items-center gap-2 cursor-pointer shrink-0 animate-pulse"
-          >
-            <CheckCircle2 className="w-4 h-4 text-amber-300" />
-            <span>Save & Lock Again</span>
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              id="btn-banner-lock-again"
+              onClick={handleCompleteChanges}
+              disabled={isProcessingLockAction}
+              className="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-black shadow-md transition flex items-center gap-2 cursor-pointer shrink-0 animate-pulse"
+            >
+              <CheckCircle2 className="w-4 h-4 text-amber-300" />
+              <span>Save & Lock Again</span>
+            </button>
+            <button
+              type="button"
+              id="btn-banner-keep-unlocked"
+              onClick={handleUnlockRegister}
+              disabled={isProcessingLockAction}
+              className="px-3 py-2 bg-amber-200 hover:bg-amber-300 text-amber-950 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
+            >
+              <Unlock className="w-3.5 h-3.5 text-amber-900" />
+              <span>Keep Unlocked</span>
+            </button>
+          </div>
         </div>
       )}
 

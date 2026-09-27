@@ -18,9 +18,10 @@ import {
   Member,
   WeeklyGradeRecord,
   ClassProfile,
-  ChatMessage
+  ChatMessage,
+  LessonInfo
 } from '../types';
-import { GOFAMINT_HOF_12_LESSONS } from '../data/mockQuarterLessons';
+import { getLessonByWeek } from '../utils/whatsappMessages';
 import { askGeminiSecretaryAssistant } from '../services/api';
 
 interface AIAssistantViewProps {
@@ -28,6 +29,7 @@ interface AIAssistantViewProps {
   grades: WeeklyGradeRecord[];
   currentWeek: number;
   classProfile: ClassProfile | null;
+  lessons?: LessonInfo[];
   initialPrompt?: string;
   onClearInitialPrompt?: () => void;
 }
@@ -37,6 +39,7 @@ export const AIAssistantView: React.FC<AIAssistantViewProps> = ({
   grades,
   currentWeek,
   classProfile,
+  lessons,
   initialPrompt,
   onClearInitialPrompt
 }) => {
@@ -65,7 +68,7 @@ export const AIAssistantView: React.FC<AIAssistantViewProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isLoading]);
 
-  const currentLesson = GOFAMINT_HOF_12_LESSONS.find(l => l.weekNumber === currentWeek) || GOFAMINT_HOF_12_LESSONS[0];
+  const currentLesson = lessons?.find(l => l.weekNumber === currentWeek) || getLessonByWeek(currentWeek, lessons);
 
   const handleSendMessage = async (textToSend?: string) => {
     const query = textToSend || inputText;

@@ -47,7 +47,6 @@ export const ThursdayClockInTerminalModal: React.FC<ThursdayClockInTerminalModal
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDept, setSelectedDept] = useState<string>('ALL');
   const [currentTimeStr, setCurrentTimeStr] = useState<string>('');
-  const [adminTestOverride, setAdminTestOverride] = useState<boolean>(false);
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
   
   // Camera scanning state
@@ -147,10 +146,9 @@ export const ThursdayClockInTerminalModal: React.FC<ThursdayClockInTerminalModal
       openTime: config.thursdayOpenTime,
       closeTime: config.thursdayCloseTime,
       config,
-      now: new Date(),
-      adminTestOverride
+      now: new Date()
     });
-  }, [adminTestOverride, config, targetDate, weekNumber]);
+  }, [config, targetDate, weekNumber]);
 
   const clockInStatus = useMemo(() => ({
     allowed: attendanceAccess.canClockIn,
@@ -433,38 +431,16 @@ export const ThursdayClockInTerminalModal: React.FC<ThursdayClockInTerminalModal
                 <span className="font-medium text-slate-800">{clockInStatus.reason}</span>
               </div>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                onClick={() => setAdminTestOverride(true)}
-                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl text-xs font-black transition cursor-pointer shadow-xs"
-              >
-                ⚡ Enable Rehearsal Mode
-              </button>
-              {onUpdateConfig && (
+            {onUpdateConfig && (
+              <div className="flex items-center gap-2 shrink-0">
                 <button
                   onClick={() => setShowSettingsModal(true)}
                   className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-900 border border-slate-300 rounded-xl text-xs font-bold transition cursor-pointer"
                 >
                   Adjust Hours
                 </button>
-              )}
-            </div>
-          </div>
-        )}
-
-        {adminTestOverride && (
-          <div className="bg-emerald-500/15 border-b border-emerald-500/30 p-2.5 px-6 flex items-center justify-between text-emerald-950 text-xs">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-emerald-600" />
-              <span className="font-black">Rehearsal / Test Mode is Active:</span>
-              <span>Clocking allowed outside scheduled Thursday window for simulation.</span>
-            </div>
-            <button
-              onClick={() => setAdminTestOverride(false)}
-              className="text-[11px] font-bold text-emerald-800 underline hover:text-emerald-950 cursor-pointer"
-            >
-              Restore Window Enforcement
-            </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -593,7 +569,7 @@ export const ThursdayClockInTerminalModal: React.FC<ThursdayClockInTerminalModal
 
                     {!clockInStatus.allowed ? (
                       <button
-                        onClick={() => alert(`Thursday Clock-In is locked outside the configured window.\n\n${clockInStatus.reason}\n\nYou can click "Enable Rehearsal Mode" or "Adjust Schedule" to continue.`)}
+                        onClick={() => alert(`Thursday Clock-In is locked outside the configured window.\n\n${clockInStatus.reason}\n\nPlease adjust the schedule window in settings if authorized.`)}
                         className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0 border border-slate-300"
                         title={clockInStatus.reason}
                       >
@@ -639,22 +615,16 @@ export const ThursdayClockInTerminalModal: React.FC<ThursdayClockInTerminalModal
                     {clockInStatus.reason}
                   </p>
                 </div>
-                <div className="pt-2 flex flex-col gap-2">
-                  <button
-                    onClick={() => setAdminTestOverride(true)}
-                    className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl text-xs font-black transition cursor-pointer shadow-xs"
-                  >
-                    ⚡ Enable Rehearsal Mode to Scan Now
-                  </button>
-                  {onUpdateConfig && (
+                {onUpdateConfig && (
+                  <div className="pt-2">
                     <button
                       onClick={() => setShowSettingsModal(true)}
                       className="w-full py-2 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 rounded-xl text-xs font-bold transition cursor-pointer"
                     >
                       Adjust Thursday Window
                     </button>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             ) : cameraError ? (
               <div className="p-4 bg-rose-50 border border-rose-200 text-rose-800 rounded-2xl text-xs max-w-md space-y-2">

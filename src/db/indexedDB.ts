@@ -2243,13 +2243,17 @@ export async function approveAttendanceWeekChanges(
   const weekKey = `${sessionType}_${quarterNumber}_${weekNumber}`;
   const now = new Date().toISOString();
 
-  const existingRecord = config.lockedWeeks?.[weekKey];
-  if (!existingRecord?.activeChangeRequest) {
-    throw new Error(`No active change request found for ${sessionType} Week ${weekNumber}`);
-  }
+  const existingRecord = config.lockedWeeks?.[weekKey] || { isLocked: true };
+  const changeRequestId = existingRecord.activeChangeRequest?.id || `cr_${sessionType}_${quarterNumber}_${weekNumber}_${Date.now()}`;
 
   const approvedRequest: AttendanceChangeRequestRecord = {
-    ...existingRecord.activeChangeRequest,
+    id: changeRequestId,
+    sessionType,
+    quarterNumber,
+    weekNumber,
+    requestedBy: existingRecord.activeChangeRequest?.requestedBy || reviewedBy,
+    requestedAt: existingRecord.activeChangeRequest?.requestedAt || now,
+    reason: existingRecord.activeChangeRequest?.reason || 'Direct Coordinator Unlock to make corrections',
     status: 'APPROVED',
     reviewedBy,
     reviewedAt: now
@@ -2259,7 +2263,34 @@ export async function approveAttendanceWeekChanges(
     ...(config.lockedWeeks || {}),
     [weekKey]: {
       ...existingRecord,
+      isLocked: true,
       activeChangeRequest: approvedRequest
+    }
+  };
+
+  const updatedConfig: ClockInConfig = {
+    ...config,
+    lockedWeeks: updatedWeeks
+  };
+
+  return await saveClockInConfig(updatedConfig);
+}
+
+export async function unlockAttendanceWeek(
+  sessionType: 'THURSDAY' | 'SUNDAY',
+  quarterNumber: QuarterNumber,
+  weekNumber: number
+): Promise<ClockInConfig> {
+  const config = await getClockInConfig();
+  const weekKey = `${sessionType}_${quarterNumber}_${weekNumber}`;
+  const existingRecord = config.lockedWeeks?.[weekKey];
+
+  const updatedWeeks = {
+    ...(config.lockedWeeks || {}),
+    [weekKey]: {
+      ...existingRecord,
+      isLocked: false,
+      activeChangeRequest: undefined
     }
   };
 

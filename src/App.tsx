@@ -909,6 +909,17 @@ export default function App() {
     return lessons;
   }, [sundaySchoolYear, selectedQuarter, lessons]);
 
+  // Keep distributed curriculum cached synchronously for immediate availability across modals and utilities
+  useEffect(() => {
+    if (currentQuarterLessons && currentQuarterLessons.length > 0) {
+      try {
+        localStorage.setItem('gofamint_distributed_lessons', JSON.stringify(currentQuarterLessons));
+      } catch (err) {
+        console.warn('Failed to cache distributed lessons:', err);
+      }
+    }
+  }, [currentQuarterLessons]);
+
   // Quarter Switching Handler
   const handleQuarterChange = async (qNum: QuarterNumber) => {
     setSelectedQuarter(qNum);
@@ -2064,6 +2075,10 @@ export default function App() {
             grades={grades}
             currentWeek={selectedWeek}
             classProfile={classProfile}
+            lessons={currentQuarterLessons}
+            sundaySchoolYear={sundaySchoolYear || undefined}
+            selectedQuarter={selectedQuarter}
+            quarterStatus={selectedQuarterStatus}
             onSaveMember={handleSaveMember}
             onSaveBulkMembers={handleSaveBulkMembers}
             onDeleteMember={handleDeleteMember}
@@ -2197,6 +2212,7 @@ export default function App() {
             grades={grades}
             currentWeek={selectedWeek}
             classProfile={classProfile}
+            lessons={currentQuarterLessons}
             initialPrompt={aiInitialPrompt}
             onClearInitialPrompt={() => setAiInitialPrompt(undefined)}
           />

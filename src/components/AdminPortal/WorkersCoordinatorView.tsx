@@ -16,6 +16,7 @@ import {
   Briefcase
 } from 'lucide-react';
 import { AdminProfile, ClassProfile, SundaySchoolYear } from '../../types';
+import { getLessonByWeek } from '../../utils/whatsappMessages';
 
 interface WorkersCoordinatorViewProps {
   currentAdmin: AdminProfile;
@@ -45,7 +46,10 @@ export const WorkersCoordinatorView: React.FC<WorkersCoordinatorViewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
 
   const activeQuarter = sundaySchoolYear.quarters.find(q => q.quarterNumber === sundaySchoolYear.activeQuarterNumber) || sundaySchoolYear.quarters[0];
-  const currentLesson = activeQuarter.lessons?.find(l => l.weekNumber === selectedWeek);
+  const qLesson = activeQuarter.lessons?.find(l => l.weekNumber === selectedWeek);
+  const currentLesson = (qLesson?.topic && !/^Lesson\s+\d+(\s+Topic)?$/i.test(qLesson.topic.trim()))
+    ? qLesson
+    : getLessonByWeek(selectedWeek, activeQuarter.lessons);
 
   // Extract all teachers across all classes
   const initialRoster: WorkerAttendanceRow[] = [];

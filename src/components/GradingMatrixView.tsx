@@ -52,6 +52,7 @@ import {
 } from '../types';
 import { getCurrentCalendarWeek, isSundayRegisterOpenForWeek, getActiveSundayRegisterWeek } from '../utils/quarterScheduleUtils';
 import { GOFAMINT_HOF_12_LESSONS } from '../data/mockQuarterLessons';
+import { getLessonByWeek } from '../utils/whatsappMessages';
 import { OfficialReturnPrintModal } from './OfficialReturnPrintModal';
 import { saveAdminComment } from '../db/indexedDB';
 import {
@@ -242,9 +243,12 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
 
   // Lesson Topic Editing State & Fallback to official curriculum
   const [isEditingTopic, setIsEditingTopic] = useState(false);
-  const defaultQuarterLesson = GOFAMINT_HOF_12_LESSONS.find(l => l.weekNumber === selectedWeek);
+  const distributedQuarterLesson = sundaySchoolYear?.quarters
+    ?.find(q => q.quarterNumber === selectedQuarter)
+    ?.lessons?.find(l => l.weekNumber === selectedWeek);
+  const defaultQuarterLesson = distributedQuarterLesson || getLessonByWeek(selectedWeek, lessons);
   const foundLesson = lessons.find(l => l.weekNumber === selectedWeek);
-  const isGenericTopic = !foundLesson?.topic || /^Lesson\s+\d+\s+Topic$/i.test(foundLesson.topic.trim());
+  const isGenericTopic = !foundLesson?.topic || /^Lesson\s+\d+(\s+Topic)?$/i.test(foundLesson.topic.trim());
   const resolvedTopic = isGenericTopic
     ? (defaultQuarterLesson?.topic || `Lesson ${selectedWeek} Topic`)
     : foundLesson.topic;

@@ -57,7 +57,6 @@ export const SpecialEventsView: React.FC<SpecialEventsViewProps> = ({
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [viewMode, setViewMode] = useState<'LIST' | 'TERMINAL' | 'REGISTER'>('LIST');
   const [eventArchiveTab, setEventArchiveTab] = useState<'ACTIVE' | 'ARCHIVED'>('ACTIVE');
-  const [adminTestOverride, setAdminTestOverride] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -1112,13 +1111,6 @@ export const SpecialEventsView: React.FC<SpecialEventsViewProps> = ({
                   </p>
                 </div>
               </div>
-
-              <button
-                onClick={() => setAdminTestOverride(true)}
-                className="px-3.5 py-1.5 bg-amber-900 text-white rounded-xl text-xs font-bold shrink-0 hover:bg-amber-800 transition cursor-pointer"
-              >
-                Enable Test Rehearsal
-              </button>
             </div>
           )}
 
@@ -1440,13 +1432,6 @@ export const SpecialEventsView: React.FC<SpecialEventsViewProps> = ({
                   </p>
                 </div>
               </div>
-
-              <button
-                onClick={() => setAdminTestOverride(true)}
-                className="px-3.5 py-1.5 bg-amber-900 text-white rounded-xl text-xs font-bold shrink-0 hover:bg-amber-800 transition cursor-pointer"
-              >
-                Enable Test Mode
-              </button>
             </div>
           )}
 
@@ -1898,28 +1883,15 @@ export const SpecialEventsView: React.FC<SpecialEventsViewProps> = ({
                   <strong className="text-blue-900">{clockInLockModal.programTime}</strong>
                 </div>
               </div>
-              <p className="text-[11px] text-slate-500 italic">
-                Tip: If you are conducting a leadership test or early rehearsal, enable <strong>"Admin Test Mode"</strong> on the banner.
-              </p>
             </div>
 
-            <div className="flex items-center gap-3 pt-2">
+            <div className="pt-2">
               <button
                 type="button"
                 onClick={() => setClockInLockModal(null)}
-                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition cursor-pointer"
+                className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition cursor-pointer"
               >
                 Close
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setAdminTestOverride(true);
-                  setClockInLockModal(null);
-                }}
-                className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-black shadow-md transition cursor-pointer"
-              >
-                Enable Test Mode
               </button>
             </div>
           </div>

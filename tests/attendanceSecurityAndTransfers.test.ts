@@ -349,3 +349,128 @@ test('Backward Compatibility Adapters: getThursdayClockInSecurity & getAttendanc
   assert.equal(sunResult.manualAttendanceAllowed, true);
   assert.equal(sunResult.status, 'OPEN');
 });
+
+// =========================================================================
+// 4. Coordinator 1-Click "Make Changes" & Direct "Unlock Register" Tests
+// =========================================================================
+test('Sunday Security: Locked Sunday register transitioning to Changes Mode directly without prior request enables manual attendance', () => {
+  const simulatedNow = new Date('2026-09-27T14:00:00Z'); // Sunday afternoon after service
+  const weekKey = getAttendanceWeekLockKey('SUNDAY', 1, 4);
+
+  // Directly generated approved request (simulating direct Make Changes)
+  const mockConfig: ClockInConfig = {
+    id: 'cfg_sun_direct',
+    serviceName: 'Test',
+    serviceStartTime: '08:00',
+    gracePeriodMinutes: 30,
+    serviceDate: '2026-09-27',
+    sundayOpenTime: '07:00',
+    sundayCloseTime: '11:30',
+    autoSoundFeedback: false,
+    showCelebration: false,
+    lockedWeeks: {
+      [weekKey]: {
+        isLocked: true,
+        activeChangeRequest: {
+          id: 'cr_SUNDAY_1_4_direct',
+          sessionType: 'SUNDAY',
+          quarterNumber: 1,
+          weekNumber: 4,
+          requestedBy: 'Authorized Coordinator',
+          requestedAt: '2026-09-27T14:00:00Z',
+          reason: 'Direct Coordinator Unlock to make corrections',
+          status: 'APPROVED',
+          reviewedBy: 'Authorized Coordinator',
+          reviewedAt: '2026-09-27T14:00:00Z'
+        }
+      }
+    }
+  };
+
+  const evalResult = evaluateAttendanceAccess({
+    sessionType: 'SUNDAY',
+    weekNumber: 4,
+    scheduledDate: '2026-09-27',
+    quarterNumber: 1,
+    config: mockConfig,
+    now: simulatedNow
+  });
+
+  assert.equal(evalResult.status, 'PAST_CHANGE_REQUEST_APPROVED');
+  assert.equal(evalResult.isChangeModeActive, true);
+  assert.equal(evalResult.canManualAttendance, true, 'Manual attendance must be enabled in Changes Mode');
+  assert.equal(evalResult.allowedActions.completeChanges, true, 'Save & Lock Again button must be available');
+});
+
+test('Sunday Security: Fully unlocking Sunday register removes lock and restores manual attendance without change request', () => {
+  const simulatedNow = new Date('2026-09-27T14:00:00Z');
+  const weekKey = getAttendanceWeekLockKey('SUNDAY', 1, 4);
+
+  // Unlocked config (isLocked: false)
+  const mockConfig: ClockInConfig = {
+    id: 'cfg_sun_unlocked',
+    serviceName: 'Test',
+    serviceStartTime: '08:00',
+    gracePeriodMinutes: 30,
+    serviceDate: '2026-09-27',
+    sundayOpenTime: '07:00',
+    sundayCloseTime: '11:30',
+    autoSoundFeedback: false,
+    showCelebration: false,
+    lockedWeeks: {
+      [weekKey]: {
+        isLocked: false,
+        activeChangeRequest: undefined
+      }
+    }
+  };
+
+  const evalResult = evaluateAttendanceAccess({
+    sessionType: 'SUNDAY',
+    weekNumber: 4,
+    scheduledDate: '2026-09-27',
+    quarterNumber: 1,
+    config: mockConfig,
+    now: simulatedNow
+  });
+
+  assert.equal(evalResult.canManualAttendance, true, 'Unlocking register allows manual attendance');
+  assert.equal(evalResult.isManuallyLocked, false);
+  assert.equal(evalResult.allowedActions.lockEntry, true, 'Can be locked again when needed');
+});
+
+test('Thursday Security: Fully unlocking Thursday register removes lock and restores manual attendance', () => {
+  const simulatedNow = new Date('2026-09-24T20:00:00Z');
+  const weekKey = getAttendanceWeekLockKey('THURSDAY', 1, 4);
+
+  const mockConfig: ClockInConfig = {
+    id: 'cfg_thu_unlocked',
+    serviceName: 'Test',
+    serviceStartTime: '18:00',
+    gracePeriodMinutes: 30,
+    serviceDate: '2026-09-24',
+    thursdayOpenTime: '16:00',
+    thursdayCloseTime: '19:00',
+    autoSoundFeedback: false,
+    showCelebration: false,
+    lockedWeeks: {
+      [weekKey]: {
+        isLocked: false,
+        activeChangeRequest: undefined
+      }
+    }
+  };
+
+  const evalResult = evaluateAttendanceAccess({
+    sessionType: 'THURSDAY',
+    weekNumber: 4,
+    scheduledDate: '2026-09-24',
+    quarterNumber: 1,
+    config: mockConfig,
+    now: simulatedNow
+  });
+
+  assert.equal(evalResult.canManualAttendance, true, 'Unlocking Thursday register allows manual attendance');
+  assert.equal(evalResult.isManuallyLocked, false);
+  assert.equal(evalResult.allowedActions.lockEntry, true, 'Can be locked again when needed');
+});
