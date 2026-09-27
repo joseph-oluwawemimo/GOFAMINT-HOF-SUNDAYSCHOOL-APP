@@ -62,6 +62,7 @@ const OpeningFlowView = lazy(() => import('./components/OpeningFlowView').then(m
 const GradingMatrixView = lazy(() => import('./components/GradingMatrixView').then(module => ({ default: module.GradingMatrixView })));
 const RosterManagementView = lazy(() => import('./components/RosterManagementView').then(module => ({ default: module.RosterManagementView })));
 const WelfareFollowUpView = lazy(() => import('./components/WelfareFollowUpView').then(module => ({ default: module.WelfareFollowUpView })));
+const FollowUpAssignmentsView = lazy(() => import('./components/FollowUpAssignmentsView').then(module => ({ default: module.FollowUpAssignmentsView })));
 const QuarterAnalysisView = lazy(() => import('./components/QuarterAnalysisView').then(module => ({ default: module.QuarterAnalysisView })));
 const ClassDiscussionView = lazy(() => import('./components/ClassDiscussionView').then(module => ({ default: module.ClassDiscussionView })));
 const QRPortalView = lazy(() => import('./components/QRPortalView').then(module => ({ default: module.QRPortalView })));
@@ -1813,7 +1814,12 @@ export default function App() {
             }
           }}
           onEnterWorkersModule={['SUPER_ADMIN', 'GENERAL_SUPERINTENDENT', 'GENERAL_SECRETARY', 'ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY', 'RECORD_OFFICER'].includes(currentUserProfile?.role || '') ? () => {
-            void handleEnterOversight('WORKERS');
+            setOversightTarget(null);
+            sessionStorage.removeItem('gofamint_oversight_target');
+            sessionStorage.setItem('gofamint_active_portal', 'WORKERS');
+            setShowAdminPortal(false);
+            setShowOpeningPage(false);
+            setShowWorkersModule(true);
           } : undefined}
           onLockProfile={() => {
             sessionStorage.setItem('gofamint_profile_locked', 'true');
@@ -2083,6 +2089,16 @@ export default function App() {
             onCompleteExitReview={handleCompleteExitReview}
             onRelegateToVisitor={handleRelegateToVisitor}
             onRestoreToStudent={(id) => handleUpdateMemberStatus(id, 'ACTIVE')}
+          />
+        )}
+
+        {activeTab === 'ASSIGNMENTS' && (
+          <FollowUpAssignmentsView
+            members={members}
+            currentWeek={selectedWeek}
+            classProfile={classProfile}
+            activeLessons={currentQuarterLessons}
+            selectedQuarterNumber={selectedQuarter}
           />
         )}
 

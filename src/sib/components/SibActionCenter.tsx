@@ -34,32 +34,32 @@ export const SibActionCenter: React.FC<SibActionCenterProps> = ({
     switch (category) {
       case 'URGENT':
         return {
-          border: 'border-rose-500/50 bg-rose-950/20',
-          badge: 'bg-rose-500/20 text-rose-300 border-rose-500/40',
-          icon: <AlertOctagon className="w-5 h-5 text-rose-400" />,
-          titleColor: 'text-rose-300',
+          border: 'border-rose-200 bg-rose-50/50',
+          badge: 'bg-rose-100 text-rose-800 border-rose-300',
+          icon: <AlertOctagon className="w-5 h-5 text-rose-600" />,
+          titleColor: 'text-rose-950',
         };
       case 'WATCH':
         return {
-          border: 'border-amber-500/50 bg-amber-950/20',
-          badge: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
-          icon: <AlertTriangle className="w-5 h-5 text-amber-400" />,
-          titleColor: 'text-amber-300',
+          border: 'border-amber-200 bg-amber-50/50',
+          badge: 'bg-amber-100 text-amber-800 border-amber-300',
+          icon: <AlertTriangle className="w-5 h-5 text-amber-600" />,
+          titleColor: 'text-amber-950',
         };
       case 'POSITIVE':
         return {
-          border: 'border-emerald-500/50 bg-emerald-950/20',
-          badge: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
-          icon: <CheckCircle2 className="w-5 h-5 text-emerald-400" />,
-          titleColor: 'text-emerald-300',
+          border: 'border-emerald-200 bg-emerald-50/50',
+          badge: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+          icon: <CheckCircle2 className="w-5 h-5 text-emerald-600" />,
+          titleColor: 'text-emerald-950',
         };
       case 'INFORMATION':
       default:
         return {
-          border: 'border-indigo-500/50 bg-indigo-950/20',
-          badge: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40',
-          icon: <Info className="w-5 h-5 text-indigo-400" />,
-          titleColor: 'text-indigo-300',
+          border: 'border-purple-200 bg-purple-50/50',
+          badge: 'bg-purple-100 text-[#320b86] border-purple-200',
+          icon: <Info className="w-5 h-5 text-[#320b86]" />,
+          titleColor: 'text-purple-950',
         };
     }
   };
@@ -68,14 +68,14 @@ export const SibActionCenter: React.FC<SibActionCenterProps> = ({
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <span className="text-[10px] font-black uppercase tracking-widest text-amber-400">
+          <span className="text-[10px] font-black uppercase tracking-widest text-[#320b86]">
             Operational Signals
           </span>
-          <h2 className="text-lg font-black text-white font-['Cinzel',serif]">
+          <h2 className="text-lg font-black text-slate-900 font-['Cinzel',serif]">
             Leadership Action Center
           </h2>
         </div>
-        <span className="text-xs text-slate-400 font-medium">
+        <span className="text-xs text-slate-500 font-medium">
           {actions.length} prioritized intelligence items
         </span>
       </div>
@@ -86,7 +86,7 @@ export const SibActionCenter: React.FC<SibActionCenterProps> = ({
           return (
             <div
               key={item.id}
-              className={`p-5 rounded-2xl border ${theme.border} backdrop-blur-xs flex flex-col justify-between space-y-4 shadow-lg hover:border-amber-400/50 transition`}
+              className={`p-5 rounded-2xl border ${theme.border} flex flex-col justify-between space-y-4 shadow-xs hover:border-[#320b86]/30 transition`}
             >
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
@@ -97,8 +97,8 @@ export const SibActionCenter: React.FC<SibActionCenterProps> = ({
                     </span>
                   </div>
 
-                  <span className="text-[10px] font-bold text-slate-400">
-                    Impact: <strong className="text-white">{item.impactedCount}</strong>
+                  <span className="text-[10px] font-bold text-slate-500">
+                    Impact: <strong className="text-slate-900">{item.impactedCount}</strong>
                   </span>
                 </div>
 
@@ -106,28 +106,28 @@ export const SibActionCenter: React.FC<SibActionCenterProps> = ({
                   <h3 className={`text-base font-black ${theme.titleColor}`}>
                     {item.title}
                   </h3>
-                  <p className="text-xs text-slate-300 font-semibold mt-0.5">
+                  <p className="text-xs text-slate-600 font-semibold mt-0.5">
                     {item.subtitle}
                   </p>
                 </div>
 
                 {/* Plain-English "WHY?" box */}
-                <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800/80 space-y-1">
-                  <span className="text-[10px] uppercase font-black tracking-wider text-amber-300 flex items-center gap-1">
-                    <HelpCircle className="w-3 h-3 text-amber-400" />
+                <div className="p-3 rounded-xl bg-white border border-slate-200 space-y-1">
+                  <span className="text-[10px] uppercase font-black tracking-wider text-[#320b86] flex items-center gap-1">
+                    <HelpCircle className="w-3 h-3 text-[#320b86]" />
                     <span>Why this card appears</span>
                   </span>
-                  <p className="text-xs text-slate-400 leading-relaxed">
+                  <p className="text-xs text-slate-600 leading-relaxed">
                     {item.whyExplanation}
                   </p>
                 </div>
               </div>
 
               {/* Action Buttons */}
-              <div className="flex items-center justify-between pt-2 border-t border-slate-800/60 text-xs">
+              <div className="flex items-center justify-between pt-2 border-t border-slate-200 text-xs">
                 <button
                   onClick={() => onOpenEvidence(item.evidenceId)}
-                  className="text-indigo-400 hover:text-amber-300 font-bold flex items-center gap-1 transition cursor-pointer"
+                  className="text-[#320b86] hover:underline font-bold flex items-center gap-1 transition cursor-pointer"
                 >
                   <span>Inspect Evidence</span>
                   <ArrowRight className="w-3 h-3" />
@@ -136,7 +136,7 @@ export const SibActionCenter: React.FC<SibActionCenterProps> = ({
                 {item.targetPortal && onNavigateToPortal && (
                   <button
                     onClick={() => onNavigateToPortal(item.targetPortal!)}
-                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 hover:text-white rounded-xl font-bold flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+                    className="px-3 py-1.5 bg-[#320b86] hover:bg-[#250664] text-white rounded-xl font-bold flex items-center gap-1.5 transition cursor-pointer shadow-xs"
                   >
                     <span>{item.actionLabel || 'Open Console'}</span>
                     <ExternalLink className="w-3 h-3" />

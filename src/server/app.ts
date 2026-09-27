@@ -1425,30 +1425,74 @@ export function createApp() {
         return r.status(400).json({ error: 'Report card token is required.' });
       }
 
-      // Fetch member by token in data->reportCardToken->>token
-      const { data: members, error: mError } = await db.from('members')
+      // Fetch member by token in data->reportCardToken->>token OR data->>reportCardToken OR data->>oneTimeProfileToken OR id
+      let members: any[] = [];
+
+      const { data: m1 } = await db.from('members')
         .select('*')
         .eq('data->reportCardToken->>token', token)
         .limit(1);
+      if (m1 && m1.length > 0) members = m1;
 
-      if (mError || !members || members.length === 0) {
+      if (members.length === 0) {
+        const { data: m2 } = await db.from('members')
+          .select('*')
+          .eq('data->>reportCardToken', token)
+          .limit(1);
+        if (m2 && m2.length > 0) members = m2;
+      }
+
+      if (members.length === 0) {
+        const { data: m3 } = await db.from('members')
+          .select('*')
+          .eq('data->>oneTimeProfileToken', token)
+          .limit(1);
+        if (m3 && m3.length > 0) members = m3;
+      }
+
+      if (members.length === 0) {
+        const { data: m4 } = await db.from('members')
+          .select('*')
+          .eq('id', token)
+          .limit(1);
+        if (m4 && m4.length > 0) members = m4;
+      }
+
+      if (!members || members.length === 0) {
         return r.status(404).json({ error: 'Report card not found or link has expired.' });
       }
 
       const memberRow = members[0];
       const memberData = memberRow.data || {};
+      const memberId = memberRow.id;
 
       // Fetch student's grades (READ ONLY, for this memberId ONLY)
       const gradesData = await readAllServerRows(db, 'grades', {
-        filters: [{ column: 'member_id', value: memberRow.id }],
+        filters: [{ column: 'member_id', value: memberId }],
       });
 
-      const grades = (gradesData || []).map((g: any) => g.data || g);
+      const grades = (gradesData || []).map((g: any) => {
+        const gData = g.data || g;
+        return {
+          ...gData,
+          id: g.id || gData.id,
+          memberId: memberId,
+          weekNumber: Number(gData.weekNumber || gData.week_number || g.week_number || 1),
+          quarterNumber: Number(gData.quarterNumber || gData.quarter_number || g.quarter_number || 1),
+          attendance: gData.attendance || gData.attendanceMark || 'PRESENT',
+          punctuality: Number(gData.punctuality ?? 0),
+          memoryVerse: Number(gData.memoryVerse ?? 0),
+          classParticipation: Number(gData.classParticipation ?? 0),
+          joinedPrayerMeeting: Boolean(gData.joinedPrayerMeeting),
+          postedStatusInsight: Boolean(gData.postedStatusInsight)
+        };
+      });
 
       // Return ONLY student's personal report card info (NO class registers, NO other students, NO admin fields)
       r.json({
         success: true,
         reportCard: {
+          id: memberId,
           fullName: memberData.fullName || memberRow.name,
           phone: memberData.phone,
           gender: memberData.gender,

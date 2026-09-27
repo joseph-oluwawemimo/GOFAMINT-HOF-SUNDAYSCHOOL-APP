@@ -38,6 +38,7 @@ import {
 import { getConsecutiveAbsences, getAbsenceUrgency } from '../utils/calculations';
 import { normalizePhoneNumber, buildWhatsAppDirectLink } from '../utils/phoneUtils';
 import { GOFAMINT_HOF_12_LESSONS } from '../data/mockQuarterLessons';
+import { generateAbsenceFollowUpMessage } from '../utils/whatsappMessages';
 
 interface WelfareFollowUpViewProps {
   members: Member[];
@@ -215,11 +216,11 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
   };
 
   const generateWhatsAppMessage = (member: Member) => {
-    const studentName = member.fullName;
-    const className = classProfile?.className || 'our Sunday School class';
-    const secretaryName = classProfile?.secretaryName || 'the class secretary';
-    const text = `We miss you dearly at our Sunday School (${className}). We'd love to know why you were not around today, why you came late for Sunday School, or why you could not make it to church. Are there any issues you're facing? We'd like to know and also pray with you. Regards from ${secretaryName} and the teachers of the class.`;
-    return encodeURIComponent(text);
+    return generateAbsenceFollowUpMessage({
+      memberName: member.fullName,
+      className: classProfile?.className,
+      staffName: classProfile?.secretaryName
+    });
   };
 
   return (

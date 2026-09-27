@@ -5,6 +5,8 @@
  * For each class, shows health score, attendance, trend, retention,
  * visitor progression, follow-up, and record completeness.
  * Allows drilling down into "WHY?" explanation and raw evidence.
+ * 
+ * Redesigned using Jobby UI visual language (clean, bright, spacious, modern).
  */
 
 import React, { useState } from 'react';
@@ -16,10 +18,6 @@ import {
   Minus,
   ExternalLink,
   Search,
-  Filter,
-  Layers,
-  ArrowRight,
-  ShieldAlert
 } from 'lucide-react';
 import { ClassHealthResult, ScoreExplanation } from '../types/sibTypes';
 
@@ -54,13 +52,13 @@ export const SibClassIntelligence: React.FC<SibClassIntelligenceProps> = ({
       {/* Header & Filter Controls */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <span className="text-[10px] font-black uppercase tracking-widest text-amber-400">
+          <span className="text-[10px] font-black uppercase tracking-widest text-[#320b86]">
             Granular Diagnostics
           </span>
-          <h2 className="text-xl font-black text-white font-['Cinzel',serif]">
+          <h2 className="text-xl font-black text-slate-900 font-['Cinzel',serif]">
             Class Intelligence & Health Matrix
           </h2>
-          <p className="text-xs text-slate-400 mt-0.5">
+          <p className="text-xs text-slate-500 mt-0.5">
             Evaluated across {classes.length} registered Sunday School classes.
           </p>
         </div>
@@ -74,14 +72,14 @@ export const SibClassIntelligence: React.FC<SibClassIntelligenceProps> = ({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search class name..."
-              className="pl-8 pr-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500"
+              className="pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-[#320b86] shadow-xs"
             />
           </div>
 
           <select
             value={departmentFilter}
             onChange={(e) => setDepartmentFilter(e.target.value)}
-            className="px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-slate-200 font-bold focus:outline-none"
+            className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 font-bold focus:outline-none focus:border-[#320b86] shadow-xs"
           >
             {departments.map((dept, idx) => (
               <option key={idx} value={dept}>
@@ -96,26 +94,26 @@ export const SibClassIntelligence: React.FC<SibClassIntelligenceProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {filteredClasses.map((cls) => {
           const scoreColor = cls.healthScore >= 75
-            ? 'text-emerald-400 border-emerald-500/40 bg-emerald-500/10'
+            ? 'text-emerald-700 border-emerald-200 bg-emerald-50'
             : cls.healthScore >= 60
-            ? 'text-amber-300 border-amber-500/40 bg-amber-500/10'
-            : 'text-rose-400 border-rose-500/40 bg-rose-500/10';
+            ? 'text-amber-700 border-amber-200 bg-amber-50'
+            : 'text-rose-700 border-rose-200 bg-rose-50';
 
           return (
             <div
               key={cls.classId}
-              className="p-5 rounded-3xl bg-slate-900/90 border border-slate-800 hover:border-indigo-500/40 shadow-xl flex flex-col justify-between space-y-4 transition"
+              className="p-5 rounded-2xl bg-white border border-slate-200/90 hover:border-[#320b86]/40 shadow-xs hover:shadow-md flex flex-col justify-between space-y-4 transition"
             >
               <div className="space-y-3">
                 {/* Header Badge */}
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-bold text-indigo-300 uppercase px-2 py-0.5 rounded bg-indigo-500/20 border border-indigo-500/30">
+                  <span className="text-[10px] font-bold text-[#320b86] uppercase px-2 py-0.5 rounded bg-purple-50 border border-purple-200">
                     {cls.department}
                   </span>
                   
                   <div className="flex items-center gap-1.5">
                     {cls.attentionLevel === 'CRITICAL' && (
-                      <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                      <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-rose-50 text-rose-700 border border-rose-200">
                         Critical Care
                       </span>
                     )}
@@ -128,10 +126,10 @@ export const SibClassIntelligence: React.FC<SibClassIntelligenceProps> = ({
                 {/* Class Title & Health Callout */}
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <h3 className="text-base font-black text-white">
+                    <h3 className="text-base font-black text-slate-900">
                       {cls.className}
                     </h3>
-                    <p className="text-[11px] text-slate-400">
+                    <p className="text-[11px] text-slate-500">
                       {cls.totalStudents} Students • {cls.totalVisitors} Visitors
                     </p>
                   </div>
@@ -140,48 +138,54 @@ export const SibClassIntelligence: React.FC<SibClassIntelligenceProps> = ({
                     <span className={`text-2xl font-black font-['Cinzel',serif] block ${scoreColor.split(' ')[0]}`}>
                       {cls.healthScore}%
                     </span>
-                    <span className="text-[9px] uppercase font-bold text-slate-500 block">
+                    <span className="text-[9px] uppercase font-bold text-slate-400 block">
                       Health Score
                     </span>
                   </div>
                 </div>
 
                 {/* Quick 3 Metrics Bar */}
-                <div className="grid grid-cols-3 gap-2 p-3 rounded-2xl bg-slate-950/60 border border-slate-800/80 text-center">
+                <div className="grid grid-cols-3 gap-2 p-3 rounded-xl bg-slate-50 border border-slate-100 text-center">
                   <div>
                     <span className="text-[9px] uppercase font-bold text-slate-500 block">Attendance</span>
-                    <span className="text-xs font-black text-slate-200">{cls.attendanceRate}%</span>
+                    <span className="text-xs font-black text-slate-800">{cls.attendanceRate}%</span>
                   </div>
                   <div>
                     <span className="text-[9px] uppercase font-bold text-slate-500 block">Trend</span>
-                    <div className="flex items-center justify-center gap-0.5 text-xs font-bold text-slate-300">
-                      {cls.attendanceTrend.direction === 'IMPROVING' ? <TrendingUp className="w-3 h-3 text-emerald-400" /> : cls.attendanceTrend.direction === 'DECLINING' ? <TrendingDown className="w-3 h-3 text-rose-400" /> : <Minus className="w-3 h-3 text-amber-400" />}
+                    <div className="flex items-center justify-center gap-0.5 text-xs font-bold text-slate-700">
+                      {cls.attendanceTrend.direction === 'IMPROVING' ? (
+                        <TrendingUp className="w-3 h-3 text-emerald-600" />
+                      ) : cls.attendanceTrend.direction === 'DECLINING' ? (
+                        <TrendingDown className="w-3 h-3 text-rose-600" />
+                      ) : (
+                        <Minus className="w-3 h-3 text-amber-600" />
+                      )}
                       <span className="text-[10px]">{cls.attendanceTrend.direction}</span>
                     </div>
                   </div>
                   <div>
                     <span className="text-[9px] uppercase font-bold text-slate-500 block">Follow-Up</span>
-                    <span className="text-xs font-black text-slate-200">{cls.followUpCompletionRate}%</span>
+                    <span className="text-xs font-black text-slate-800">{cls.followUpCompletionRate}%</span>
                   </div>
                 </div>
 
                 {/* Primary Concern / Positive Callout */}
                 {cls.concerns.length > 0 ? (
-                  <div className="p-2.5 rounded-xl bg-rose-950/30 border border-rose-500/20 text-[11px] text-rose-300">
+                  <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200/80 text-[11px] text-rose-800">
                     <strong>Concern:</strong> {cls.concerns[0]}
                   </div>
                 ) : (
-                  <div className="p-2.5 rounded-xl bg-emerald-950/30 border border-emerald-500/20 text-[11px] text-emerald-300">
+                  <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200/80 text-[11px] text-emerald-800">
                     <strong>Highlight:</strong> {cls.positiveDevelopments[0]}
                   </div>
                 )}
               </div>
 
               {/* Action Buttons */}
-              <div className="pt-3 border-t border-slate-800 flex items-center justify-between gap-2">
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
                 <button
                   onClick={() => onOpenWhyScore(cls.explanation)}
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-300 rounded-xl text-xs font-bold flex items-center gap-1 transition cursor-pointer"
+                  className="px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-[#320b86] border border-purple-200 rounded-xl text-xs font-bold flex items-center gap-1 transition cursor-pointer"
                 >
                   <HelpCircle className="w-3.5 h-3.5" />
                   <span>Why {cls.healthScore}%?</span>
@@ -190,7 +194,7 @@ export const SibClassIntelligence: React.FC<SibClassIntelligenceProps> = ({
                 <div className="flex items-center gap-1.5">
                   <button
                     onClick={() => onOpenEvidence(`class_${cls.classId}_grades`)}
-                    className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs transition cursor-pointer"
+                    className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 rounded-xl text-xs transition cursor-pointer"
                     title="View Evidence Proof"
                   >
                     <FileCheck2 className="w-4 h-4" />
@@ -199,7 +203,7 @@ export const SibClassIntelligence: React.FC<SibClassIntelligenceProps> = ({
                   {onNavigateToRegister && (
                     <button
                       onClick={() => onNavigateToRegister(cls.classId)}
-                      className="p-1.5 bg-indigo-600/30 hover:bg-indigo-600 text-indigo-200 hover:text-white rounded-xl text-xs transition cursor-pointer"
+                      className="p-1.5 bg-[#320b86] hover:bg-[#250866] text-white rounded-xl text-xs transition cursor-pointer shadow-xs"
                       title="Open in Operational Class Register"
                     >
                       <ExternalLink className="w-4 h-4" />

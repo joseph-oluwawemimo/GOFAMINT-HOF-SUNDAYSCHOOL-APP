@@ -25,6 +25,7 @@ import {
 import { getConsecutiveAbsences, getAbsenceUrgency } from '../utils/calculations';
 import { GOFAMINT_HOF_12_LESSONS } from '../data/mockQuarterLessons';
 import { buildWhatsAppDirectLink } from '../utils/phoneUtils';
+import { generateAbsenceFollowUpMessage } from '../utils/whatsappMessages';
 
 interface AbsenceCareViewProps {
   members: Member[];
@@ -141,9 +142,12 @@ export const AbsenceCareView: React.FC<AbsenceCareViewProps> = ({
 
   const currentLesson = GOFAMINT_HOF_12_LESSONS.find(l => l.weekNumber === currentWeek) || GOFAMINT_HOF_12_LESSONS[0];
 
-  const generateWhatsAppMessage = (member: Member, weeksAbsent: number) => {
-    const text = `Calvary greetings ${member.fullName}! 🙏\n\nWe missed your warm presence in our GOFAMINT_HOF Sunday School class today for Lesson ${currentWeek} ("${currentLesson.topic}").\n\nMemory Verse: "${currentLesson.memoryVerse}" (${currentLesson.memoryVerseRef}).\n\nWe are praying with you concerning: "${member.prayerRequests || 'God\'s peace and blessings'}".\n\nPlease let us know if there is anything we can uphold in prayer for you. Look forward to seeing you next Sunday!\n\n— ${classProfile?.secretaryName || 'Sunday School Secretary'}, GOFAMINT_HOF ${classProfile?.className || ''}`;
-    return encodeURIComponent(text);
+  const generateWhatsAppMessage = (member: Member, _weeksAbsent: number) => {
+    return generateAbsenceFollowUpMessage({
+      memberName: member.fullName,
+      className: classProfile?.className,
+      staffName: classProfile?.secretaryName
+    });
   };
 
   return (

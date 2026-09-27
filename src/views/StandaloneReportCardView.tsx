@@ -19,6 +19,7 @@ export const StandaloneReportCardView: React.FC<StandaloneReportCardViewProps> =
   const [member, setMember] = useState<Member | null>(null);
   const [grades, setGrades] = useState<WeeklyGradeRecord[]>([]);
   const [classProfile, setClassProfile] = useState<ClassProfile | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     let isMounted = true;
@@ -31,7 +32,12 @@ export const StandaloneReportCardView: React.FC<StandaloneReportCardViewProps> =
         // 1. Check local IndexedDB first
         try {
           const allMembers = await getAllMembers();
-          const matched = allMembers.find(m => m.reportCardToken?.token === token);
+          const matched = allMembers.find(m =>
+            m.reportCardToken?.token === token ||
+            (m as any).reportCardToken === token ||
+            (m as any).oneTimeProfileToken === token ||
+            m.id === token
+          );
           if (matched && isMounted) {
             setMember(matched);
             const allGrades = await getAllFromStore<WeeklyGradeRecord>('grades');
@@ -68,8 +74,9 @@ export const StandaloneReportCardView: React.FC<StandaloneReportCardViewProps> =
 
         if (isMounted) {
           const rc = data.reportCard;
+          const memberRealId = rc.id || `rc_${token}`;
           const syntheticMember: Member = {
-            id: `rc_${token}`,
+            id: memberRealId,
             fullName: rc.fullName,
             phone: rc.phone || '',
             address: '',
@@ -89,8 +96,19 @@ export const StandaloneReportCardView: React.FC<StandaloneReportCardViewProps> =
             updatedAt: new Date().toISOString()
           };
 
+          const normalizedGrades: WeeklyGradeRecord[] = (Array.isArray(rc.grades) ? rc.grades : []).map(g => ({
+            ...g,
+            memberId: memberRealId,
+            weekNumber: Number(g.weekNumber || g.week_number || 1),
+            quarterNumber: Number(g.quarterNumber || g.quarter_number || 1),
+            attendance: g.attendance || g.attendanceMark || 'PRESENT',
+            punctuality: Number(g.punctuality ?? 0),
+            memoryVerse: Number(g.memoryVerse ?? 0),
+            classParticipation: Number(g.classParticipation ?? 0)
+          }));
+
           setMember(syntheticMember);
-          setGrades(Array.isArray(rc.grades) ? rc.grades : []);
+          setGrades(normalizedGrades);
           setClassProfile({
             id: rc.classId || 'my-class',
             className: rc.className || 'Sunday School Class',
@@ -115,7 +133,7 @@ export const StandaloneReportCardView: React.FC<StandaloneReportCardViewProps> =
     return () => {
       isMounted = false;
     };
-  }, [token]);
+  }, [token, refreshKey]);
 
   if (loading) {
     return (
@@ -155,6 +173,7 @@ export const StandaloneReportCardView: React.FC<StandaloneReportCardViewProps> =
         grades={grades}
         classProfile={classProfile}
         onBack={onBack}
+        onRefresh={() => setRefreshKey(k => k + 1)}
       />
     </div>
   );

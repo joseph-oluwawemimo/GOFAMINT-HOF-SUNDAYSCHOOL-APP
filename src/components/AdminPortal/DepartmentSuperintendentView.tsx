@@ -49,6 +49,7 @@ import {
   normalizeDepartmentName
 } from '../../utils/calculations';
 import { DEFAULT_DEPARTMENTS } from '../../data/mockQuarterLessons';
+import { fetchCollection } from '../../services/supabaseDatabase';
 import type {
   AdminProfile,
   ClassProfile,
@@ -177,51 +178,27 @@ export const DepartmentSuperintendentView: React.FC<Props> = ({
     setSelectedDepartment(assignedDept);
   }, [assignedDept]);
 
-  // Live class counts per department
+  // Live class counts per department — STRICT DATABASE RECORD MAPPING
   const deptClassCounts = useMemo(() => {
     const counts: Record<string, number> = { Adult: 0, Youth: 0, Children: 0 };
     const sourceClasses = loadedClasses && loadedClasses.length > 0 ? loadedClasses : allClasses;
     for (const d of ['Adult', 'Youth', 'Children']) {
-      const dLower = d.toLowerCase();
+      const dLower = d.trim().toLowerCase();
       counts[d] = sourceClasses.filter(c => {
-        const cDept = normalizeDepartmentName(c.department, approvedDepartments).toLowerCase();
-        if (cDept === dLower) return true;
-        const cName = (c.className || '').toLowerCase();
-        if (dLower === 'youth' && (cName.includes('youth') || cName.includes('teen') || cName.includes('young adult') || cName.includes('intermediate'))) return true;
-        if (dLower === 'children' && (cName.includes('child') || cName.includes('junior') || cName.includes('primary') || cName.includes('cradle') || cName.includes('toddler'))) return true;
-        if (dLower === 'adult' && (cName.includes('adult') || cName.includes('elder') || cName.includes('senior') || cName.includes('men') || cName.includes('women'))) return true;
-        return false;
+        const cDept = normalizeDepartmentName(c.department, approvedDepartments).trim().toLowerCase();
+        return cDept === dLower;
       }).length;
     }
     return counts;
   }, [loadedClasses, allClasses, approvedDepartments]);
 
-  // Supervised classes strictly under selectedDepartment
+  // Supervised classes strictly under selectedDepartment — NO SUBSTRING HEURISTICS
   const departmentClasses = useMemo(() => {
-    const selLower = selectedDepartment.toLowerCase();
+    const selLower = selectedDepartment.trim().toLowerCase();
     const sourceClasses = loadedClasses && loadedClasses.length > 0 ? loadedClasses : allClasses;
     return sourceClasses.filter(c => {
-      // 1. Direct department check
-      const normalizedClassDept = normalizeDepartmentName(c.department, approvedDepartments);
-      if (normalizedClassDept.toLowerCase() === selLower) return true;
-
-      // 2. Class name heuristic check (e.g. "Youth A", "Youth B", "Youth C")
-      const fromClassName = normalizeDepartmentName(c.className, approvedDepartments);
-      if (fromClassName.toLowerCase() === selLower) return true;
-
-      // 3. Substring check if department is in class name (e.g. c.className includes 'youth')
-      const nameLower = (c.className || '').toLowerCase();
-      if (selLower === 'youth' && (nameLower.includes('youth') || nameLower.includes('teen') || nameLower.includes('young adult') || nameLower.includes('intermediate'))) {
-        return true;
-      }
-      if (selLower === 'children' && (nameLower.includes('child') || nameLower.includes('junior') || nameLower.includes('primary') || nameLower.includes('cradle') || nameLower.includes('toddler'))) {
-        return true;
-      }
-      if (selLower === 'adult' && (nameLower.includes('adult') || nameLower.includes('elder') || nameLower.includes('senior') || nameLower.includes('men') || nameLower.includes('women'))) {
-        return true;
-      }
-
-      return false;
+      const normalizedClassDept = normalizeDepartmentName(c.department, approvedDepartments).trim().toLowerCase();
+      return normalizedClassDept === selLower;
     });
   }, [loadedClasses, allClasses, selectedDepartment, approvedDepartments]);
 
@@ -234,15 +211,37 @@ export const DepartmentSuperintendentView: React.FC<Props> = ({
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [allMems, allGrd, allAbs, allOff, allTrf] = await Promise.all([
+      const [allMems, allGrd, allAbs, allOff, allTrf, dirClasses] = await Promise.all([
         getAllMembers(),
         getAllGrades(),
         getAllAbsenceLogs(),
         getAllOfferings(),
-        getAllStudentTransfers()
+        getAllStudentTransfers(),
+        getAllClassesDirectory()
       ]);
-      setMembers(allMems);
-      setGrades(allGrd);
+      if (dirClasses && dirClasses.length > 0) {
+        setLoadedClasses(dirClasses);
+      }
+      let finalMems = allMems;
+      let finalGrades = allGrd;
+      if (finalMems.length === 0) {
+        try {
+          const cloudMems = await fetchCollection<Member>('members');
+          if (cloudMems && cloudMems.length > 0) finalMems = cloudMems;
+        } catch {
+          // ignore
+        }
+      }
+      if (finalGrades.length === 0) {
+        try {
+          const cloudGrades = await fetchCollection<WeeklyGradeRecord>('grades');
+          if (cloudGrades && cloudGrades.length > 0) finalGrades = cloudGrades;
+        } catch {
+          // ignore
+        }
+      }
+      setMembers(finalMems);
+      setGrades(finalGrades);
       setAbsenceLogs(allAbs);
       setOfferings(allOff);
       setTransfers(allTrf);
@@ -259,18 +258,19 @@ export const DepartmentSuperintendentView: React.FC<Props> = ({
     loadData();
   }, [selectedDepartment, selectedQuarter, selectedWeek]);
 
-  // Resolve members historically belonging to this department in selectedWeek
+  // Resolve members historically belonging to this department in selectedWeek using actual Class Register
   const deptMembersInWeek = useMemo(() => {
+    const sourceClasses = loadedClasses && loadedClasses.length > 0 ? loadedClasses : allClasses;
     return members.filter(m => {
       const hist = getStudentClassForWeek(m, selectedWeek);
       const effectiveClassId = hist.classId || m.classId;
       if (!effectiveClassId) return false;
-      const targetClass = allClasses.find(c => c.id === effectiveClassId);
+      const targetClass = sourceClasses.find(c => c.id === effectiveClassId);
       if (!targetClass) return false;
       const normDept = normalizeDepartmentName(targetClass.department, approvedDepartments);
-      return normDept.toLowerCase() === selectedDepartment.toLowerCase();
+      return normDept.trim().toLowerCase() === selectedDepartment.trim().toLowerCase();
     });
-  }, [members, selectedWeek, selectedDepartment, allClasses, approvedDepartments]);
+  }, [members, selectedWeek, selectedDepartment, loadedClasses, allClasses, approvedDepartments]);
 
   const activeDeptMembers = useMemo(() => {
     return deptMembersInWeek.filter(
@@ -527,7 +527,7 @@ export const DepartmentSuperintendentView: React.FC<Props> = ({
   }, [visitors, grades, selectedQuarter, selectedWeek, departmentClasses]);
 
   return (
-    <div className="space-y-6 text-slate-900 pb-16">
+    <div className="space-y-6 text-slate-900 pb-28 md:pb-16">
       
       {/* 1. Header Banner - Departmental Superintendent Branding */}
       <section className="rounded-3xl border-2 border-indigo-400/40 bg-gradient-to-r from-indigo-950 via-slate-900 to-blue-950 p-6 sm:p-8 text-white shadow-xl relative overflow-hidden">
@@ -590,9 +590,10 @@ export const DepartmentSuperintendentView: React.FC<Props> = ({
         </div>
       </section>
 
-      {/* 2. Supervisory Perspectives (3 Specialized Lenses) */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-2 shadow-xs flex flex-wrap items-center gap-2">
+      {/* 2. Supervisory Perspectives (3 Specialized Lenses) - Desktop Top Bar */}
+      <div className="hidden md:flex bg-white rounded-2xl border border-slate-200 p-2 shadow-xs flex-wrap items-center gap-2">
         <button
+          type="button"
           onClick={() => setActiveTab('OVERSIGHT')}
           className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 cursor-pointer ${
             activeTab === 'OVERSIGHT'
@@ -605,6 +606,7 @@ export const DepartmentSuperintendentView: React.FC<Props> = ({
         </button>
 
         <button
+          type="button"
           onClick={() => setActiveTab('RECORD_OFFICER_LENS')}
           className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 cursor-pointer ${
             activeTab === 'RECORD_OFFICER_LENS'
@@ -617,6 +619,7 @@ export const DepartmentSuperintendentView: React.FC<Props> = ({
         </button>
 
         <button
+          type="button"
           onClick={() => setActiveTab('ENROLLMENT_OFFICER_LENS')}
           className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 cursor-pointer ${
             activeTab === 'ENROLLMENT_OFFICER_LENS'
@@ -633,6 +636,57 @@ export const DepartmentSuperintendentView: React.FC<Props> = ({
           )}
         </button>
       </div>
+
+      {/* Item 31: Mobile Sticky Bottom Control Bar for Specialized Perspectives */}
+      <nav
+        aria-label="Departmental Perspectives"
+        className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-2xl px-3 py-2 flex items-center justify-around gap-2 pb-[max(0.6rem,env(safe-area-inset-bottom))]"
+      >
+        <button
+          type="button"
+          id="btn-mobile-lens-oversight"
+          onClick={() => setActiveTab('OVERSIGHT')}
+          className={`flex-1 py-2 px-1.5 rounded-xl text-[10px] font-black flex flex-col items-center gap-1 transition ${
+            activeTab === 'OVERSIGHT'
+              ? 'bg-[#320b86] text-amber-300 shadow-sm'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <BarChart3 className="w-4 h-4" />
+          <span className="truncate">Oversight</span>
+        </button>
+
+        <button
+          type="button"
+          id="btn-mobile-lens-record"
+          onClick={() => setActiveTab('RECORD_OFFICER_LENS')}
+          className={`flex-1 py-2 px-1.5 rounded-xl text-[10px] font-black flex flex-col items-center gap-1 transition ${
+            activeTab === 'RECORD_OFFICER_LENS'
+              ? 'bg-[#320b86] text-amber-300 shadow-sm'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <ClipboardList className="w-4 h-4" />
+          <span className="truncate">Record Lens</span>
+        </button>
+
+        <button
+          type="button"
+          id="btn-mobile-lens-enrollment"
+          onClick={() => setActiveTab('ENROLLMENT_OFFICER_LENS')}
+          className={`flex-1 py-2 px-1.5 rounded-xl text-[10px] font-black flex flex-col items-center gap-1 transition relative ${
+            activeTab === 'ENROLLMENT_OFFICER_LENS'
+              ? 'bg-[#320b86] text-amber-300 shadow-sm'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <FileCheck className="w-4 h-4" />
+          <span className="truncate">Pipeline Lens</span>
+          {automatedInsights.readyForConversion.length > 0 && (
+            <span className="absolute top-1 right-2 w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+          )}
+        </button>
+      </nav>
 
       {/* 3. Evaluation Week Selector Bar */}
       <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs flex items-center justify-between gap-4 flex-wrap">

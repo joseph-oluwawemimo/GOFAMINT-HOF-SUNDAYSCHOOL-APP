@@ -115,7 +115,15 @@ export function getWhatsAppPhoneDigits(phone?: string | null): string {
  */
 export function buildWhatsAppDirectLink(phone?: string | null, message?: string): string {
   const digits = getWhatsAppPhoneDigits(phone);
-  const encodedText = message ? encodeURIComponent(message) : '';
+  let cleanMessage = message || '';
+  if (cleanMessage && /%[0-9A-Fa-f]{2}/.test(cleanMessage)) {
+    try {
+      cleanMessage = decodeURIComponent(cleanMessage);
+    } catch {
+      // Keep as-is if decode fails
+    }
+  }
+  const encodedText = cleanMessage ? encodeURIComponent(cleanMessage) : '';
   if (digits) {
     return encodedText ? `https://wa.me/${digits}?text=${encodedText}` : `https://wa.me/${digits}`;
   }

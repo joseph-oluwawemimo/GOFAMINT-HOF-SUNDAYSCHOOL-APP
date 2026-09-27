@@ -71,6 +71,12 @@ export const Navigation: React.FC<NavigationProps> = ({
       badgeColor: 'bg-amber-600 text-white font-black'
     },
     {
+      id: 'ASSIGNMENTS',
+      label: 'Follow-Up Assignments',
+      shortLabel: 'Assignments',
+      icon: UserCheck
+    },
+    {
       id: 'QUARTER_ANALYSIS',
       label: 'Quarter Analysis',
       shortLabel: 'Analysis',

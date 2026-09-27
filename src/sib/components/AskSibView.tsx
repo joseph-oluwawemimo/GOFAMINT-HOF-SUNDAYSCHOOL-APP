@@ -5,27 +5,21 @@
  * Natural language intelligence interface powered by Gemini AI Agent.
  * Only uses controlled read-only tools. Renders verified structured responses
  * with full evidence, confidence, limitations, and actionable recommendations.
+ * 
+ * Redesigned using Jobby UI visual language (clean, bright, spacious, modern).
  */
 
 import React, { useState, useRef, useEffect } from 'react';
 import {
   Sparkles,
   Send,
-  HelpCircle,
   FileCheck2,
-  TrendingUp,
-  TrendingDown,
-  Minus,
   CheckCircle2,
-  AlertTriangle,
   ShieldAlert,
   Copy,
   Check,
   RefreshCw,
   FileText,
-  MessageSquareQuote,
-  Layers,
-  ArrowRight,
   User
 } from 'lucide-react';
 import { SIBStructuredResponse } from '../ai/agentTypes';
@@ -49,7 +43,6 @@ interface ChatEntry {
 export const AskSibView: React.FC<AskSibViewProps> = ({
   quarterNumber,
   classId,
-  onOpenEvidence,
 }) => {
   const [messages, setMessages] = useState<ChatEntry[]>([
     {
@@ -201,21 +194,21 @@ export const AskSibView: React.FC<AskSibViewProps> = ({
     <div className="flex flex-col h-[780px] max-w-5xl mx-auto space-y-4 animate-fade-in">
       
       {/* Top Banner & Quick Report Action */}
-      <div className="p-4 sm:p-5 rounded-3xl bg-slate-900 border border-indigo-500/40 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl">
+      <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-amber-400 text-slate-950 flex items-center justify-center shadow-md shrink-0">
+          <div className="w-10 h-10 rounded-xl bg-purple-100 text-[#320b86] flex items-center justify-center shrink-0">
             <Sparkles className="w-5 h-5" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-black uppercase text-amber-300">
+              <span className="text-[10px] font-black uppercase text-[#320b86]">
                 AI Intelligence & Investigation Console
               </span>
-              <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-indigo-500/20 text-indigo-300">
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-purple-50 text-[#320b86] border border-purple-200">
                 Read-Only Tools
               </span>
             </div>
-            <h2 className="text-base font-black text-white font-['Cinzel',serif]">
+            <h2 className="text-base font-black text-slate-900 font-['Cinzel',serif]">
               Ask SIB (School Intelligence Board)
             </h2>
           </div>
@@ -224,9 +217,9 @@ export const AskSibView: React.FC<AskSibViewProps> = ({
         <button
           onClick={handleGenerateWeeklyReport}
           disabled={isGeneratingReport}
-          className="px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-slate-950 font-black rounded-xl text-xs flex items-center gap-1.5 shadow-md transition cursor-pointer disabled:opacity-50"
+          className="px-4 py-2 bg-[#320b86] hover:bg-[#250866] text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition cursor-pointer disabled:opacity-50"
         >
-          <FileText className="w-4 h-4 text-slate-950" />
+          <FileText className="w-4 h-4 text-white" />
           <span>{isGeneratingReport ? 'Generating Report...' : 'Weekly Executive Report'}</span>
         </button>
       </div>
@@ -238,7 +231,7 @@ export const AskSibView: React.FC<AskSibViewProps> = ({
           <button
             key={idx}
             onClick={() => handleSend(q)}
-            className="px-3 py-1 rounded-xl bg-slate-900/80 hover:bg-slate-800 text-slate-300 hover:text-amber-300 border border-slate-800 hover:border-amber-400/40 text-[11px] whitespace-nowrap transition cursor-pointer shrink-0"
+            className="px-3 py-1 rounded-xl bg-white hover:bg-purple-50 text-slate-700 hover:text-[#320b86] border border-slate-200 hover:border-purple-300 text-[11px] whitespace-nowrap transition cursor-pointer shrink-0 shadow-2xs"
           >
             {q}
           </button>
@@ -246,7 +239,7 @@ export const AskSibView: React.FC<AskSibViewProps> = ({
       </div>
 
       {/* Chat Messages Log */}
-      <div className="flex-1 overflow-y-auto space-y-4 p-4 rounded-3xl bg-slate-950/60 border border-slate-900">
+      <div className="flex-1 overflow-y-auto space-y-4 p-4 rounded-2xl bg-slate-50/70 border border-slate-200/80">
         {messages.map((msg, index) => {
           const isUser = msg.role === 'user';
 
@@ -256,24 +249,24 @@ export const AskSibView: React.FC<AskSibViewProps> = ({
               className={`flex gap-3 max-w-4xl ${isUser ? 'ml-auto flex-row-reverse' : ''}`}
             >
               {/* Avatar */}
-              <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-md ${
-                isUser ? 'bg-indigo-600 text-white' : 'bg-amber-400 text-slate-950'
+              <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-xs ${
+                isUser ? 'bg-[#320b86] text-white' : 'bg-purple-100 text-[#320b86]'
               }`}>
                 {isUser ? <User className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
               </div>
 
               {/* Message Bubble */}
-              <div className={`p-5 rounded-3xl text-xs space-y-3 shadow-xl ${
+              <div className={`p-5 rounded-2xl text-xs space-y-3 shadow-xs ${
                 isUser
-                  ? 'bg-indigo-600 text-white rounded-tr-xs'
-                  : 'bg-slate-900 border border-slate-800 text-slate-200 rounded-tl-xs max-w-3xl'
+                  ? 'bg-[#320b86] text-white rounded-tr-xs'
+                  : 'bg-white border border-slate-200/90 text-slate-800 rounded-tl-xs max-w-3xl'
               }`}>
                 {/* User Prompt Text */}
                 {isUser && <p className="font-semibold text-sm">{msg.content}</p>}
 
                 {/* Assistant Plain Text (e.g. Welcome) */}
                 {!isUser && msg.content && !msg.structuredResponse && (
-                  <div className="space-y-2 whitespace-pre-wrap leading-relaxed">
+                  <div className="space-y-2 whitespace-pre-wrap leading-relaxed text-slate-700">
                     {msg.content}
                   </div>
                 )}
@@ -283,11 +276,11 @@ export const AskSibView: React.FC<AskSibViewProps> = ({
                   <div className="space-y-4">
                     {/* Primary Answer & Summary */}
                     <div className="space-y-1">
-                      <p className="text-sm font-bold text-white leading-relaxed">
+                      <p className="text-sm font-bold text-slate-900 leading-relaxed">
                         {msg.structuredResponse.answer}
                       </p>
                       {msg.structuredResponse.summary && (
-                        <p className="text-[11px] text-slate-400 italic">
+                        <p className="text-[11px] text-slate-500 italic">
                           {msg.structuredResponse.summary}
                         </p>
                       )}
@@ -297,10 +290,10 @@ export const AskSibView: React.FC<AskSibViewProps> = ({
                     {msg.structuredResponse.metrics && msg.structuredResponse.metrics.length > 0 && (
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
                         {msg.structuredResponse.metrics.map((m, mIdx) => (
-                          <div key={mIdx} className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-center">
+                          <div key={mIdx} className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-center">
                             <span className="text-[9px] uppercase font-bold text-slate-500 block truncate">{m.name}</span>
-                            <span className="text-base font-black text-amber-300 font-mono block">{m.value}</span>
-                            {m.benchmark && <span className="text-[9px] text-slate-500">Benchmark: {m.benchmark}</span>}
+                            <span className="text-base font-black text-[#320b86] font-mono block">{m.value}</span>
+                            {m.benchmark && <span className="text-[9px] text-slate-400">Benchmark: {m.benchmark}</span>}
                           </div>
                         ))}
                       </div>
@@ -308,12 +301,12 @@ export const AskSibView: React.FC<AskSibViewProps> = ({
 
                     {/* Key Findings List */}
                     {msg.structuredResponse.findings && msg.structuredResponse.findings.length > 0 && (
-                      <div className="p-3.5 rounded-2xl bg-slate-950/60 border border-slate-800/80 space-y-1.5">
-                        <span className="text-[10px] font-black uppercase text-amber-400 flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3 text-amber-400" />
+                      <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5">
+                        <span className="text-[10px] font-black uppercase text-[#320b86] flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
                           <span>Verified Findings</span>
                         </span>
-                        <ul className="space-y-1 pl-4 list-disc text-slate-300 text-[11px]">
+                        <ul className="space-y-1 pl-4 list-disc text-slate-700 text-[11px]">
                           {msg.structuredResponse.findings.map((f, fIdx) => (
                             <li key={fIdx}>{f}</li>
                           ))}
@@ -324,18 +317,18 @@ export const AskSibView: React.FC<AskSibViewProps> = ({
                     {/* Supporting Evidence Proofs */}
                     {msg.structuredResponse.evidence && msg.structuredResponse.evidence.length > 0 && (
                       <div className="space-y-1.5">
-                        <span className="text-[10px] font-black uppercase text-slate-400 flex items-center gap-1">
-                          <FileCheck2 className="w-3 h-3 text-indigo-400" />
+                        <span className="text-[10px] font-black uppercase text-slate-500 flex items-center gap-1">
+                          <FileCheck2 className="w-3 h-3 text-[#320b86]" />
                           <span>Supporting Evidence</span>
                         </span>
                         <div className="space-y-1">
                           {msg.structuredResponse.evidence.map((ev, evIdx) => (
-                            <div key={evIdx} className="p-2 rounded-xl bg-indigo-950/20 border border-indigo-500/20 flex items-center justify-between text-[11px]">
+                            <div key={evIdx} className="p-2 rounded-xl bg-purple-50/50 border border-purple-200 flex items-center justify-between text-[11px]">
                               <div>
-                                <span className="font-bold text-white block">{ev.statement}</span>
-                                <span className="text-slate-400 text-[10px]">Source: {ev.recordReference}</span>
+                                <span className="font-bold text-slate-900 block">{ev.statement}</span>
+                                <span className="text-slate-500 text-[10px]">Source: {ev.recordReference}</span>
                               </div>
-                              <span className="text-amber-300 font-mono font-bold">{ev.verifiedFact}</span>
+                              <span className="text-[#320b86] font-mono font-bold">{ev.verifiedFact}</span>
                             </div>
                           ))}
                         </div>
@@ -344,16 +337,16 @@ export const AskSibView: React.FC<AskSibViewProps> = ({
 
                     {/* Recommended Actions */}
                     {msg.structuredResponse.recommended_actions && msg.structuredResponse.recommended_actions.length > 0 && (
-                      <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/10 to-indigo-950/40 border border-amber-400/30 space-y-1.5">
-                        <span className="text-[10px] font-black uppercase text-amber-300 flex items-center gap-1">
-                          <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
+                      <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 space-y-1.5">
+                        <span className="text-[10px] font-black uppercase text-amber-800 flex items-center gap-1">
+                          <ShieldAlert className="w-3.5 h-3.5 text-amber-600" />
                           <span>Recommended Leadership Action</span>
                         </span>
                         <div className="space-y-1">
                           {msg.structuredResponse.recommended_actions.map((act, aIdx) => (
-                            <div key={aIdx} className="text-[11px] text-white">
+                            <div key={aIdx} className="text-[11px] text-amber-950">
                               <strong>• {act.action}</strong>
-                              <span className="text-slate-400 block text-[10px] mt-0.5">Reason: {act.reason}</span>
+                              <span className="text-amber-800/80 block text-[10px] mt-0.5">Reason: {act.reason}</span>
                             </div>
                           ))}
                         </div>
@@ -361,9 +354,9 @@ export const AskSibView: React.FC<AskSibViewProps> = ({
                     )}
 
                     {/* Meta Bar: Confidence, Priority, Limitations & Copy */}
-                    <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-[10px] text-slate-400 flex-wrap gap-2">
+                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-500 flex-wrap gap-2">
                       <div className="flex items-center gap-2">
-                        <span className="font-black text-amber-400 uppercase">
+                        <span className="font-black text-[#320b86] uppercase">
                           {msg.structuredResponse.confidence} Confidence
                         </span>
                         <span>•</span>
@@ -374,10 +367,10 @@ export const AskSibView: React.FC<AskSibViewProps> = ({
 
                       <button
                         onClick={() => handleCopy(msg.structuredResponse!.answer, index)}
-                        className="flex items-center gap-1 text-slate-400 hover:text-white transition cursor-pointer"
+                        className="flex items-center gap-1 text-slate-500 hover:text-slate-900 transition cursor-pointer"
                         title="Copy answer"
                       >
-                        {copiedIndex === index ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                        {copiedIndex === index ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
                         <span>{copiedIndex === index ? 'Copied' : 'Copy'}</span>
                       </button>
                     </div>
@@ -390,12 +383,12 @@ export const AskSibView: React.FC<AskSibViewProps> = ({
         })}
 
         {isLoading && (
-          <div className="flex gap-3 items-center text-xs text-amber-300">
-            <div className="w-8 h-8 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center animate-pulse">
+          <div className="flex gap-3 items-center text-xs text-[#320b86]">
+            <div className="w-8 h-8 rounded-xl bg-purple-100 text-[#320b86] flex items-center justify-center animate-pulse">
               <Sparkles className="w-4 h-4" />
             </div>
-            <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 flex items-center gap-2">
-              <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
+            <div className="p-4 rounded-xl bg-white border border-slate-200 flex items-center gap-2 shadow-xs">
+              <RefreshCw className="w-3.5 h-3.5 animate-spin text-[#320b86]" />
               <span>Analyzing verified intelligence and cross-checking evidence...</span>
             </div>
           </div>
@@ -405,20 +398,20 @@ export const AskSibView: React.FC<AskSibViewProps> = ({
       </div>
 
       {/* Input Bar */}
-      <div className="p-2 bg-slate-900 border border-indigo-500/40 rounded-2xl flex items-center gap-2 shadow-2xl">
+      <div className="p-2 bg-white border border-slate-200 rounded-2xl flex items-center gap-2 shadow-xs">
         <input
           type="text"
           value={inputQuery}
           onChange={(e) => setInputQuery(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
           placeholder="Ask SIB anything (e.g., 'Why did Class B fall to 71%?', 'Show me repeated absences')..."
-          className="flex-1 bg-transparent px-3 py-2 text-xs text-white placeholder:text-slate-500 focus:outline-none"
+          className="flex-1 bg-transparent px-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none"
         />
 
         <button
           onClick={() => handleSend()}
           disabled={!inputQuery.trim() || isLoading}
-          className="p-2.5 bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-slate-950 rounded-xl transition shadow-md cursor-pointer disabled:opacity-40"
+          className="p-2.5 bg-[#320b86] hover:bg-[#250866] text-white rounded-xl transition shadow-xs cursor-pointer disabled:opacity-40"
           title="Send query"
         >
           <Send className="w-4 h-4" />

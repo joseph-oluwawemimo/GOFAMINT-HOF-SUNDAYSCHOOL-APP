@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Search, UserX, Clock, Archive, Users, MessageCircle, HelpCircle } from 'lucide-react';
 import type { ClassProfile, Member } from '../../types';
 import { buildWhatsAppDirectLink } from '../../utils/phoneUtils';
+import { generateVisitorWeeklyFollowUpMessage, generateAbsenceFollowUpMessage } from '../../utils/whatsappMessages';
 
 interface DepartedMembersPanelProps {
   members: Member[];
@@ -60,7 +61,7 @@ export const DepartedMembersPanel: React.FC<DepartedMembersPanelProps> = ({ memb
         <div>
           <h3 className="flex items-center gap-2 font-black text-slate-900 text-base">
             <UserX className="h-5 w-5 text-rose-700" />
-            Departed Members & Visitors Register
+            Departmented Members & Visitors Register
           </h3>
           <p className="mt-1 text-xs text-slate-600">
             Audit trail of one-time visitors and permanently archived members. Class historical records remain intact.
@@ -177,10 +178,10 @@ export const DepartedMembersPanel: React.FC<DepartedMembersPanelProps> = ({ memb
             {displayedList.map(member => {
               const cls = member.classId ? classById.get(member.classId) : undefined;
               const isOneTime = isOneTimeVisitor(member);
-              const waLink = buildWhatsAppDirectLink(
-                member.phone,
-                `Hello ${member.fullName}, greetings from GOFAMINT Sunday Bible School. We cherish your time with us and pray God's continued grace upon you!`
-              );
+              const waMessage = isOneTime
+                ? generateVisitorWeeklyFollowUpMessage({ visitorName: member.fullName, className: cls?.className })
+                : generateAbsenceFollowUpMessage({ memberName: member.fullName, className: cls?.className });
+              const waLink = buildWhatsAppDirectLink(member.phone, waMessage);
 
               return (
                 <tr key={member.id} className="hover:bg-slate-50 transition">

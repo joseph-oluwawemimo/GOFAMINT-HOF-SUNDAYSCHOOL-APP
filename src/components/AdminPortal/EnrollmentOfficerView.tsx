@@ -524,186 +524,204 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
       </div>
 
       {/* ========================================================= */}
-      {/* ENROLLMENT / MEMBERSHIP PROGRESSION (PART 4 & PART 10)    */}
-      {/* LEFT = ONBOARDING  |  RIGHT = STATUS                     */}
-      {/* ========================================================= */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        {/* LEFT SIDE: ONBOARDING (INTAKE HISTORY) */}
-        <div className="lg:col-span-5 bg-gradient-to-br from-slate-900 to-teal-950 text-white rounded-3xl p-5 border-2 border-teal-500/40 shadow-lg flex flex-col justify-between space-y-4">
-          <div>
-            <div className="flex items-center justify-between pb-3 border-b border-teal-500/30">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-teal-400 animate-pulse" />
-                <span className="text-xs font-black uppercase tracking-wider text-teal-300">
-                  ONBOARDING (INTAKE HISTORY)
-                </span>
-              </div>
-              <span className="text-[10px] font-bold bg-teal-400/20 text-teal-200 px-2.5 py-0.5 rounded-full border border-teal-400/30">
-                Left Side • Intake Event
-              </span>
-            </div>
-            <p className="text-[11px] text-teal-200/80 mt-2 leading-relaxed">
-              Cumulative intake history of people brought into Sunday Bible School classes. Onboarding never decreases when visitors qualify as students.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-white/5 border border-white/10 rounded-2xl p-3.5 backdrop-blur-xs">
-              <span className="text-[10px] font-bold text-teal-300 uppercase tracking-wider block">
-                Newly Onboarded
-              </span>
-              <h4 className="text-2xl font-black text-white mt-1">
-                +{filteredNewlyOnboarded}
-              </h4>
-              <p className="text-[10px] text-slate-300 mt-0.5">
-                Added Week {selectedWeek}
-              </p>
-            </div>
-
-            <div className="bg-white/5 border border-white/10 rounded-2xl p-3.5 backdrop-blur-xs">
-              <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider block">
-                Previously Onboarded
-              </span>
-              <h4 className="text-2xl font-black text-white mt-1">
-                {filteredPreviouslyOnboarded}
-              </h4>
-              <p className="text-[10px] text-slate-300 mt-0.5">
-                Prior to Week {selectedWeek}
-              </p>
-            </div>
-          </div>
-
-          <div className="bg-teal-500/20 border-2 border-teal-400/60 rounded-2xl p-4 flex items-center justify-between shadow-inner">
-            <div>
-              <span className="text-[11px] font-black uppercase tracking-wider text-amber-300 block">
-                TOTAL ONBOARDED
-              </span>
-              <span className="text-[10px] text-teal-200 font-medium">
-                Newly ({filteredNewlyOnboarded}) + Previously ({filteredPreviouslyOnboarded})
-              </span>
-            </div>
-            <div className="text-3xl font-black text-white font-mono tracking-tight">
-              {filteredTotalOnboarded}
-            </div>
-          </div>
-        </div>
-
-        {/* RIGHT SIDE: STATUS (CURRENT MEMBERSHIP) */}
-        <div className="lg:col-span-7 bg-white rounded-3xl p-5 border-2 border-slate-200 shadow-lg flex flex-col justify-between space-y-4">
-          <div>
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-purple-600" />
-                <span className="text-xs font-black uppercase tracking-wider text-slate-900">
-                  STATUS (CURRENT CLASSIFICATION)
-                </span>
-              </div>
-              <span className="text-[10px] font-bold bg-slate-100 text-slate-700 px-2.5 py-0.5 rounded-full border border-slate-200">
-                Right Side • Current Population
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-500 mt-2 leading-relaxed">
-              Current active classification of class members split between pre-studentship Visitors and qualified Students.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Visitors Section */}
-            <div className="bg-purple-50/60 rounded-2xl p-4 border border-purple-200/80 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-black uppercase tracking-wider text-purple-900">
-                  VISITORS
-                </span>
-                <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-2 py-0.5 rounded-full">
-                  Pre-Studentship
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-center">
-                <div className="bg-white p-2.5 rounded-xl border border-purple-100">
-                  <span className="text-[9px] font-bold text-slate-500 uppercase block">New Visitors</span>
-                  <span className="text-lg font-black text-purple-950">+{filteredNewVisitors}</span>
-                </div>
-                <div className="bg-white p-2.5 rounded-xl border border-purple-100">
-                  <span className="text-[9px] font-bold text-slate-500 uppercase block">Current Visitors</span>
-                  <span className="text-lg font-black text-purple-950">{filteredCurrentVisitors}</span>
-                </div>
-              </div>
-              <div className="bg-purple-900 text-white rounded-xl p-2.5 flex items-center justify-between px-3">
-                <span className="text-[10px] font-black uppercase tracking-wider text-purple-200">
-                  TOTAL VISITORS
-                </span>
-                <span className="text-xl font-black font-mono">{filteredTotalVisitors}</span>
-              </div>
-            </div>
-
-            {/* Enrollment Section */}
-            <div className="bg-emerald-50/60 rounded-2xl p-4 border border-emerald-200/80 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-black uppercase tracking-wider text-emerald-900">
-                  ENROLLMENT
-                </span>
-                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
-                  Qualified Students
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-center">
-                <div className="bg-white p-2.5 rounded-xl border border-emerald-100">
-                  <span className="text-[9px] font-bold text-slate-500 uppercase block">Newly Enrolled</span>
-                  <span className="text-lg font-black text-emerald-900">+{filteredNewlyEnrolled}</span>
-                </div>
-                <div className="bg-white p-2.5 rounded-xl border border-emerald-100">
-                  <span className="text-[9px] font-bold text-slate-500 uppercase block">Previously Enrolled</span>
-                  <span className="text-lg font-black text-slate-800">{filteredPreviouslyEnrolled}</span>
-                </div>
-              </div>
-              <div className="bg-emerald-900 text-white rounded-xl p-2.5 flex items-center justify-between px-3">
-                <span className="text-[10px] font-black uppercase tracking-wider text-emerald-200">
-                  TOTAL ENROLLED
-                </span>
-                <span className="text-xl font-black font-mono">{filteredTotalEnrolled}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* MASTER DATA-INTEGRITY BALANCING BANNER (PART 5) */}
-      <div className={`p-4 rounded-2xl border text-xs flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs ${
-        isEquationBalanced ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-950' : 'bg-rose-500/10 border-rose-500/30 text-rose-950'
-      }`}>
-        <div className="flex items-center gap-2.5">
-          {isEquationBalanced ? (
-            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-          ) : (
-            <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
-          )}
-          <div>
-            <span className="font-black uppercase tracking-wider text-[11px] block">
-              {isEquationBalanced ? '✓ Master Data-Integrity Balancing Verified' : '⚠ Data Integrity Discrepancy Detected'}
-            </span>
-            <p className="text-[11px] opacity-90 mt-0.5">
-              TOTAL ONBOARDED (<strong>{filteredTotalOnboarded}</strong>) = TOTAL VISITORS (<strong>{filteredTotalVisitors}</strong>) + TOTAL ENROLLED (<strong>{filteredTotalEnrolled}</strong>)
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 text-[10px] font-mono font-bold bg-white/90 py-1.5 px-3 rounded-xl border border-slate-200 shrink-0 shadow-2xs">
-          <span className="text-teal-900">Onboarding: {filteredNewlyOnboarded} + {filteredPreviouslyOnboarded} = {filteredTotalOnboarded}</span>
-          <span className="text-slate-300">|</span>
-          <span className="text-purple-900">Visitors: {filteredNewVisitors} + {filteredCurrentVisitors} = {filteredTotalVisitors}</span>
-          <span className="text-slate-300">|</span>
-          <span className="text-emerald-900">Enrolled: {filteredNewlyEnrolled} + {filteredPreviouslyEnrolled} = {filteredTotalEnrolled}</span>
-        </div>
-      </div>
-
-      {/* ========================================================= */}
       {/* TAB 1: WEEKLY ENROLLMENT TABLE (Standard Layout) */}
       {/* ========================================================= */}
-      {activeTab === 'DEPARTED_MEMBERS' && (
-        <DepartedMembersPanel members={allMembersList} classes={allClasses} />
-      )}
-
       {activeTab === 'WEEKLY_ENROLLMENT' && (
         <div className="space-y-6">
+          {/* SECTION 1: VISITOR-TO-STUDENT TRANSITION PIPELINE */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="space-y-0.5">
+                <div className="inline-flex items-center gap-2 px-3 py-1 bg-teal-100 text-teal-900 rounded-full text-xs font-black uppercase">
+                  <UserCheck className="w-3.5 h-3.5 text-teal-700" />
+                  <span>Pipeline Directorate</span>
+                </div>
+                <h2 className="text-xl font-black font-['Cinzel',serif] tracking-wide text-slate-900">
+                  Visitor-to-Student Transition Pipeline
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Comprehensive intake, consistency tracking, and conversion pathway across all reporting Sunday Bible School classes.
+                </p>
+              </div>
+              <div className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-xl">
+                Reporting Classes: <strong className="text-slate-900">{filteredRows.length}</strong>
+              </div>
+            </div>
+          </div>
+
+          {/* ========================================================= */}
+          {/* ENROLLMENT / MEMBERSHIP PROGRESSION (PART 4 & PART 10)    */}
+          {/* LEFT = ONBOARDING INTAKE HISTORY | RIGHT = STATUS / CURRENT QUALIFICATION */}
+          {/* ========================================================= */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+            {/* LEFT SIDE: ONBOARDING INTAKE HISTORY */}
+            <div className="lg:col-span-5 bg-gradient-to-br from-slate-900 to-teal-950 text-white rounded-3xl p-5 border-2 border-teal-500/40 shadow-lg flex flex-col justify-between space-y-4">
+              <div>
+                <div className="flex items-center justify-between pb-3 border-b border-teal-500/30">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-teal-400 animate-pulse" />
+                    <h3 className="text-xs font-black uppercase tracking-wider text-teal-300">
+                      Onboarding Intake History
+                    </h3>
+                  </div>
+                  <span className="text-[10px] font-bold bg-teal-400/20 text-teal-200 px-2.5 py-0.5 rounded-full border border-teal-400/30">
+                    Left Side • Intake Event
+                  </span>
+                </div>
+                <p className="text-[11px] text-teal-200/80 mt-2 leading-relaxed">
+                  Cumulative intake history of people brought into Sunday Bible School classes. Onboarding never decreases when visitors qualify as students.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-3.5 backdrop-blur-xs">
+                  <span className="text-[10px] font-bold text-teal-300 uppercase tracking-wider block">
+                    Newly Onboarded
+                  </span>
+                  <h4 className="text-2xl font-black text-white mt-1">
+                    +{filteredNewlyOnboarded}
+                  </h4>
+                  <p className="text-[10px] text-slate-300 mt-0.5">
+                    Added Week {selectedWeek}
+                  </p>
+                </div>
+
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-3.5 backdrop-blur-xs">
+                  <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider block">
+                    Previously Onboarded
+                  </span>
+                  <h4 className="text-2xl font-black text-white mt-1">
+                    {filteredPreviouslyOnboarded}
+                  </h4>
+                  <p className="text-[10px] text-slate-300 mt-0.5">
+                    Prior to Week {selectedWeek}
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-teal-500/20 border-2 border-teal-400/60 rounded-2xl p-4 flex items-center justify-between shadow-inner">
+                <div>
+                  <span className="text-[11px] font-black uppercase tracking-wider text-amber-300 block">
+                    TOTAL ONBOARDED
+                  </span>
+                  <span className="text-[10px] text-teal-200 font-medium">
+                    Newly ({filteredNewlyOnboarded}) + Previously ({filteredPreviouslyOnboarded})
+                  </span>
+                </div>
+                <div className="text-3xl font-black text-white font-mono tracking-tight">
+                  {filteredTotalOnboarded}
+                </div>
+              </div>
+            </div>
+
+            {/* RIGHT SIDE: STATUS / CURRENT QUALIFICATION */}
+            <div className="lg:col-span-7 bg-white rounded-3xl p-5 border-2 border-slate-200 shadow-lg flex flex-col justify-between space-y-4">
+              <div>
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-purple-600" />
+                    <h3 className="text-xs font-black uppercase tracking-wider text-slate-900">
+                      Status / Current Qualification
+                    </h3>
+                  </div>
+                  <span className="text-[10px] font-bold bg-slate-100 text-slate-700 px-2.5 py-0.5 rounded-full border border-slate-200">
+                    Right Side • Current Population
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-2 leading-relaxed">
+                  Current active classification of class members split between pre-studentship Visitors and qualified Students.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Visitors Section */}
+                <div className="bg-purple-50/60 rounded-2xl p-4 border border-purple-200/80 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black uppercase tracking-wider text-purple-900">
+                      VISITORS
+                    </span>
+                    <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-2 py-0.5 rounded-full">
+                      Pre-Studentship
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-center">
+                    <div className="bg-white p-2.5 rounded-xl border border-purple-100">
+                      <span className="text-[9px] font-bold text-slate-500 uppercase block">New Visitors</span>
+                      <span className="text-lg font-black text-purple-950">+{filteredNewVisitors}</span>
+                    </div>
+                    <div className="bg-white p-2.5 rounded-xl border border-purple-100">
+                      <span className="text-[9px] font-bold text-slate-500 uppercase block">Current Visitors</span>
+                      <span className="text-lg font-black text-purple-950">{filteredCurrentVisitors}</span>
+                    </div>
+                  </div>
+                  <div className="bg-purple-900 text-white rounded-xl p-2.5 flex items-center justify-between px-3">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-purple-200">
+                      TOTAL VISITORS
+                    </span>
+                    <span className="text-xl font-black font-mono">{filteredTotalVisitors}</span>
+                  </div>
+                </div>
+
+                {/* Enrollment Section */}
+                <div className="bg-emerald-50/60 rounded-2xl p-4 border border-emerald-200/80 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black uppercase tracking-wider text-emerald-900">
+                      ENROLLMENT
+                    </span>
+                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                      Qualified Students
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-center">
+                    <div className="bg-white p-2.5 rounded-xl border border-emerald-100">
+                      <span className="text-[9px] font-bold text-slate-500 uppercase block">Newly Enrolled</span>
+                      <span className="text-lg font-black text-emerald-900">+{filteredNewlyEnrolled}</span>
+                    </div>
+                    <div className="bg-white p-2.5 rounded-xl border border-emerald-100">
+                      <span className="text-[9px] font-bold text-slate-500 uppercase block">Previously Enrolled</span>
+                      <span className="text-lg font-black text-slate-800">{filteredPreviouslyEnrolled}</span>
+                    </div>
+                  </div>
+                  <div className="bg-emerald-900 text-white rounded-xl p-2.5 flex items-center justify-between px-3">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-emerald-200">
+                      TOTAL ENROLLED
+                    </span>
+                    <span className="text-xl font-black font-mono">{filteredTotalEnrolled}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* MASTER DATA-INTEGRITY BALANCING BANNER (PART 5) */}
+          <div className={`p-4 rounded-2xl border text-xs flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs ${
+            isEquationBalanced ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-950' : 'bg-rose-500/10 border-rose-500/30 text-rose-950'
+          }`}>
+            <div className="flex items-center gap-2.5">
+              {isEquationBalanced ? (
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+              ) : (
+                <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
+              )}
+              <div>
+                <span className="font-black uppercase tracking-wider text-[11px] block">
+                  {isEquationBalanced ? '✓ Master Data-Integrity Balancing Verified' : '⚠ Data Integrity Discrepancy Detected'}
+                </span>
+                <p className="text-[11px] opacity-90 mt-0.5">
+                  TOTAL ONBOARDED (<strong>{filteredTotalOnboarded}</strong>) = TOTAL VISITORS (<strong>{filteredTotalVisitors}</strong>) + TOTAL ENROLLED (<strong>{filteredTotalEnrolled}</strong>)
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-[10px] font-mono font-bold bg-white/90 py-1.5 px-3 rounded-xl border border-slate-200 shrink-0 shadow-2xs">
+              <span className="text-teal-900">Onboarding: {filteredNewlyOnboarded} + {filteredPreviouslyOnboarded} = {filteredTotalOnboarded}</span>
+              <span className="text-slate-300">|</span>
+              <span className="text-purple-900">Visitors: {filteredNewVisitors} + {filteredCurrentVisitors} = {filteredTotalVisitors}</span>
+              <span className="text-slate-300">|</span>
+              <span className="text-emerald-900">Enrolled: {filteredNewlyEnrolled} + {filteredPreviouslyEnrolled} = {filteredTotalEnrolled}</span>
+            </div>
+          </div>
+
+          {/* Weekly Enrollment Table */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             
             <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
@@ -1107,11 +1125,71 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
               </div>
             )}
           </div>
+
+          {/* PERMANENT ENROLLMENT CERTIFICATION & CONVERSION AUDIT TRAIL */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
+            <div className="space-y-1 border-b border-slate-100 pb-4">
+              <h2 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                <History className="w-5 h-5 text-teal-600" />
+                <span>Permanent Enrollment Certification & Conversion Audit Trail</span>
+              </h2>
+              <p className="text-xs text-slate-500">
+                Official historical ledger of all ratified visitor-to-student conversions with officer signatures, timestamps, and reason logs.
+              </p>
+            </div>
+
+            {allCertifications.length === 0 ? (
+              <div className="p-12 text-center text-slate-500 text-xs space-y-2">
+                <AlertCircle className="w-8 h-8 text-slate-400 mx-auto" />
+                <p className="font-bold text-slate-700">No enrollment conversions have been certified yet.</p>
+                <p className="text-slate-400">When the Enrollment Officer certifies a consistent visitor into Student status, the permanent record is stored here.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-900 text-white text-[11px] font-black uppercase">
+                      <th className="p-3.5 pl-4">Member Name</th>
+                      <th className="p-3.5">Class Name</th>
+                      <th className="p-3.5 text-center">Period</th>
+                      <th className="p-3.5">Certified By</th>
+                      <th className="p-3.5">Certification Timestamp</th>
+                      <th className="p-3.5 pr-4">Notes / Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                    {allCertifications.map((cert, idx) => (
+                      <tr key={cert.id || idx} className="hover:bg-slate-50">
+                        <td className="p-3.5 pl-4 font-black text-slate-900">
+                          {cert.memberName}
+                        </td>
+                        <td className="p-3.5 font-bold text-slate-800">
+                          {cert.className}
+                        </td>
+                        <td className="p-3.5 text-center font-bold text-teal-800">
+                          Week {cert.weekNumber}, Q{cert.quarterNumber}
+                        </td>
+                        <td className="p-3.5 font-semibold text-slate-700">
+                          {cert.certifiedByOfficerName}
+                        </td>
+                        <td className="p-3.5 text-slate-500 font-mono text-[11px]">
+                          {new Date(cert.certifiedAt).toLocaleString()}
+                        </td>
+                        <td className="p-3.5 pr-4 text-slate-600 italic">
+                          {cert.notes || cert.reason || 'Standard Consistency Certification'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
       {/* ========================================================= */}
-      {/* TAB 3: CONVERSION AUDIT TRAIL */}
+      {/* TAB 3: CONVERSION AUDIT TRAIL (STANDALONE VIEW) */}
       {/* ========================================================= */}
       {activeTab === 'AUDIT_TRAIL' && (
         <div className="space-y-6">
@@ -1244,6 +1322,13 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
       )}
 
       {/* ========================================================= */}
+      {/* TAB 5: DEPARTMENTED MEMBERS & VISITORS REGISTER */}
+      {/* ========================================================= */}
+      {activeTab === 'DEPARTED_MEMBERS' && (
+        <DepartedMembersPanel members={allMembersList} classes={allClasses} />
+      )}
+
+      {/* ========================================================= */}
       {/* TAB 6: STUDENT TRANSFERS (PHASE 10) */}
       {/* ========================================================= */}
       {activeTab === 'STUDENT_TRANSFERS' && (() => {
@@ -1259,7 +1344,7 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
                 <div className="space-y-1">
                   <h2 className="text-lg font-black text-slate-900 flex items-center gap-2">
                     <ArrowRightLeft className="w-5 h-5 text-indigo-600" />
-                    <span>Student Transfer Directorate (Phase 10)</span>
+                    <span>Student Transfer Directorate — Phase 10</span>
                   </h2>
                   <p className="text-xs text-slate-500 max-w-2xl">
                     Review and ratify inter-departmental and inter-class student transfers. Approvals update current membership while historical records in previous classes remain permanently intact.

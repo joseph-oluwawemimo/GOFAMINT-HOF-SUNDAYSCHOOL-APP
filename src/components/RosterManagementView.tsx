@@ -32,6 +32,7 @@ import {
   Download
 } from 'lucide-react';
 import { normalizePhoneNumber, findDuplicateMemberByPhone, buildWhatsAppDirectLink } from '../utils/phoneUtils';
+import { generateVisitorWeeklyFollowUpMessage, generateStudentWeeklyReminderMessage } from '../utils/whatsappMessages';
 import { GofamintLogo } from './GofamintLogo';
 import {
   Member,
@@ -912,21 +913,58 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                         : 'text-rose-800 bg-rose-50 border-rose-300'
                     }`}>
                       {member.exclusionType === 'TEMPORARY' || member.isOneTimeVisitor
-                        ? 'Exempted from register stats'
-                        : 'Archived student'}
+                        ? 'One-Time Visitor'
+                        : 'Archived Student'}
                     </span>
-                    {!isReadOnly && (
+                    <div className="flex items-center gap-2 flex-wrap">
                       <button
                         type="button"
-                        id={`btn-restore-member-${member.id}`}
-                        onClick={() => handleRestoreMember(member)}
-                        className="px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer active:scale-95"
-                        title="Restore member to active class roster"
+                        id={`btn-archived-link-${member.id}`}
+                        onClick={() => handleGenerateMemberLink(member)}
+                        disabled={isGeneratingLink || isReadOnly}
+                        className="px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-300 cursor-pointer disabled:opacity-50"
+                        title="Generate student profile link for visitor to register and view report card"
                       >
-                        <UserCheck className="w-3.5 h-3.5" />
-                        <span>Restore to Active</span>
+                        <Link2 className="w-3.5 h-3.5" />
+                        <span>Student Profile Link</span>
                       </button>
-                    )}
+
+                      {/* Item 3: One-Click Weekly Follow-Up for One-Time Visitors */}
+                      {(member.isOneTimeVisitor || member.exclusionType === 'TEMPORARY' || member.memberType === 'VISITOR') && member.phone && (
+                        <a
+                          id={`btn-visitor-followup-${member.id}`}
+                          href={buildWhatsAppDirectLink(
+                            member.phone,
+                            generateVisitorWeeklyFollowUpMessage({
+                              visitorName: member.fullName,
+                              weekNumber: currentWeek,
+                              className: classProfile?.className,
+                              staffName: classProfile?.secretaryName
+                            })
+                          )}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
+                          title="Send current lesson follow-up on WhatsApp"
+                        >
+                          <MessageCircle className="w-3.5 h-3.5" />
+                          <span>Follow Up</span>
+                        </a>
+                      )}
+
+                      {!isReadOnly && (
+                        <button
+                          type="button"
+                          id={`btn-restore-member-${member.id}`}
+                          onClick={() => handleRestoreMember(member)}
+                          className="px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 cursor-pointer active:scale-95"
+                          title="Restore member to active class roster"
+                        >
+                          <UserCheck className="w-3.5 h-3.5" />
+                          <span>Restore to Active</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ) : member.memberType === 'VISITOR' ? (() => {
                   const qual = checkVisitorQualification(member, grades, currentWeek);
@@ -947,6 +985,7 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                       <div className="flex items-center gap-2 flex-wrap">
                         <button
                           type="button"
+                          id={`btn-visitor-link-${member.id}`}
                           onClick={() => handleGenerateMemberLink(member)}
                           disabled={isGeneratingLink || isReadOnly}
                           className="px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-300 cursor-pointer disabled:opacity-50"
@@ -955,6 +994,30 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                           <Link2 className="w-3.5 h-3.5" />
                           <span>Student Profile Link</span>
                         </button>
+
+                        {/* One-Click Weekly Follow-up for Active Visitors */}
+                        {member.phone && (
+                          <a
+                            id={`btn-active-visitor-followup-${member.id}`}
+                            href={buildWhatsAppDirectLink(
+                              member.phone,
+                              generateVisitorWeeklyFollowUpMessage({
+                                visitorName: member.fullName,
+                                weekNumber: currentWeek,
+                                className: classProfile?.className,
+                                staffName: classProfile?.secretaryName
+                              })
+                            )}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
+                            title="Send current lesson follow-up on WhatsApp"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5" />
+                            <span>Follow Up</span>
+                          </a>
+                        )}
+
                         {member.conversionStatus === 'PENDING_APPROVAL' ? (
                           <span className="inline-flex items-center gap-1 text-amber-800 font-bold bg-amber-50 border border-amber-300 px-2 py-1 rounded text-xs">
                             <Clock className="w-3 h-3 text-amber-600 animate-pulse" />
@@ -995,6 +1058,30 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                         <Link2 className="w-3.5 h-3.5" />
                         <span>Student Profile Link</span>
                       </button>
+
+                      {/* Item 4: Weekly Reminder for Students */}
+                      {member.phone && (
+                        <a
+                          id={`btn-student-reminder-${member.id}`}
+                          href={buildWhatsAppDirectLink(
+                            member.phone,
+                            generateStudentWeeklyReminderMessage({
+                              studentName: member.fullName,
+                              className: classProfile?.className,
+                              weekNumber: currentWeek < 12 ? currentWeek + 1 : currentWeek,
+                              staffName: classProfile?.secretaryName
+                            })
+                          )}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 cursor-pointer"
+                          title="Send upcoming Sunday School reminder on WhatsApp (starts at 8:00 AM)"
+                        >
+                          <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Weekly Reminder</span>
+                        </a>
+                      )}
+
                       <button
                         type="button"
                         onClick={() => setViewingCertificateMember(member)}

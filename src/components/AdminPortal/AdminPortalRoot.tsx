@@ -136,7 +136,7 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
   const [gsActiveTab, setGsActiveTab] = usePersistedState<'OVERVIEW' | 'PORTAL_OVERSIGHT' | 'CLASS_PORTAL_EXPLORER' | 'ADMIN_APPROVALS' | 'CLASS_APPROVALS' | 'ALL_CLASSES' | 'CLOUD_USERS'>(`gofamint_admin_${stateScope}_gs_tab`, 'OVERVIEW');
 
   // GSEC Sub-tab Navigation state (Jobie active tab)
-  const [gsecActiveTab, setGsecActiveTab] = usePersistedState<'SUNDAY_SCHOOL_SETUP' | 'CLASS_PORTAL_EXPLORER' | 'DEPARTMENTS' | 'CLASS_APPROVALS'>(`gofamint_admin_${stateScope}_gsec_tab`, 'SUNDAY_SCHOOL_SETUP');
+  const [gsecActiveTab, setGsecActiveTab] = usePersistedState<'SUNDAY_SCHOOL_SETUP' | 'CLASS_PORTAL_EXPLORER' | 'DEPARTMENTS' | 'CLASS_APPROVALS' | 'CLOUD_USERS'>(`gofamint_admin_${stateScope}_gsec_tab`, 'SUNDAY_SCHOOL_SETUP');
 
   // Treasurer Sub-tab Navigation state (Jobie active tab)
   const [treasurerActiveTab, setTreasurerActiveTab] = usePersistedState<'OVERVIEW' | 'PENDING_AUDIT' | 'WEEKLY_AUDIT' | 'QUARTERLY_MATRIX' | 'EXPENDITURES' | 'AUDITED_TRAIL' | 'CHILDREN_ACCOUNT'>(`gofamint_admin_${stateScope}_treasurer_tab`, 'OVERVIEW');
@@ -392,12 +392,13 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
     { id: 'CLOUD_USERS', label: 'Staff Logins', icon: UserPlus },
   ];
 
-  // Navigation Items for General Secretary (4 Consolidated Sections)
+  // Navigation Items for General Secretary (5 Consolidated Sections)
   const gsecNavItems = [
     { id: 'SUNDAY_SCHOOL_SETUP', label: 'Curriculum & Setup', icon: Layers },
     { id: 'CLASS_PORTAL_EXPLORER', label: 'Class Inspection', icon: School },
     { id: 'DEPARTMENTS', label: 'Department Directorate', icon: Building, badge: Array.isArray(sundaySchoolYear?.departments) ? sundaySchoolYear.departments.length : undefined },
     { id: 'CLASS_APPROVALS', label: 'Class Approvals', icon: CheckCircle2, badge: pendingClassesCount },
+    { id: 'CLOUD_USERS', label: 'Staff Logins', icon: UserPlus },
   ];
 
   // Navigation Items for Treasurer (7 Treasury & Financial Sections)
@@ -871,8 +872,8 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
 
             return (
               <>
-                {/* GS Staff & Logins tab */}
-                {isGeneralSuperintendent && gsActiveTab === 'CLOUD_USERS' && !oversightAdminProfile ? (
+                {/* GS & GSec Staff & Logins tab */}
+                {((isGeneralSuperintendent && gsActiveTab === 'CLOUD_USERS') || (isGeneralSecretary && gsecActiveTab === 'CLOUD_USERS')) && !oversightAdminProfile ? (
                   <div className="jobie-card p-6 space-y-4">
                     <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                       <div>
@@ -885,7 +886,10 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
                       </div>
                       <button
                         type="button"
-                        onClick={() => setGsActiveTab('OVERVIEW')}
+                        onClick={() => {
+                          if (isGeneralSuperintendent) setGsActiveTab('OVERVIEW');
+                          if (isGeneralSecretary) setGsecActiveTab('SUNDAY_SCHOOL_SETUP');
+                        }}
                         className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer"
                       >
                         Back to Overview
@@ -1597,8 +1601,10 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
 
               <button
                 type="button"
+                id="btn-mobile-more-staff-logins"
                 onClick={() => {
-                  setGsActiveTab('CLOUD_USERS');
+                  if (isGeneralSuperintendent) setGsActiveTab('CLOUD_USERS');
+                  if (isGeneralSecretary) setGsecActiveTab('CLOUD_USERS');
                   setIsMobileMoreOpen(false);
                 }}
                 className="p-3.5 rounded-2xl bg-purple-50 hover:bg-purple-100 text-[#320b86] flex flex-col items-center gap-2 text-center transition cursor-pointer"
