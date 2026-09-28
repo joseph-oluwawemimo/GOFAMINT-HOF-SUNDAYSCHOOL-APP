@@ -842,7 +842,6 @@ export default function App() {
     let localRefreshTimer: number | undefined;
     const handleLocalStoreChange = (event: Event) => {
       const detail = (event as CustomEvent).detail;
-      if (detail?.source !== 'local') return;
       const stores = Array.isArray(detail?.stores)
         ? detail.stores
         : detail?.store
@@ -851,7 +850,7 @@ export default function App() {
       window.clearTimeout(localRefreshTimer);
       localRefreshTimer = window.setTimeout(() => {
         void refreshChangedStores(stores).catch(error => {
-          console.error('Could not render a locally saved database change:', error);
+          console.error('Could not render a database change:', error);
         });
       }, 50);
     };
@@ -1446,25 +1445,7 @@ export default function App() {
         console.warn('Outbox retry warning:', err);
       });
 
-      // 3. Ensure any current class data in IndexedDB is mirrored to Supabase
-      if (classProfile?.id) {
-        try {
-          const { saveBatchDocuments } = await import('./services/supabaseDatabase');
-          if (members.length > 0) {
-            await saveBatchDocuments('members', members).catch(() => {});
-          }
-          if (grades.length > 0) {
-            await saveBatchDocuments('grades', grades).catch(() => {});
-          }
-          if (offerings.length > 0) {
-            await saveBatchDocuments('offerings', offerings).catch(() => {});
-          }
-        } catch (batchErr) {
-          console.warn('Local snapshot cloud backup notice:', batchErr);
-        }
-      }
-
-      // 4. Run two-way cloud sync cycle (pull latest cloud state and update local DB)
+      // 3. Run two-way cloud sync cycle (pull latest cloud state and update local DB)
       const cloudResult = await syncWithCloud(false);
 
       // 5. Update local queue state

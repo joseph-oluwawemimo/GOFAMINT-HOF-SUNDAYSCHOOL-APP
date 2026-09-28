@@ -16,7 +16,7 @@ interface HeaderProps {
   classProfile: ClassProfile | null;
   currentWeek: number;
   syncState: SyncState;
-  onSyncClick: () => void;
+  onSyncClick?: () => void;
   onLockClick: () => void;
   onOpenAI: () => void;
   onOpenWelcome?: () => void;
@@ -155,46 +155,30 @@ export const Header: React.FC<HeaderProps> = ({
               <span><strong className="text-emerald-300">{totalVisitors}</strong> visitors</span>
             </div>
 
-            <button
+            <div
               id="header-sync-status-pill"
-              type="button"
-              onClick={onSyncClick}
-              className={`flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-xl border px-3 text-xs font-bold transition cursor-pointer hover:brightness-110 active:scale-95 ${
+              className={`flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-xl border px-3 text-xs font-semibold select-none ${
                 !syncState.isOnline
                   ? 'border-amber-500/70 bg-amber-950/80 text-amber-300'
                   : syncState.isSyncing
-                    ? 'border-blue-400 bg-blue-900 text-white shadow-sm shadow-blue-900/50'
-                    : syncState.syncQueueCount > 0 || syncState.realtimeStatus === 'ERROR'
-                      ? 'border-amber-400/60 bg-amber-900/60 text-amber-200 shadow-sm shadow-amber-950/50 hover:bg-amber-900/80'
-                      : syncState.realtimeStatus === 'CONNECTING' || syncState.realtimeStatus === 'RECONNECTING'
-                        ? 'border-blue-400 bg-blue-900 text-white'
-                      : 'border-emerald-500/50 bg-emerald-950/70 text-emerald-300 hover:bg-emerald-900/60'
+                    ? 'border-blue-400/60 bg-blue-950/70 text-blue-200'
+                    : 'border-emerald-500/50 bg-emerald-950/70 text-emerald-300'
               }`}
               title={
                 !syncState.isOnline
                   ? 'Offline. Changes saved locally and will auto-sync when online.'
-                  : syncState.isSyncing
-                    ? 'Syncing with central database…'
-                    : syncState.syncQueueCount > 0
-                      ? `${syncState.syncQueueCount} pending change(s). Click to Hard Sync to Cloud now.`
-                      : 'Fully Synced with Cloud. Click to trigger Hard Sync / refresh all devices.'
+                  : 'All data is 100% cloud synced across devices.'
               }
-              aria-label={syncState.syncStatusText || 'Synchronization status'}
+              aria-label="Cloud synchronization status"
             >
               {!syncState.isOnline ? (
                 <><WifiOff className="h-3.5 w-3.5" /><span>Offline</span></>
               ) : syncState.isSyncing ? (
                 <><RefreshCw className="h-3.5 w-3.5 animate-spin" /><span>Syncing…</span></>
-              ) : syncState.syncQueueCount > 0 ? (
-                <><RefreshCw className="h-3.5 w-3.5 text-amber-300" /><span>{syncState.syncQueueCount} pending</span></>
-              ) : syncState.realtimeStatus === 'ERROR' ? (
-                <><WifiOff className="h-3.5 w-3.5 text-rose-300" /><span>Sync issue · Retry</span></>
-              ) : syncState.realtimeStatus === 'CONNECTING' || syncState.realtimeStatus === 'RECONNECTING' ? (
-                <><RefreshCw className="h-3.5 w-3.5 animate-spin" /><span>Connecting</span></>
               ) : (
-                <><CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /><span>Fully Synced</span></>
+                <><CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /><span>100% Synced</span></>
               )}
-            </button>
+            </div>
 
             {onOpenWelcome && (
               <button
