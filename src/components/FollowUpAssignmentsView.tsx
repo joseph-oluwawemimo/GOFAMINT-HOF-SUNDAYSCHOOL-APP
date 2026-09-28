@@ -11,24 +11,12 @@ import {
   Sparkles,
   Award
 } from 'lucide-react';
-import { Member, ClassProfile, LessonInfo } from '../types';
+import { Member, ClassProfile, LessonInfo, AbsenceLogRecord, FollowUpAssignmentRecord } from '../types';
 import { GOFAMINT_HOF_12_LESSONS } from '../data/mockQuarterLessons';
 import { buildWhatsAppDirectLink } from '../utils/phoneUtils';
 import { generateStaffAssignedFollowUpMessage } from '../utils/whatsappMessages';
 
-export interface FollowUpAssignmentRecord {
-  id: string; // `${classId}_q${quarter}_w${week}_m${memberId}`
-  classId: string;
-  quarterNumber: number;
-  weekNumber: number;
-  memberId: string;
-  assignedStaffId: string;
-  assignedStaffName: string;
-  assignedStaffRole: string;
-  status: 'PENDING' | 'REACHED_OUT';
-  reachedOutAt?: string;
-  updatedAt: string;
-}
+export type { FollowUpAssignmentRecord };
 
 interface FollowUpAssignmentsViewProps {
   members: Member[];
@@ -36,6 +24,10 @@ interface FollowUpAssignmentsViewProps {
   classProfile: ClassProfile | null;
   activeLessons?: LessonInfo[];
   selectedQuarterNumber?: number;
+  absenceLogs?: AbsenceLogRecord[];
+  onSaveAbsenceLog?: (log: AbsenceLogRecord) => Promise<void>;
+  onDeleteAbsenceLog?: (logId: string) => Promise<void>;
+  onUpdateClassProfile?: (updated: ClassProfile) => Promise<void>;
 }
 
 export interface StaffMember {
@@ -51,6 +43,10 @@ export const FollowUpAssignmentsView: React.FC<FollowUpAssignmentsViewProps> = (
   classProfile,
   activeLessons = GOFAMINT_HOF_12_LESSONS,
   selectedQuarterNumber = 1,
+  absenceLogs = [],
+  onSaveAbsenceLog,
+  onDeleteAbsenceLog,
+  onUpdateClassProfile,
 }) => {
   const [selectedWeek, setSelectedWeek] = useState<number>(currentWeek || 1);
   const [selectedStaffId, setSelectedStaffId] = useState<string>('ALL');
@@ -63,25 +59,86 @@ export const FollowUpAssignmentsView: React.FC<FollowUpAssignmentsViewProps> = (
     return `gofamint_assignments_${cid}_q${selectedQuarterNumber}`;
   }, [classProfile?.id, selectedQuarterNumber]);
 
-  // Load persistent assignment completion records
+  // Load persistent assignment completion records (merging classProfile cloud records & local device storage)
+  const cloudRecords = useMemo(() => classProfile?.followUpAssignments || {}, [classProfile?.followUpAssignments]);
+
   const [savedRecords, setSavedRecords] = useState<Record<string, FollowUpAssignmentRecord>>(() => {
     try {
       const raw = localStorage.getItem(storageKey);
-      return raw ? JSON.parse(raw) : {};
+      const local = raw ? JSON.parse(raw) : {};
+      return { ...cloudRecords, ...local };
     } catch {
-      return {};
+      return { ...cloudRecords };
     }
   });
 
-  // Re-read when quarter changes
+  // Re-read and merge when quarter, classProfile, or storageKey changes
   useEffect(() => {
     try {
       const raw = localStorage.getItem(storageKey);
-      setSavedRecords(raw ? JSON.parse(raw) : {});
+      const local = raw ? JSON.parse(raw) : {};
+      const merged = { ...local, ...(classProfile?.followUpAssignments || {}) };
+      setSavedRecords(merged);
     } catch {
-      setSavedRecords({});
+      setSavedRecords(classProfile?.followUpAssignments || {});
     }
-  }, [storageKey]);
+  }, [storageKey, classProfile?.followUpAssignments]);
+
+  // AUTOMATIC CROSS-DEVICE RECONCILIATION & CLOUD UPLOAD:
+  // If local device localStorage contains records marked REACHED_OUT that aren't yet in classProfile,
+  // push them to the central cloud database so all other devices instantly receive them!
+  useEffect(() => {
+    if (!classProfile || !onUpdateClassProfile) return;
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) return;
+      const local: Record<string, FollowUpAssignmentRecord> = JSON.parse(raw);
+      const currentCloud = classProfile.followUpAssignments || {};
+      let hasNewCloudData = false;
+      const mergedCloud = { ...currentCloud };
+
+      for (const [recId, rec] of Object.entries(local)) {
+        if (rec.status === 'REACHED_OUT' && (!currentCloud[recId] || currentCloud[recId].status !== 'REACHED_OUT')) {
+          mergedCloud[recId] = rec;
+          hasNewCloudData = true;
+
+          // Also guarantee absenceLog exists so Welfare view reflects outreach
+          if (onSaveAbsenceLog && rec.memberId && rec.weekNumber) {
+            const absenceLogId = `${rec.classId}_q${rec.quarterNumber}_${rec.memberId}_w${rec.weekNumber}`;
+            const existingLog = absenceLogs.find(l => l.id === absenceLogId);
+            if (!existingLog) {
+              const logRecord: AbsenceLogRecord = {
+                id: absenceLogId,
+                classId: rec.classId,
+                quarterNumber: rec.quarterNumber,
+                memberId: rec.memberId,
+                weekNumber: rec.weekNumber,
+                consecutiveWeeksAbsent: 0,
+                urgencyLevel: 'YELLOW',
+                contactMethod: 'WHATSAPP',
+                decisionMade: true,
+                decisionDate: rec.reachedOutAt || new Date().toISOString(),
+                notes: `Weekly pastoral care assignment completed by ${rec.assignedStaffName} (${rec.assignedStaffRole})`,
+                loggedAt: rec.reachedOutAt || new Date().toISOString()
+              };
+              void onSaveAbsenceLog(logRecord);
+            }
+          }
+        }
+      }
+
+      if (hasNewCloudData) {
+        const updatedProfile: ClassProfile = {
+          ...classProfile,
+          followUpAssignments: mergedCloud,
+          updatedAt: new Date().toISOString()
+        };
+        void onUpdateClassProfile(updatedProfile);
+      }
+    } catch (e) {
+      console.warn('Reconciliation error in FollowUpAssignmentsView:', e);
+    }
+  }, [storageKey, classProfile?.id]);
 
   const saveRecord = (record: FollowUpAssignmentRecord) => {
     setSavedRecords(prev => {
@@ -89,7 +146,7 @@ export const FollowUpAssignmentsView: React.FC<FollowUpAssignmentsViewProps> = (
       try {
         localStorage.setItem(storageKey, JSON.stringify(next));
       } catch (err) {
-        console.error('Failed to save assignment record:', err);
+        console.error('Failed to save assignment record locally:', err);
       }
       return next;
     });
@@ -154,23 +211,46 @@ export const FollowUpAssignmentsView: React.FC<FollowUpAssignmentsViewProps> = (
       const staffIndex = (index + (selectedWeek - 1)) % numStaff;
       const assignedStaff = staffList[staffIndex];
       const recordId = `${classId}_q${selectedQuarterNumber}_w${selectedWeek}_m${member.id}`;
-      const saved = savedRecords[recordId];
+      const saved = savedRecords[recordId] || classProfile?.followUpAssignments?.[recordId];
 
-      const isReachedOut = saved?.status === 'REACHED_OUT';
+      // Check if an absence/welfare outreach log was recorded for this member in this week
+      const matchingAbsenceLog = absenceLogs.find(
+        l => l.memberId === member.id &&
+             Number(l.weekNumber) === Number(selectedWeek) &&
+             (l.quarterNumber === undefined || Number(l.quarterNumber) === Number(selectedQuarterNumber))
+      );
+
+      // Status resolution:
+      // 1. Explicit assignment record takes first priority (respects explicit staff toggle)
+      // 2. If no explicit assignment record exists, an absence/outreach log for that week counts as REACHED_OUT!
+      let isReachedOut = false;
+      let reachedOutAt = saved?.reachedOutAt;
+
+      if (saved?.status === 'REACHED_OUT') {
+        isReachedOut = true;
+      } else if (saved?.status === 'PENDING') {
+        isReachedOut = false;
+      } else if (matchingAbsenceLog) {
+        isReachedOut = true;
+        reachedOutAt = matchingAbsenceLog.loggedAt;
+      }
+
       return {
         recordId,
         member,
         assignedStaff,
         status: (isReachedOut ? 'REACHED_OUT' : 'PENDING') as 'PENDING' | 'REACHED_OUT',
-        reachedOutAt: saved?.reachedOutAt
+        reachedOutAt
       };
     });
-  }, [activeMembers, staffList, selectedWeek, selectedQuarterNumber, classProfile?.id, savedRecords]);
+  }, [activeMembers, staffList, selectedWeek, selectedQuarterNumber, classProfile?.id, classProfile?.followUpAssignments, savedRecords, absenceLogs]);
 
-  // Handle Mark as Done / Reached Out toggle
-  const handleToggleReachedOut = (item: typeof weeklyAssignments[0]) => {
+  // Handle Mark as Done / Reached Out toggle (with real-time cloud sync & cross-view coherence)
+  const handleToggleReachedOut = async (item: typeof weeklyAssignments[0]) => {
     const classId = classProfile?.id || 'default_class';
-    const newStatus = item.status === 'REACHED_OUT' ? 'PENDING' : 'REACHED_OUT';
+    const isCurrentlyDone = item.status === 'REACHED_OUT';
+    const newStatus = isCurrentlyDone ? 'PENDING' : 'REACHED_OUT';
+    const nowIso = new Date().toISOString();
     const updated: FollowUpAssignmentRecord = {
       id: item.recordId,
       classId,
@@ -181,10 +261,48 @@ export const FollowUpAssignmentsView: React.FC<FollowUpAssignmentsViewProps> = (
       assignedStaffName: item.assignedStaff.name,
       assignedStaffRole: item.assignedStaff.role,
       status: newStatus,
-      reachedOutAt: newStatus === 'REACHED_OUT' ? new Date().toISOString() : undefined,
-      updatedAt: new Date().toISOString()
+      reachedOutAt: newStatus === 'REACHED_OUT' ? (item.reachedOutAt || nowIso) : undefined,
+      updatedAt: nowIso
     };
+
+    // 1. Save to local storage and component state immediately
     saveRecord(updated);
+
+    // 2. Persist to classProfile.followUpAssignments and push to central Supabase cloud
+    if (classProfile && onUpdateClassProfile) {
+      const nextMap = {
+        ...(classProfile.followUpAssignments || {}),
+        [updated.id]: updated
+      };
+      const updatedProfile: ClassProfile = {
+        ...classProfile,
+        followUpAssignments: nextMap,
+        updatedAt: nowIso
+      };
+      void onUpdateClassProfile(updatedProfile);
+    }
+
+    // 3. Keep absenceLogs in sync so Welfare view also reflects outreach across all devices
+    const canonicalLogId = `${classId}_q${selectedQuarterNumber}_${item.member.id}_w${selectedWeek}`;
+    if (newStatus === 'REACHED_OUT' && onSaveAbsenceLog) {
+      const logRecord: AbsenceLogRecord = {
+        id: canonicalLogId,
+        classId,
+        quarterNumber: selectedQuarterNumber,
+        memberId: item.member.id,
+        weekNumber: selectedWeek,
+        consecutiveWeeksAbsent: 0,
+        urgencyLevel: 'YELLOW',
+        contactMethod: 'WHATSAPP',
+        decisionMade: true,
+        decisionDate: nowIso,
+        notes: `Weekly pastoral care assignment completed by ${item.assignedStaff.name} (${item.assignedStaff.role})`,
+        loggedAt: nowIso
+      };
+      void onSaveAbsenceLog(logRecord);
+    } else if (newStatus === 'PENDING' && onDeleteAbsenceLog) {
+      void onDeleteAbsenceLog(canonicalLogId);
+    }
   };
 
   // Filtered assignments based on UI controls

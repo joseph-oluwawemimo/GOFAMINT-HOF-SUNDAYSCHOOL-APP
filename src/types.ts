@@ -161,7 +161,22 @@ export interface ClassProfile {
   approvedAt?: string;
   quarter?: QuarterNumber;
   serverIp?: string;
+  followUpAssignments?: Record<string, FollowUpAssignmentRecord>;
   createdAt: string;
+  updatedAt: string;
+}
+
+export interface FollowUpAssignmentRecord {
+  id: string; // `${classId}_q${quarter}_w${week}_m${memberId}`
+  classId: string;
+  quarterNumber: number;
+  weekNumber: number;
+  memberId: string;
+  assignedStaffId: string;
+  assignedStaffName: string;
+  assignedStaffRole: string;
+  status: 'PENDING' | 'REACHED_OUT';
+  reachedOutAt?: string;
   updatedAt: string;
 }
 

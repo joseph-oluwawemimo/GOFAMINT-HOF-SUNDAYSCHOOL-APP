@@ -2,7 +2,8 @@ import {
   cloudSaveClassProfile,
   cloudSaveLesson,
   cloudDeleteClass,
-  cloudSaveDepartment
+  cloudSaveDepartment,
+  cloudDeleteAbsenceLog
 } from '../services/supabaseDatabase';
 import { protectPendingCloudChanges } from '../utils/cloudOutbox';
 
@@ -1101,7 +1102,26 @@ export async function getAllGrades(): Promise<WeeklyGradeRecord[]> {
 export async function getGradesByClassAndQuarter(classId: string, quarterNumber: number): Promise<WeeklyGradeRecord[]> {
   if (!classId) return [];
   const all = await getAllFromStore<WeeklyGradeRecord>('grades');
-  return all.filter(g => g.classId === classId && g.quarterNumber === quarterNumber);
+  const filtered = all.filter(g => g.classId === classId && (g.quarterNumber === quarterNumber || (!g.quarterNumber && quarterNumber === 1)));
+  const map = new Map<string, WeeklyGradeRecord>();
+  for (const g of filtered) {
+    const key = `${g.memberId}_${g.weekNumber}`;
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, g);
+    } else {
+      const isCurrentCanonical = g.id.startsWith(`${classId}_q`);
+      const isExistingCanonical = existing.id.startsWith(`${classId}_q`);
+      if (isCurrentCanonical && !isExistingCanonical) {
+        map.set(key, g);
+      } else if (!isCurrentCanonical && isExistingCanonical) {
+        // preserve existing canonical
+      } else if (g.updatedAt && existing.updatedAt && g.updatedAt > existing.updatedAt) {
+        map.set(key, g);
+      }
+    }
+  }
+  return Array.from(map.values());
 }
 
 export async function saveGrade(grade: WeeklyGradeRecord): Promise<WeeklyGradeRecord> {
@@ -1144,7 +1164,23 @@ export async function getAllOfferings(): Promise<WeeklyOfferingRecord[]> {
 export async function getOfferingsByClassAndQuarter(classId: string, quarterNumber: number): Promise<WeeklyOfferingRecord[]> {
   if (!classId) return [];
   const all = await getAllFromStore<WeeklyOfferingRecord>('offerings');
-  return all.filter(o => o.classId === classId && o.quarterNumber === quarterNumber);
+  const filtered = all.filter(o => o.classId === classId && (o.quarterNumber === quarterNumber || (!o.quarterNumber && quarterNumber === 1)));
+  const map = new Map<number, WeeklyOfferingRecord>();
+  for (const o of filtered) {
+    const existing = map.get(o.weekNumber);
+    if (!existing) {
+      map.set(o.weekNumber, o);
+    } else {
+      const isCurrentCanonical = o.id.startsWith(`${classId}_q`);
+      const isExistingCanonical = existing.id.startsWith(`${classId}_q`);
+      if (isCurrentCanonical && !isExistingCanonical) {
+        map.set(o.weekNumber, o);
+      } else if (o.updatedAt && existing.updatedAt && o.updatedAt > existing.updatedAt) {
+        map.set(o.weekNumber, o);
+      }
+    }
+  }
+  return Array.from(map.values());
 }
 
 export async function saveOffering(offering: WeeklyOfferingRecord): Promise<WeeklyOfferingRecord> {
@@ -1318,6 +1354,15 @@ export async function saveAbsenceLog(log: AbsenceLogRecord): Promise<AbsenceLogR
 
   const result = await putInStore<AbsenceLogRecord>('absenceLogs', updated);
   return result;
+}
+
+export async function deleteAbsenceLog(id: string): Promise<void> {
+  await deleteFromStore('absenceLogs', id);
+  await pushToCloud('absenceLogs', () => cloudDeleteAbsenceLog(id), {
+    collectionName: 'absenceLogs',
+    action: 'delete',
+    docId: id
+  });
 }
 
 // Referrals

@@ -157,7 +157,13 @@ export const Header: React.FC<HeaderProps> = ({
 
             <div
               id="header-sync-status-pill"
+              onClick={onSyncClick}
+              role={onSyncClick ? "button" : undefined}
+              tabIndex={onSyncClick ? 0 : undefined}
+              onKeyDown={onSyncClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSyncClick(); } } : undefined}
               className={`flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-xl border px-3 text-xs font-semibold select-none ${
+                onSyncClick ? 'cursor-pointer hover:brightness-110 active:scale-95 transition' : ''
+              } ${
                 !syncState.isOnline
                   ? 'border-amber-500/70 bg-amber-950/80 text-amber-300'
                   : syncState.isSyncing
@@ -167,7 +173,9 @@ export const Header: React.FC<HeaderProps> = ({
               title={
                 !syncState.isOnline
                   ? 'Offline. Changes saved locally and will auto-sync when online.'
-                  : 'All data is 100% cloud synced across devices.'
+                  : syncState.isSyncing
+                    ? 'Syncing with cloud...'
+                    : 'All data is 100% cloud synced across devices. Click to hard sync now.'
               }
               aria-label="Cloud synchronization status"
             >

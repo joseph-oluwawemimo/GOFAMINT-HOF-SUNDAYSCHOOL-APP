@@ -38,14 +38,14 @@ const TABLES: Record<string, TableConfig> = {
   members: { table: 'members', columns: { classId: 'class_id' }, hasUpdatedAt: true },
   grades: { table: 'grades', columns: { classId: 'class_id', memberId: 'member_id', quarterNumber: 'quarter_number', weekNumber: 'week_number' }, hasUpdatedAt: true },
   offerings: { table: 'offerings', columns: { classId: 'class_id', quarterNumber: 'quarter_number', weekNumber: 'week_number' }, hasUpdatedAt: true },
-  absenceLogs: { table: 'absence_logs', columns: { classId: 'class_id', memberId: 'member_id' }, hasUpdatedAt: true },
+  absenceLogs: { table: 'absence_logs', columns: { classId: 'class_id', memberId: 'member_id' } },
   enrollmentCertifications: { table: 'enrollment_certifications', columns: { classId: 'class_id', memberId: 'member_id', quarterNumber: 'quarter_number', weekNumber: 'week_number' } },
-  referrals: { table: 'referrals', columns: { classId: 'class_id' }, hasUpdatedAt: true },
+  referrals: { table: 'referrals', columns: { classId: 'class_id' } },
   workers: { table: 'workers', hasUpdatedAt: true },
   workerAttendance: { table: 'worker_attendance', columns: { workerId: 'worker_id', serviceDate: 'service_date' } },
   workerPrepAttendance: { table: 'worker_prep_attendance', columns: { workerId: 'worker_id', prepDate: 'prep_date' }, hasUpdatedAt: true },
   adminProfiles: { table: 'admin_profiles' },
-  adminComments: { table: 'admin_comments', columns: { classId: 'class_id' }, hasUpdatedAt: true },
+  adminComments: { table: 'admin_comments', columns: { classId: 'class_id' } },
   treasuryExpenditures: { table: 'treasury_expenditures' },
   sundaySchoolYear: { table: 'sunday_school_years', hasUpdatedAt: true },
   sundaySchoolYearArchive: { table: 'sunday_school_year_archives' },
@@ -116,8 +116,12 @@ function fromRow<T>(collectionName: string, row: Record<string, any>): T {
       updatedAt: row.updated_at,
     } as T;
   }
+  let parsedData = row.data;
+  if (typeof parsedData === 'string') {
+    try { parsedData = JSON.parse(parsedData); } catch {}
+  }
   const result: Record<string, any> = {
-    ...(row.data && typeof row.data === 'object' ? row.data : {}),
+    ...(parsedData && typeof parsedData === 'object' ? parsedData : {}),
     id: row.id,
   };
   for (const [legacyField, column] of Object.entries(config.columns || {})) {
@@ -366,7 +370,16 @@ export function subscribeToCollection<T>(
 
   const debouncedRefresh = (payload: { new?: Record<string, any> }) => {
     const row = payload.new;
-    if (row?.id) pendingRows.set(String(row.id), row);
+    if (row?.id) {
+      if (collectionName !== 'adminProfiles' && collectionName !== 'departments' && !row.data) {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          if (active) void refresh();
+        }, 80);
+        return;
+      }
+      pendingRows.set(String(row.id), row);
+    }
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
       if (!active) return;
@@ -447,7 +460,16 @@ export function subscribeToCollectionScoped<T>(
 
   const debouncedRefresh = (payload: { new?: Record<string, any> }) => {
     const row = payload.new;
-    if (row?.id) pendingRows.set(String(row.id), row);
+    if (row?.id) {
+      if (!row.data) {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          if (active) void refresh();
+        }, 80);
+        return;
+      }
+      pendingRows.set(String(row.id), row);
+    }
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
       if (!active) return;
@@ -555,6 +577,8 @@ export const subscribeToClassOfferings = (classId: string, onUpdate: (items: Wee
   subscribeToCollectionScoped('offerings', [{ field: 'classId', op: '==', value: classId }], onUpdate);
 export const subscribeToClassAdminComments = (classId: string, onUpdate: (items: AdminComment[]) => void) =>
   subscribeToCollectionScoped('adminComments', [{ field: 'classId', op: '==', value: classId }], onUpdate);
+export const subscribeToClassProfile = (classId: string, onUpdate: (items: ClassProfile[]) => void) =>
+  subscribeToCollectionScoped('classes', [{ field: 'id', op: '==', value: classId }], onUpdate);
 
 // High-level accessors preserve existing callers while moving all active CRUD
 // to the authenticated browser Supabase client.

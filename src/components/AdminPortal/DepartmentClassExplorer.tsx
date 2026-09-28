@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Building2,
   School,
@@ -50,6 +50,7 @@ import {
 } from '../../db/indexedDB';
 import { saveDocument, removeDocument } from '../../services/supabaseDatabase';
 import { fetchClassInspectionApi } from '../../services/adminUserApi';
+import { useDatabaseSync } from '../../hooks/useDatabaseSync';
 import { RosterManagementView } from '../RosterManagementView';
 import { GradingMatrixView } from '../GradingMatrixView';
 import { WelfareFollowUpView } from '../WelfareFollowUpView';
@@ -92,6 +93,12 @@ export const DepartmentClassExplorer: React.FC<DepartmentClassExplorerProps> = (
   const [pickerSearchQuery, setPickerSearchQuery] = useState('');
   const [pickerDeptFilter, setPickerDeptFilter] = useState('ALL');
 
+  useEffect(() => {
+    if (!selectedClassId && allClasses.length > 0) {
+      setSelectedClassId(initialClassId || allClasses[0].id);
+    }
+  }, [allClasses, initialClassId, selectedClassId]);
+
   // Real class data states loaded directly from IndexedDB (One source of truth)
   const [classMembers, setClassMembers] = useState<Member[]>([]);
   const [classGrades, setClassGrades] = useState<WeeklyGradeRecord[]>([]);
@@ -129,59 +136,53 @@ export const DepartmentClassExplorer: React.FC<DepartmentClassExplorerProps> = (
   }, [inspectedQuarter]);
 
   // Load Real Data from Authoritative Server API & IndexedDB whenever selectedClassId or selectedQuarter changes
-  useEffect(() => {
-    let isMounted = true;
-    const loadRealData = async () => {
-      if (!selectedClassId) return;
+  const loadRealData = useCallback(async (isSilent = false) => {
+    if (!selectedClassId) return;
+    if (!isSilent) {
       setIsLoadingClassData(true);
-      try {
-        // 1. Live server fetch for selected class inspection (bypasses RLS limits, gets exact entered data)
-        const inspectRes = await fetchClassInspectionApi(selectedClassId);
-        if (inspectRes.success && inspectRes.members) {
-          if (inspectRes.members.length > 0) {
-            await saveBulkMembersToDB(inspectRes.members);
-          }
-          if (isMounted) {
-            setClassMembers(inspectRes.members);
-            setClassGrades(inspectRes.grades || []);
-            setClassOfferings(inspectRes.offerings || []);
-            setClassAbsenceLogs(inspectRes.absenceLogs || []);
-            setClassComments(inspectRes.adminComments || []);
-            setIsLoadingClassData(false);
-            return;
-          }
-        }
-
-        // 2. Fallback to local IndexedDB if offline
-        const [members, grades, offerings, logs, comments] = await Promise.all([
-          getMembersByClass(selectedClassId, selectedQuarter),
-          getGradesByClass(selectedClassId, selectedQuarter),
-          getOfferingsByClass(selectedClassId, selectedQuarter),
-          getAbsenceLogsByClass(selectedClassId, selectedQuarter),
-          getAdminCommentsByClass(selectedClassId)
-        ]);
-
-        if (isMounted) {
-          setClassMembers(members);
-          setClassGrades(grades);
-          setClassOfferings(offerings);
-          setClassAbsenceLogs(logs);
-          setClassComments(comments);
-        }
-      } catch (err) {
-        console.warn('Error loading real class data:', err);
-      } finally {
-        if (isMounted) {
-          setIsLoadingClassData(false);
-        }
+    }
+    try {
+      // 1. Live server fetch for selected class inspection (bypasses RLS limits, gets exact entered data)
+      const inspectRes = await fetchClassInspectionApi(selectedClassId);
+      if (inspectRes.success && inspectRes.members) {
+        setClassMembers(inspectRes.members);
+        setClassGrades(inspectRes.grades || []);
+        setClassOfferings(inspectRes.offerings || []);
+        setClassAbsenceLogs(inspectRes.absenceLogs || []);
+        setClassComments(inspectRes.adminComments || []);
+        setIsLoadingClassData(false);
+        return;
       }
-    };
 
-    loadRealData();
-    return () => {
-      isMounted = false;
-    };
+      // 2. Fallback to local IndexedDB if offline or API error
+      const [members, grades, offerings, logs, comments] = await Promise.all([
+        getMembersByClass(selectedClassId, selectedQuarter),
+        getGradesByClass(selectedClassId, selectedQuarter),
+        getOfferingsByClass(selectedClassId, selectedQuarter),
+        getAbsenceLogsByClass(selectedClassId, selectedQuarter),
+        getAdminCommentsByClass(selectedClassId)
+      ]);
+
+      setClassMembers(members);
+      setClassGrades(grades);
+      setClassOfferings(offerings);
+      setClassAbsenceLogs(logs);
+      setClassComments(comments);
+    } catch (err) {
+      console.warn('Error loading real class data:', err);
+    } finally {
+      setIsLoadingClassData(false);
+    }
   }, [selectedClassId, selectedQuarter]);
+
+  useEffect(() => {
+    loadRealData();
+  }, [loadRealData]);
+
+  // Listen to live database and cloud sync updates across all devices (silent update so UI does not unmount or flicker)
+  useDatabaseSync(() => {
+    void loadRealData(true);
+  }, ['members', 'grades', 'offerings', 'absenceLogs', 'adminComments']);
 
   // Admin Comment Submission
   const handleCreateComment = async (e: React.FormEvent) => {
@@ -683,9 +684,10 @@ export const DepartmentClassExplorer: React.FC<DepartmentClassExplorerProps> = (
                   classProfile={selectedClass}
                   activeLessons={activeLessons}
                   selectedQuarterNumber={selectedQuarter}
-                  onSaveAbsenceLog={handleReadOnlyAction}
-                  onUpdateMemberStatus={handleAdminUpdateMemberStatus}
+                  onSaveAbsenceLog={async () => {}}
+                  onCompleteExitReview={async () => {}}
                   onRelegateToVisitor={handleReadOnlyAction}
+                  onRestoreToStudent={handleReadOnlyAction}
                 />
               )}
 

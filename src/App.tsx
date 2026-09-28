@@ -34,6 +34,7 @@ import {
   getAllAbsenceLogs,
   getAbsenceLogsByClassAndQuarter,
   saveAbsenceLogToDB,
+  deleteAbsenceLog,
   getSyncQueue,
   addToSyncQueue,
   clearSyncQueue,
@@ -53,7 +54,7 @@ import { GOFAMINT_HOF_12_LESSONS } from './data/mockQuarterLessons';
 import { pushSyncToServer, pullSyncFromServer } from './services/api';
 import { checkVisitorQualification, getConsecutiveAbsences, getConsecutiveVisits } from './utils/calculations';
 import { runFullCloudSyncCycle, getLastHydrationError, startRealtimeCloudSync, stopRealtimeCloudSync, flushSyncQueueToCloud } from './services/cloudSyncManager';
-import { saveDocument } from './services/supabaseDatabase';
+import { saveDocument, removeDocument } from './services/supabaseDatabase';
 import type { SyncScope } from './services/cloudSyncManager';
 
 // Subcomponents
@@ -756,10 +757,20 @@ export default function App() {
         return result;
       }
       await refreshStateFromLocalDB();
+      // CRITICAL FOR CROSS-DEVICE SYNC:
+      // Notify all active portals (Admin Portal, Class Explorer, Roster, etc.)
+      // that the local database has been refreshed from the cloud.
+      window.dispatchEvent(new CustomEvent('gofamint:sync-update', {
+        detail: { stores: [], source: 'remote-hydration' }
+      }));
       if (scope.targetOversightPortal === 'WORKERS' || ['WORKER', 'ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY'].includes(scope.roleType || '')) {
         window.dispatchEvent(new CustomEvent('gofamint:worker-sync', {
           detail: { stores: [], source: 'remote-hydration' }
         }));
+      }
+      const activeClass = classProfile?.id || scope.classId || oversightTarget?.classId;
+      if (activeClass) {
+        await loadClassQuarterData(activeClass, selectedQuarterRef.current);
       }
       if (result.ok) {
         setSyncStatusText(
@@ -814,7 +825,7 @@ export default function App() {
       const tasks: Promise<unknown>[] = [];
       const classDataStores = ['members', 'grades', 'offerings', 'absenceLogs'];
       if (classDataStores.some(store => changed.has(store))) {
-        const activeClassId = classProfile?.id || currentUserProfile?.classId;
+        const activeClassId = classProfile?.id || currentUserProfile?.classId || oversightTarget?.classId;
         if (activeClassId) tasks.push(loadClassQuarterData(activeClassId, selectedQuarterRef.current));
       }
       if (changed.has('lessons')) tasks.push(getAllLessons().then(setLessons));
@@ -863,7 +874,7 @@ export default function App() {
     const handleReturnToApp = () => {
       if (document.visibilityState === 'hidden') return;
       const now = Date.now();
-      if (now - lastFocusSyncTime > 30 * 1000) {
+      if (now - lastFocusSyncTime > 4000) {
         lastFocusSyncTime = now;
         void syncWithCloud(true);
       }
@@ -889,7 +900,7 @@ export default function App() {
 
   // AUTOMATIC BACKGROUND SYNC:
   // Automatically pushes queued mutations to the central Supabase database
-  // within 1.2s of any user input, and continuously runs a lightweight 20s
+  // within 300ms of any user input, and continuously runs a lightweight 20s
   // check to pull fresh records so all connected devices stay synchronized.
   const autoSyncDebounceRef = useRef<number | null>(null);
   const triggerAutoFlush = () => {
@@ -909,7 +920,7 @@ export default function App() {
         } catch (err) {
           console.warn('Auto-flush background notice:', err);
         }
-      }, 1200);
+      }, 300);
     }
   };
 
@@ -1240,6 +1251,7 @@ export default function App() {
   const handleDeleteMember = async (id: string) => {
     if (!classProfile) return;
     await deleteMemberFromDB(id);
+    removeDocument('members', id).catch(err => console.warn('Direct cloud delete member warning:', err));
     await loadClassQuarterData(classProfile.id, selectedQuarter);
 
     await addToSyncQueue({
@@ -1272,6 +1284,7 @@ export default function App() {
     };
 
     await saveMemberToDB(requested, selectedQuarter);
+    saveDocument('members', requested).catch(err => console.warn('Direct cloud save member warning:', err));
     await loadClassQuarterData(classProfile.id, selectedQuarter);
 
     await addToSyncQueue({
@@ -1292,8 +1305,10 @@ export default function App() {
       ? (grade.punctuality || 0) + (grade.memoryVerse || 0) + (grade.classParticipation || 0)
       : 0;
 
+    const canonicalId = `${classProfile.id}_q${selectedQuarter}_${grade.memberId}_w${grade.weekNumber}`;
     const updatedGrade: WeeklyGradeRecord = {
       ...grade,
+      id: canonicalId,
       classId: classProfile.id,
       quarterNumber: selectedQuarter,
       lessonTotal: total,
@@ -1302,17 +1317,18 @@ export default function App() {
 
     let previous: WeeklyGradeRecord | undefined;
     setGrades(current => {
-      previous = current.find(item => item.id === updatedGrade.id);
-      return [...current.filter(item => item.id !== updatedGrade.id), updatedGrade];
+      previous = current.find(item => item.id === canonicalId || (item.memberId === grade.memberId && item.weekNumber === grade.weekNumber));
+      return [...current.filter(item => item.id !== canonicalId && !(item.memberId === grade.memberId && item.weekNumber === grade.weekNumber)), updatedGrade];
     });
 
     try {
-      await saveGradeToDB(updatedGrade);
+      const savedGrade = await saveGradeToDB(updatedGrade);
+      saveDocument('grades', savedGrade).catch(err => console.warn('Direct cloud save grade warning:', err));
       await addToSyncQueue({
-        id: `sync_grade_${grade.id}_${Date.now()}`,
+        id: `sync_grade_${canonicalId}_${Date.now()}`,
         action: 'UPDATE',
         entity: 'GRADE',
-        data: updatedGrade,
+        data: savedGrade,
         createdAt: new Date().toISOString()
       });
       setSyncQueue(await getSyncQueue());
@@ -1329,21 +1345,24 @@ export default function App() {
 
   const handleUpdateOffering = async (offering: WeeklyOfferingRecord) => {
     if (!classProfile) return;
+    const canonicalId = `${classProfile.id}_q${selectedQuarter}_w${offering.weekNumber}`;
     const updatedOffering: WeeklyOfferingRecord = {
       ...offering,
+      id: canonicalId,
       classId: classProfile.id,
       quarterNumber: selectedQuarter,
       updatedAt: new Date().toISOString()
     };
 
-    await saveOfferingToDB(updatedOffering);
+    const saved = await saveOfferingToDB(updatedOffering);
+    saveDocument('offerings', saved).catch(err => console.warn('Direct cloud save offering warning:', err));
     await loadClassQuarterData(classProfile.id, selectedQuarter);
 
     await addToSyncQueue({
-      id: `sync_offering_${offering.id}_${Date.now()}`,
+      id: `sync_offering_${canonicalId}_${Date.now()}`,
       action: 'UPDATE',
       entity: 'OFFERING',
-      data: updatedOffering,
+      data: saved,
       createdAt: new Date().toISOString()
     });
     setSyncQueue(await getSyncQueue());
@@ -1353,24 +1372,48 @@ export default function App() {
   // Absence Log & Escalation Handlers
   const handleSaveAbsenceLog = async (log: AbsenceLogRecord) => {
     if (!classProfile) return;
+    const canonicalId = `${classProfile.id}_q${selectedQuarter}_${log.memberId}_w${log.weekNumber}`;
     const updatedLog: AbsenceLogRecord = {
       ...log,
+      id: canonicalId,
       classId: classProfile.id,
       quarterNumber: selectedQuarter
     };
 
-    await saveAbsenceLogToDB(updatedLog);
+    const saved = await saveAbsenceLogToDB(updatedLog);
+    saveDocument('absenceLogs', saved).catch(err => console.warn('Direct cloud save absence log warning:', err));
     await loadClassQuarterData(classProfile.id, selectedQuarter);
 
     await addToSyncQueue({
-      id: `sync_log_${log.id}_${Date.now()}`,
+      id: `sync_log_${canonicalId}_${Date.now()}`,
       action: 'CREATE',
       entity: 'ABSENCE_LOG',
-      data: updatedLog,
+      data: saved,
       createdAt: new Date().toISOString()
     });
     setSyncQueue(await getSyncQueue());
     triggerAutoFlush();
+  };
+
+  const handleDeleteAbsenceLog = async (logId: string) => {
+    if (!classProfile) return;
+    await deleteAbsenceLog(logId);
+    await loadClassQuarterData(classProfile.id, selectedQuarter);
+
+    await addToSyncQueue({
+      id: `sync_del_log_${logId}_${Date.now()}`,
+      action: 'DELETE',
+      entity: 'ABSENCE_LOG',
+      data: { id: logId },
+      createdAt: new Date().toISOString()
+    });
+    setSyncQueue(await getSyncQueue());
+    triggerAutoFlush();
+  };
+
+  const handleUpdateClassProfile = async (updatedProfile: ClassProfile) => {
+    const saved = await saveClassProfile(updatedProfile);
+    setClassProfile(saved);
   };
 
   const handleUpdateMemberStatus = async (memberId: string, status: any, exitNote?: string) => {
@@ -1386,7 +1429,18 @@ export default function App() {
     };
 
     await saveMemberToDB(updated, selectedQuarter);
+    saveDocument('members', updated).catch(err => console.warn('Direct cloud save member warning:', err));
     await loadClassQuarterData(classProfile.id, selectedQuarter);
+
+    await addToSyncQueue({
+      id: `sync_status_${memberId}_${Date.now()}`,
+      action: 'UPDATE',
+      entity: 'MEMBER',
+      data: updated,
+      createdAt: new Date().toISOString()
+    });
+    setSyncQueue(await getSyncQueue());
+    triggerAutoFlush();
   };
 
   const handleRelegateToVisitor = async (memberId: string) => {
@@ -1408,7 +1462,18 @@ export default function App() {
     };
 
     await saveMemberToDB(updated, selectedQuarter);
+    saveDocument('members', updated).catch(err => console.warn('Direct cloud save member warning:', err));
     await loadClassQuarterData(classProfile.id, selectedQuarter);
+
+    await addToSyncQueue({
+      id: `sync_relegate_${memberId}_${Date.now()}`,
+      action: 'UPDATE',
+      entity: 'MEMBER',
+      data: updated,
+      createdAt: new Date().toISOString()
+    });
+    setSyncQueue(await getSyncQueue());
+    triggerAutoFlush();
   };
 
   // Open Add Visitor with Referral from Student
@@ -1422,7 +1487,18 @@ export default function App() {
         updatedAt: new Date().toISOString()
       };
       await saveMemberToDB(updatedSponsor, selectedQuarter);
+      saveDocument('members', updatedSponsor).catch(err => console.warn('Direct cloud save member warning:', err));
       await loadClassQuarterData(classProfile.id, selectedQuarter);
+
+      await addToSyncQueue({
+        id: `sync_sponsor_${sponsorMemberId}_${Date.now()}`,
+        action: 'UPDATE',
+        entity: 'MEMBER',
+        data: updatedSponsor,
+        createdAt: new Date().toISOString()
+      });
+      setSyncQueue(await getSyncQueue());
+      triggerAutoFlush();
     }
 
     setPreSelectedSponsorId(sponsorMemberId);
@@ -2157,6 +2233,10 @@ export default function App() {
             classProfile={classProfile}
             activeLessons={currentQuarterLessons}
             selectedQuarterNumber={selectedQuarter}
+            absenceLogs={absenceLogs}
+            onSaveAbsenceLog={handleSaveAbsenceLog}
+            onDeleteAbsenceLog={handleDeleteAbsenceLog}
+            onUpdateClassProfile={handleUpdateClassProfile}
           />
         )}
 

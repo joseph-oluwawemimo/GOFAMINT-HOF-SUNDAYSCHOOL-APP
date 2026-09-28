@@ -70,6 +70,7 @@ import {
   subscribeToClassAbsenceLogs,
   subscribeToClassOfferings,
   subscribeToClassAdminComments,
+  subscribeToClassProfile,
 } from './supabaseDatabase';
 import {
   putInStore,
@@ -201,7 +202,7 @@ async function performHydration(scope: SyncScope | undefined, scopeKey: string):
     // Only a personal worker login or an explicitly opened Workers portal gets
     // the heavy workers datasets.
     const isWorkersDirectorateScope = role === 'WORKER' || oversightPortal === 'WORKERS';
-    const isGenSecRole = role === 'GENERAL_SECRETARY';
+    const isGenSecRole = role === 'GENERAL_SECRETARY' || isAsstGenSecRole;
     const isSuperintendentRole = ['GENERAL_SUPERINTENDENT', 'SUPER_ADMIN'].includes(role);
 
     if (isWorkersDirectorateScope) {
@@ -264,16 +265,19 @@ async function performHydration(scope: SyncScope | undefined, scopeKey: string):
     } else if (isDepartmentSuperintendentRole) {
       // Supabase RLS returns only rows belonging to the signed-in officer's department.
       // Replace (rather than merge) these stores so data cached by a previous login cannot leak.
-      const [cloudClasses, cloudMembers, cloudGrades] = await Promise.all([
+      const [cloudClasses, cloudMembers, cloudGrades, cloudOfferings, cloudAbsence] = await Promise.all([
         fetchCollection<ClassProfile>('classes'),
         fetchCollection<Member>('members'),
         fetchCollection<WeeklyGradeRecord>('grades'),
+        fetchCollection<WeeklyOfferingRecord>('offerings'),
+        fetchCollection<AbsenceLogRecord>('absenceLogs'),
       ]);
       await Promise.all([
         cloudClasses && cloudClasses.length > 0 ? replaceStoreContents('allClasses', cloudClasses) : Promise.resolve(),
         replaceStoreContents('members', cloudMembers),
         replaceStoreContents('grades', cloudGrades),
-        replaceStoreContents('offerings', []),
+        replaceStoreContents('offerings', cloudOfferings),
+        replaceStoreContents('absenceLogs', cloudAbsence),
         replaceStoreContents('workers', []),
       ]);
     } else if (isTreasurerRole) {
@@ -290,12 +294,13 @@ async function performHydration(scope: SyncScope | undefined, scopeKey: string):
         replaceStoreContents('allClasses', cloudClasses)
       ]);
     } else if (isRecordOfficerRole) {
-      // Record Officer: class directory, members, grades, offerings for overall attendance collation + workers directory
-      const [cloudClasses, cloudMembers, cloudGrades, cloudOfferings, cloudWorkers, cloudAtt, cloudPrep, cloudCats, cloudEvts] = await Promise.all([
+      // Record Officer: class directory, members, grades, offerings, absence logs for overall attendance collation + workers directory
+      const [cloudClasses, cloudMembers, cloudGrades, cloudOfferings, cloudAbsence, cloudWorkers, cloudAtt, cloudPrep, cloudCats, cloudEvts] = await Promise.all([
         fetchCollection<ClassProfile>('classes'),
         fetchCollection<Member>('members'),
         fetchCollection<WeeklyGradeRecord>('grades'),
         fetchCollection<WeeklyOfferingRecord>('offerings'),
+        fetchCollection<AbsenceLogRecord>('absenceLogs'),
         fetchCollection<WorkerProfile>('workers'),
         fetchCollection<WorkerAttendanceRecord>('workerAttendance'),
         fetchCollection<WorkerPrepAttendanceRecord>('workerPrepAttendance'),
@@ -308,6 +313,7 @@ async function performHydration(scope: SyncScope | undefined, scopeKey: string):
         replaceStoreContents('members', cloudMembers),
         replaceStoreContents('grades', cloudGrades),
         replaceStoreContents('offerings', cloudOfferings),
+        replaceStoreContents('absenceLogs', cloudAbsence),
         replaceStoreContents('workers', cloudWorkers),
         replaceStoreContents('workerAttendance', cloudAtt),
         replaceStoreContents('workerPrepAttendance', cloudPrep),
@@ -330,51 +336,55 @@ async function performHydration(scope: SyncScope | undefined, scopeKey: string):
         replaceStoreContents('enrollmentCertifications', cloudCertifications)
       ]);
     } else if (isGenSecRole) {
-      // General Secretary: classes, departments, admin profiles, comments, curriculum
-      const [cloudClasses, cloudProfiles, cloudComments, cloudLessons] = await Promise.all([
+      // General Secretary & Asst Gen Sec: Hydrate all classes, members, grades, offerings, absence logs, certifications, profiles, comments, and curriculum
+      const [cloudClasses, cloudMembers, cloudGrades, cloudOfferings, cloudAbsence, cloudProfiles, cloudComments, cloudLessons, cloudCertifications] = await Promise.all([
         fetchCollection<ClassProfile>('classes'),
+        fetchCollection<Member>('members'),
+        fetchCollection<WeeklyGradeRecord>('grades'),
+        fetchCollection<WeeklyOfferingRecord>('offerings'),
+        fetchCollection<AbsenceLogRecord>('absenceLogs'),
         fetchCollection<AdminProfile>('adminProfiles'),
         fetchCollection<AdminComment>('adminComments'),
-        fetchCollection<LessonInfo>('lessons')
+        fetchCollection<LessonInfo>('lessons'),
+        fetchCollection<EnrollmentCertificationRecord>('enrollmentCertifications')
       ]);
 
       await Promise.all([
         replaceStoreContents('allClasses', cloudClasses),
+        replaceStoreContents('members', cloudMembers),
+        replaceStoreContents('grades', cloudGrades),
+        replaceStoreContents('offerings', cloudOfferings),
+        replaceStoreContents('absenceLogs', cloudAbsence),
         replaceStoreContents('adminProfiles', cloudProfiles),
         replaceStoreContents('adminComments', cloudComments),
-        replaceStoreContents('lessons', cloudLessons)
+        replaceStoreContents('lessons', cloudLessons),
+        replaceStoreContents('enrollmentCertifications', cloudCertifications)
       ]);
     } else if (isSuperintendentRole) {
-      // General Superintendent: lightweight executive summary and council data.
-      // Workers data is loaded only after entering Workers oversight.
-      const [cloudClasses, cloudProfiles, cloudComments] = await Promise.all([
+      // General Superintendent, Super Admin & Executive Oversight:
+      const [cloudClasses, cloudMembers, cloudGrades, cloudOfferings, cloudAbsence, cloudProfiles, cloudComments, cloudLessons, cloudCertifications] = await Promise.all([
         fetchCollection<ClassProfile>('classes'),
+        fetchCollection<Member>('members'),
+        fetchCollection<WeeklyGradeRecord>('grades'),
+        fetchCollection<WeeklyOfferingRecord>('offerings'),
+        fetchCollection<AbsenceLogRecord>('absenceLogs'),
         fetchCollection<AdminProfile>('adminProfiles'),
-        fetchCollection<AdminComment>('adminComments')
+        fetchCollection<AdminComment>('adminComments'),
+        fetchCollection<LessonInfo>('lessons'),
+        fetchCollection<EnrollmentCertificationRecord>('enrollmentCertifications')
       ]);
 
       await Promise.all([
         replaceStoreContents('allClasses', cloudClasses),
+        replaceStoreContents('members', cloudMembers),
+        replaceStoreContents('grades', cloudGrades),
+        replaceStoreContents('offerings', cloudOfferings),
+        replaceStoreContents('absenceLogs', cloudAbsence),
         replaceStoreContents('adminProfiles', cloudProfiles),
-        replaceStoreContents('adminComments', cloudComments)
+        replaceStoreContents('adminComments', cloudComments),
+        replaceStoreContents('lessons', cloudLessons),
+        replaceStoreContents('enrollmentCertifications', cloudCertifications)
       ]);
-
-      // If inspecting a specific class in Oversight Mode:
-      if (oversightPortal === 'CLASS_REGISTER' && oversightClassId) {
-        const [targetMems, targetGrades, targetOffs, targetAbs] = await Promise.all([
-          fetchCollectionScoped<Member>('members', [{ field: 'classId', op: '==', value: oversightClassId }]),
-          fetchCollectionScoped<WeeklyGradeRecord>('grades', [{ field: 'classId', op: '==', value: oversightClassId }]),
-          fetchCollectionScoped<WeeklyOfferingRecord>('offerings', [{ field: 'classId', op: '==', value: oversightClassId }]),
-          fetchCollectionScoped<AbsenceLogRecord>('absenceLogs', [{ field: 'classId', op: '==', value: oversightClassId }])
-        ]);
-
-        await Promise.all([
-          replaceStoreContents('members', targetMems),
-          replaceStoreContents('grades', targetGrades),
-          replaceStoreContents('offerings', targetOffs),
-          replaceStoreContents('absenceLogs', targetAbs)
-        ]);
-      }
     } else {
       // Fallback for initial gate: load classes directory
       const cloudClasses = await fetchCollection<ClassProfile>('classes');
@@ -419,6 +429,12 @@ export async function flushSyncQueueToCloud(): Promise<{ processed: number; erro
           else if (item.entity === 'OFFERING') await removeDocument('offerings', docId);
           else if (item.entity === 'ABSENCE_LOG') await removeDocument('absenceLogs', docId);
           else if (item.entity === 'CLASS_PROFILE') await removeDocument('classes', docId);
+          else if (item.entity === 'ENROLLMENT_CERTIFICATION') await removeDocument('enrollmentCertifications', docId);
+          else if (item.entity === 'ADMIN_COMMENT') await removeDocument('adminComments', docId);
+          else if (item.entity === 'TREASURY_EXPENDITURE') await removeDocument('treasuryExpenditures', docId);
+          else if (item.entity === 'WORKER') await removeDocument('workers', docId);
+          else if (item.entity === 'WORKER_ATTENDANCE') await removeDocument('workerAttendance', docId);
+          else if (item.entity === 'WORKER_PREP_ATTENDANCE') await removeDocument('workerPrepAttendance', docId);
         }
       } else {
         // CREATE or UPDATE
@@ -432,6 +448,20 @@ export async function flushSyncQueueToCloud(): Promise<{ processed: number; erro
           await saveDocument('absenceLogs', item.data);
         } else if (item.entity === 'CLASS_PROFILE' && item.data?.id) {
           await saveDocument('classes', item.data);
+        } else if (item.entity === 'ENROLLMENT_CERTIFICATION' && item.data?.id) {
+          await saveDocument('enrollmentCertifications', item.data);
+        } else if (item.entity === 'ADMIN_COMMENT' && item.data?.id) {
+          await saveDocument('adminComments', item.data);
+        } else if (item.entity === 'TREASURY_EXPENDITURE' && item.data?.id) {
+          await saveDocument('treasuryExpenditures', item.data);
+        } else if (item.entity === 'SUNDAY_SCHOOL_YEAR' && item.data?.id) {
+          await saveDocument('sundaySchoolYear', item.data);
+        } else if (item.entity === 'WORKER' && item.data?.id) {
+          await saveDocument('workers', item.data);
+        } else if (item.entity === 'WORKER_ATTENDANCE' && item.data?.id) {
+          await saveDocument('workerAttendance', item.data);
+        } else if (item.entity === 'WORKER_PREP_ATTENDANCE' && item.data?.id) {
+          await saveDocument('workerPrepAttendance', item.data);
         }
       }
       processed++;
@@ -675,6 +705,17 @@ export function startRealtimeCloudSync(scope: SyncScope, onSyncCallback: (stores
         notifyChange('adminComments');
       });
       activeUnsubscribes.push(unsubComments);
+
+      const unsubClasses = subscribeToClassProfile(classId, async (clss) => {
+        await mergeStoreContents('allClasses', clss);
+        const match = clss.find(c => c.id === classId);
+        if (match) {
+          await replaceStoreContents('classProfile', [match]);
+          notifyChange('classProfile');
+        }
+        notifyChange('allClasses');
+      });
+      activeUnsubscribes.push(unsubClasses);
     } catch (err) {
       console.error('[RealtimeSync] Failed to attach class-scoped listeners:', err);
     }
@@ -692,7 +733,15 @@ export function startRealtimeCloudSync(scope: SyncScope, onSyncCallback: (stores
         await mergeStoreContents('grades', grds);
         notifyChange('grades');
       });
-      activeUnsubscribes.push(unsubClasses, unsubMembers, unsubGrades);
+      const unsubOfferings = subscribeToCollection<WeeklyOfferingRecord>('offerings', async (offs) => {
+        await mergeStoreContents('offerings', offs);
+        notifyChange('offerings');
+      });
+      const unsubAbsence = subscribeToCollection<AbsenceLogRecord>('absenceLogs', async (logs) => {
+        await mergeStoreContents('absenceLogs', logs);
+        notifyChange('absenceLogs');
+      });
+      activeUnsubscribes.push(unsubClasses, unsubMembers, unsubGrades, unsubOfferings, unsubAbsence);
     } catch (err) {
       console.error('[RealtimeSync] Failed to attach department superintendent listeners:', err);
     }
@@ -745,6 +794,12 @@ export function startRealtimeCloudSync(scope: SyncScope, onSyncCallback: (stores
         notifyChange('offerings');
       });
       activeUnsubscribes.push(unsubOfferings);
+
+      const unsubAbsence = subscribeToCollection<AbsenceLogRecord>('absenceLogs', async (logs) => {
+        await mergeStoreContents('absenceLogs', logs);
+        notifyChange('absenceLogs');
+      });
+      activeUnsubscribes.push(unsubAbsence);
     } catch (err) {
       console.error('[RealtimeSync] Failed to attach record officer listeners:', err);
     }
@@ -777,26 +832,45 @@ export function startRealtimeCloudSync(scope: SyncScope, onSyncCallback: (stores
     } catch (err) {
       console.error('[RealtimeSync] Failed to attach enrollment officer listeners:', err);
     }
-  } else if (isAsstGenSecRole) {
-    try {
-      const unsubClasses = subscribeToCollection<ClassProfile>('classes', async (clss) => {
-        if (clss.length > 0) {
-          await mergeStoreContents('allClasses', clss);
-          notifyChange('allClasses');
-        }
-      });
-      activeUnsubscribes.push(unsubClasses);
-    } catch (err) {
-      console.error('[RealtimeSync] Failed to attach asst gen sec class listeners:', err);
-    }
-  } else if (isGenSecRole || isSuperintendentRole) {
-    // Executive Administration
+  } else if (isGenSecRole || isSuperintendentRole || isAsstGenSecRole) {
+    // Executive Administration: General Superintendent, General Secretary, Super Admin, Asst Gen Sec.
+    // Live subscriptions across all classes, members, grades, offerings, absence logs, certifications, profiles, and comments.
     try {
       const unsubClasses = subscribeToCollection<ClassProfile>('classes', async (clss) => {
         await mergeStoreContents('allClasses', clss);
         notifyChange('allClasses');
       });
       activeUnsubscribes.push(unsubClasses);
+
+      const unsubMembers = subscribeToCollection<Member>('members', async (mems) => {
+        await mergeStoreContents('members', mems);
+        notifyChange('members');
+      });
+      activeUnsubscribes.push(unsubMembers);
+
+      const unsubGrades = subscribeToCollection<WeeklyGradeRecord>('grades', async (grds) => {
+        await mergeStoreContents('grades', grds);
+        notifyChange('grades');
+      });
+      activeUnsubscribes.push(unsubGrades);
+
+      const unsubOfferings = subscribeToCollection<WeeklyOfferingRecord>('offerings', async (offs) => {
+        await mergeStoreContents('offerings', offs);
+        notifyChange('offerings');
+      });
+      activeUnsubscribes.push(unsubOfferings);
+
+      const unsubAbsence = subscribeToCollection<AbsenceLogRecord>('absenceLogs', async (logs) => {
+        await mergeStoreContents('absenceLogs', logs);
+        notifyChange('absenceLogs');
+      });
+      activeUnsubscribes.push(unsubAbsence);
+
+      const unsubCertifications = subscribeToCollection<EnrollmentCertificationRecord>('enrollmentCertifications', async (records) => {
+        await mergeStoreContents('enrollmentCertifications', records);
+        notifyChange('enrollmentCertifications');
+      });
+      activeUnsubscribes.push(unsubCertifications);
 
       const unsubProfiles = subscribeToCollection<AdminProfile>('adminProfiles', async (profs) => {
         await mergeStoreContents('adminProfiles', profs);
@@ -809,33 +883,6 @@ export function startRealtimeCloudSync(scope: SyncScope, onSyncCallback: (stores
         notifyChange('adminComments');
       });
       activeUnsubscribes.push(unsubComments);
-
-      // Oversight Mode targeted listeners
-      if (oversightPortal === 'CLASS_REGISTER' && oversightClassId) {
-        const unsubTargetMems = subscribeToClassMembers(oversightClassId, async (mems) => {
-          await mergeStoreContents('members', mems);
-          notifyChange('members');
-        });
-        activeUnsubscribes.push(unsubTargetMems);
-
-        const unsubTargetGrades = subscribeToClassGrades(oversightClassId, async (grds) => {
-          await mergeStoreContents('grades', grds);
-          notifyChange('grades');
-        });
-        activeUnsubscribes.push(unsubTargetGrades);
-
-        const unsubTargetOffs = subscribeToClassOfferings(oversightClassId, async (offs) => {
-          await mergeStoreContents('offerings', offs);
-          notifyChange('offerings');
-        });
-        activeUnsubscribes.push(unsubTargetOffs);
-
-        const unsubTargetAbs = subscribeToClassAbsenceLogs(oversightClassId, async (logs) => {
-          await mergeStoreContents('absenceLogs', logs);
-          notifyChange('absenceLogs');
-        });
-        activeUnsubscribes.push(unsubTargetAbs);
-      }
     } catch (err) {
       console.error('[RealtimeSync] Failed to attach executive listeners:', err);
     }
