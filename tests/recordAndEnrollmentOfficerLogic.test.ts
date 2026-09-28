@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { isMemberStudentAtWeek, getEffectiveStudentActivationWeek } from '../src/utils/calculations';
+import { hasPermanentlyExitedBy } from '../src/db/indexedDB';
+import { Member } from '../src/types';
 
 /**
  * Pure calculation logic simulator for Enrollment Officer weekly progression
@@ -340,5 +343,152 @@ test('Section 5 & 6 — Elaborate Inspection: Answering the 4 Composition Questi
   // Question 4: "Who were the visitors that did not come?" (Week 4)
   const w4VisitorsAbsent = w4Members.filter(m => m.category === 'VISITOR' && m.attendance === 'ABSENT');
   assert.deepEqual(w4VisitorsAbsent.map(m => m.fullName), ['Charlie Visitor']);
+});
+
+test('Section 6 & 15 — Critical Historical Status Rule (isMemberStudentAtWeek)', () => {
+  const visitorConvertedWeek4: Member = {
+    id: 'mem_1',
+    fullName: 'Bob Converted',
+    memberType: 'STUDENT',
+    status: 'ACTIVE',
+    firstLessonWeek: 1,
+    convertedFromVisitorAtLesson: 4,
+    conversionStatus: 'APPROVED',
+    phone: '08012345678',
+    address: 'Church Road',
+    occupation: 'Teacher',
+    prayerRequests: '',
+    notes: '',
+    evangelismReferralCount: 0,
+    createdAt: '2026-09-01T00:00:00Z',
+    updatedAt: '2026-09-22T00:00:00Z'
+  };
+
+  // Week 1 -> Visitor
+  assert.equal(isMemberStudentAtWeek(visitorConvertedWeek4, 1), false, 'Week 1 must remain Visitor');
+  // Week 2 -> Visitor
+  assert.equal(isMemberStudentAtWeek(visitorConvertedWeek4, 2), false, 'Week 2 must remain Visitor');
+  // Week 3 -> Visitor
+  assert.equal(isMemberStudentAtWeek(visitorConvertedWeek4, 3), false, 'Week 3 must remain Visitor');
+  // Week 4 -> Student
+  assert.equal(isMemberStudentAtWeek(visitorConvertedWeek4, 4), true, 'Week 4 is the first week treated as Student');
+  // Week 5 -> Student
+  assert.equal(isMemberStudentAtWeek(visitorConvertedWeek4, 5), true, 'Week 5 continues as Student');
+
+  // Pre-existing student from prior quarters
+  const preExistingStudent: Member = {
+    id: 'mem_2',
+    fullName: 'Alice Pre-existing',
+    memberType: 'STUDENT',
+    status: 'ACTIVE',
+    firstLessonWeek: 1,
+    phone: '08012345679',
+    address: 'Main St',
+    occupation: 'Engineer',
+    prayerRequests: '',
+    notes: '',
+    evangelismReferralCount: 0,
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-09-01T00:00:00Z'
+  };
+  assert.equal(isMemberStudentAtWeek(preExistingStudent, 1), true, 'Pre-existing student is student from week 1');
+
+  // Permanent exit check
+  assert.equal(hasPermanentlyExitedBy(visitorConvertedWeek4, 1, 1, 'ACTIVE'), false);
+  const exitedMember: Member = {
+    ...visitorConvertedWeek4,
+    status: 'LEFT_CLASS',
+    departureQuarter: 1,
+    departureWeek: 3
+  };
+  assert.equal(hasPermanentlyExitedBy(exitedMember, 1, 2, 'ACTIVE'), false, 'Not exited in week 2');
+  assert.equal(hasPermanentlyExitedBy(exitedMember, 1, 3, 'ACTIVE'), true, 'Exited by week 3');
+});
+
+test('Section 10, 11, 12, 13, 14 — Authoritative 5-Week Enrollment Progression & Master Reconciliation', () => {
+  const intakeSchedule: WeekIntake[] = [
+    { weekNumber: 1, newlyOnboarded: 8, newlyEnrolled: 0 },
+    { weekNumber: 2, newlyOnboarded: 2, newlyEnrolled: 0 },
+    { weekNumber: 3, newlyOnboarded: 1, newlyEnrolled: 0 },
+    { weekNumber: 4, newlyOnboarded: 0, newlyEnrolled: 3 },
+    { weekNumber: 5, newlyOnboarded: 1, newlyEnrolled: 1 }
+  ];
+
+  const results = simulateEnrollmentProgression(intakeSchedule);
+
+  // WEEK 1
+  assert.deepEqual(results[0], {
+    weekNumber: 1,
+    newlyOnboarded: 8,
+    previouslyOnboarded: 0,
+    totalOnboarded: 8,
+    newVisitors: 8,
+    currentVisitors: 0,
+    totalVisitors: 8,
+    newlyEnrolled: 0,
+    previouslyEnrolled: 0,
+    totalEnrolled: 0
+  });
+  assert.equal(results[0].totalOnboarded, results[0].totalVisitors + results[0].totalEnrolled); // 8 = 8 + 0
+
+  // WEEK 2
+  assert.deepEqual(results[1], {
+    weekNumber: 2,
+    newlyOnboarded: 2,
+    previouslyOnboarded: 8,
+    totalOnboarded: 10,
+    newVisitors: 2,
+    currentVisitors: 8,
+    totalVisitors: 10,
+    newlyEnrolled: 0,
+    previouslyEnrolled: 0,
+    totalEnrolled: 0
+  });
+  assert.equal(results[1].totalOnboarded, results[1].totalVisitors + results[1].totalEnrolled); // 10 = 10 + 0
+
+  // WEEK 3
+  assert.deepEqual(results[2], {
+    weekNumber: 3,
+    newlyOnboarded: 1,
+    previouslyOnboarded: 10,
+    totalOnboarded: 11,
+    newVisitors: 1,
+    currentVisitors: 10,
+    totalVisitors: 11,
+    newlyEnrolled: 0,
+    previouslyEnrolled: 0,
+    totalEnrolled: 0
+  });
+  assert.equal(results[2].totalOnboarded, results[2].totalVisitors + results[2].totalEnrolled); // 11 = 11 + 0
+
+  // WEEK 4 (Crucial Qualification Week)
+  assert.deepEqual(results[3], {
+    weekNumber: 4,
+    newlyOnboarded: 0,
+    previouslyOnboarded: 11,
+    totalOnboarded: 11,
+    newVisitors: 0,
+    currentVisitors: 8, // 11 - 3 = 8
+    totalVisitors: 8,   // 0 + 8 = 8
+    newlyEnrolled: 3,
+    previouslyEnrolled: 0,
+    totalEnrolled: 3    // 3 + 0 = 3
+  });
+  assert.equal(results[3].totalOnboarded, results[3].totalVisitors + results[3].totalEnrolled); // 11 = 8 + 3
+
+  // WEEK 5
+  assert.deepEqual(results[4], {
+    weekNumber: 5,
+    newlyOnboarded: 1,
+    previouslyOnboarded: 11,
+    totalOnboarded: 12,
+    newVisitors: 1,
+    currentVisitors: 7, // 8 - 1 = 7
+    totalVisitors: 8,   // 1 + 7 = 8
+    newlyEnrolled: 1,
+    previouslyEnrolled: 3,
+    totalEnrolled: 4    // 1 + 3 = 4
+  });
+  assert.equal(results[4].totalOnboarded, results[4].totalVisitors + results[4].totalEnrolled); // 12 = 8 + 4
 });
 

@@ -683,9 +683,12 @@ export interface LessonInfo {
   weekNumber: number;
   topic: string;
   scriptureReading: string;
-  memoryVerse: string;
-  memoryVerseRef: string;
-  aim: string;
+  memoryVerse?: string;
+  memoryVerseRef?: string;
+  aim?: string;
+  title?: string;
+  scriptureReferences?: string;
+  memoryVerseReference?: string;
 }
 
 export interface CategoryReportStats {

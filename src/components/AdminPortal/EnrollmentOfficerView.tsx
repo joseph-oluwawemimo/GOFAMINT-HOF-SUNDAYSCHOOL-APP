@@ -719,6 +719,11 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
                 <p className="text-[11px] opacity-90 mt-0.5">
                   TOTAL ONBOARDED (<strong>{filteredTotalOnboarded}</strong>) = TOTAL VISITORS (<strong>{filteredTotalVisitors}</strong>) + TOTAL ENROLLED (<strong>{filteredTotalEnrolled}</strong>)
                 </p>
+                {!isEquationBalanced && (
+                  <p className="text-[10px] text-rose-700 font-bold mt-1">
+                    Discrepancy identified in classes: {filteredRows.filter(r => (r.totalOnboarded ?? (r.newlyOnboarded + r.previouslyOnboarded)) !== (r.totalVisitors ?? (r.newVisitors + r.currentVisitors)) + (r.totalEnrolled ?? (r.newlyEnrolled + r.previouslyEnrolled))).map(r => r.className).join(', ') || 'Collation records'}.
+                  </p>
+                )}
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2 text-[10px] font-mono font-bold bg-white/90 py-1.5 px-3 rounded-xl border border-slate-200 shrink-0 shadow-2xs">
@@ -874,17 +879,17 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
                       {Array.from({ length: totalWeeks }, (_, i) => i + 1).map(w => (
                         <React.Fragment key={w}>
                           {/* Section A columns */}
-                          <th className="p-2 text-center border-r border-slate-700 bg-teal-900/60 text-teal-200">Newly Onb</th>
-                          <th className="p-2 text-center border-r border-slate-700 bg-teal-900/60 text-teal-200">Prev Onb</th>
-                          <th className="p-2 text-center border-r border-teal-700 bg-teal-900/90 text-amber-300 font-black">TOTAL ONB</th>
+                          <th className="p-2 text-center border-r border-slate-700 bg-teal-900/60 text-teal-200">Newly Onboarded</th>
+                          <th className="p-2 text-center border-r border-slate-700 bg-teal-900/60 text-teal-200">Previously Onboarded</th>
+                          <th className="p-2 text-center border-r border-teal-700 bg-teal-900/90 text-amber-300 font-black">Total Onboarded</th>
                           {/* Section B columns */}
-                          <th className="p-2 text-center border-r border-slate-700 bg-purple-900/60 text-purple-200">New Vis</th>
-                          <th className="p-2 text-center border-r border-slate-700 bg-purple-900/60 text-purple-200">Current Vis</th>
-                          <th className="p-2 text-center border-r border-purple-700 bg-purple-900/90 text-purple-100 font-black">TOTAL VIS</th>
+                          <th className="p-2 text-center border-r border-slate-700 bg-purple-900/60 text-purple-200">New Visitors</th>
+                          <th className="p-2 text-center border-r border-slate-700 bg-purple-900/60 text-purple-200">Current Visitors</th>
+                          <th className="p-2 text-center border-r border-purple-700 bg-purple-900/90 text-purple-100 font-black">Total Visitors</th>
                           {/* Section C columns */}
-                          <th className="p-2 text-center border-r border-slate-700 bg-emerald-900/60 text-emerald-200">Newly Enr</th>
-                          <th className="p-2 text-center border-r border-slate-700 bg-emerald-900/60 text-emerald-200">Prev Enr</th>
-                          <th className="p-2 text-center border-r-2 border-slate-700 bg-emerald-900/90 text-emerald-100 font-black">TOTAL ENR</th>
+                          <th className="p-2 text-center border-r border-slate-700 bg-emerald-900/60 text-emerald-200">Newly Enrolled</th>
+                          <th className="p-2 text-center border-r border-slate-700 bg-emerald-900/60 text-emerald-200">Previously Enrolled</th>
+                          <th className="p-2 text-center border-r-2 border-slate-700 bg-emerald-900/90 text-emerald-100 font-black">Total Enrolled</th>
                         </React.Fragment>
                       ))}
                     </tr>
@@ -953,8 +958,20 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
                     {filteredRows.map((row, idx) => (
                       <tr key={row.classId || idx} className="hover:bg-slate-50 transition border-b border-slate-100">
                         <td className="p-3 pl-4 sticky left-0 z-10 bg-white font-black text-xs text-slate-900 border-r-2 border-slate-200 shadow-2xs">
-                          <div>{row.className}</div>
-                          <div className="text-[10px] text-slate-400 font-semibold">{row.department}</div>
+                          <div className="flex items-center justify-between gap-2">
+                            <div>
+                              <div>{row.className}</div>
+                              <div className="text-[10px] text-slate-400 font-semibold">{row.department}</div>
+                            </div>
+                            <button
+                              onClick={() => setDrillDownRow(row)}
+                              className="px-2 py-1 bg-slate-100 hover:bg-teal-100 text-teal-900 rounded-lg font-bold text-[10px] transition inline-flex items-center gap-1 cursor-pointer shrink-0"
+                              title="Inspect Class"
+                            >
+                              <Eye className="w-3 h-3" />
+                              <span>Inspect</span>
+                            </button>
+                          </div>
                         </td>
                         {Array.from({ length: totalWeeks }, (_, i) => i + 1).map(w => {
                           const wCol = allQuarterEnrollmentCollations[w - 1];
@@ -1041,17 +1058,17 @@ export const EnrollmentOfficerView: React.FC<EnrollmentOfficerViewProps> = ({
                     {/* Sub Headers */}
                     <tr className="bg-slate-800 text-slate-200 text-[10px] font-bold uppercase tracking-wider border-b border-slate-700">
                       {/* Onboarding columns */}
-                      <th className="p-2 text-center border-r border-slate-700">Newly Onb</th>
-                      <th className="p-2 text-center border-r border-slate-700">Prev Onb</th>
-                      <th className="p-2 text-center border-r border-slate-700 bg-teal-900/60 text-amber-300 font-black">TOTAL ONB</th>
+                      <th className="p-2 text-center border-r border-slate-700">Newly Onboarded</th>
+                      <th className="p-2 text-center border-r border-slate-700">Previously Onboarded</th>
+                      <th className="p-2 text-center border-r border-slate-700 bg-teal-900/60 text-amber-300 font-black">Total Onboarded</th>
                       {/* Visitors columns */}
-                      <th className="p-2 text-center border-r border-slate-700">New Vis</th>
-                      <th className="p-2 text-center border-r border-slate-700">Current Vis</th>
-                      <th className="p-2 text-center border-r border-slate-700 bg-purple-900/60 text-purple-200 font-black">TOTAL VIS</th>
+                      <th className="p-2 text-center border-r border-slate-700">New Visitors</th>
+                      <th className="p-2 text-center border-r border-slate-700">Current Visitors</th>
+                      <th className="p-2 text-center border-r border-slate-700 bg-purple-900/60 text-purple-200 font-black">Total Visitors</th>
                       {/* Enrollment columns */}
-                      <th className="p-2 text-center border-r border-slate-700">Newly Enr</th>
-                      <th className="p-2 text-center border-r border-slate-700">Prev Enr</th>
-                      <th className="p-2 text-center border-r border-slate-700 bg-indigo-900/60 text-emerald-300 font-black">TOTAL ENR</th>
+                      <th className="p-2 text-center border-r border-slate-700">Newly Enrolled</th>
+                      <th className="p-2 text-center border-r border-slate-700">Previously Enrolled</th>
+                      <th className="p-2 text-center border-r border-slate-700 bg-indigo-900/60 text-emerald-300 font-black">Total Enrolled</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-slate-700">

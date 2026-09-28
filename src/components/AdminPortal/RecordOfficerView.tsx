@@ -39,7 +39,7 @@ import {
   QuarterNumber,
   Member
 } from '../../types';
-import { getRealRecordOfficerCollation, getAllMembers, getAllGrades, getStudentClassForWeek } from '../../db/indexedDB';
+import { getRealRecordOfficerCollation, getAllMembers, getAllGrades, getStudentClassForWeek, hasPermanentlyExitedBy } from '../../db/indexedDB';
 import { isMemberStudentAtWeek } from '../../utils/calculations';
 import { GofamintLogo } from '../GofamintLogo';
 import { useDatabaseSync } from '../../hooks/useDatabaseSync';
@@ -143,33 +143,46 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
         return hist.classId === row.classId || (!hist.classId && m.classId === row.classId);
       });
 
-      const enriched = classMems.map(mem => {
-        const qEnr = mem.quarterEnrollments?.[selectedQuarter as QuarterNumber];
-        const firstWeek = qEnr?.firstLessonWeek || mem.firstLessonWeek || 1;
-        const convertedWeek = mem.convertedFromVisitorAtLesson;
+      const qMembers = classMems.filter(m => {
+        if (selectedQuarter === 1) return true;
+        return !!m.quarterEnrollments?.[selectedQuarter as QuarterNumber];
+      });
 
-        const isExempt = selectedWeek < firstWeek;
+      const enriched = qMembers.map(mem => {
+        const qEnr = mem.quarterEnrollments?.[selectedQuarter as QuarterNumber];
+        const status = qEnr?.status || mem.status || 'ACTIVE';
+        const firstWeek = qEnr?.firstLessonWeek || mem.firstLessonWeek || 1;
+
+        if (selectedWeek < firstWeek) {
+          return null;
+        }
+
         const grade = allGrades.find(
           g => g.classId === row.classId && g.quarterNumber === selectedQuarter && g.memberId === mem.id && g.weekNumber === selectedWeek
         );
 
-        const memberType: 'STUDENT' | 'VISITOR' = isMemberStudentAtWeek(mem, selectedWeek) ? 'STUDENT' : 'VISITOR';
+        if (grade && grade.attendance === 'EXEMPT') {
+          return null;
+        }
 
-        const isNewVisitor = !isExempt && memberType === 'VISITOR' && firstWeek === selectedWeek;
-        const gradeAttendance = isExempt
-          ? 'EXEMPT'
-          : (grade && !grade.isNoRecordWeek && grade.attendance === 'PRESENT' ? 'PRESENT' : 'ABSENT');
+        if (hasPermanentlyExitedBy(mem, selectedQuarter, selectedWeek, status)) {
+          return null;
+        }
+
+        const memberType: 'STUDENT' | 'VISITOR' = isMemberStudentAtWeek(mem, selectedWeek) ? 'STUDENT' : 'VISITOR';
+        const isPresent = grade && !grade.isNoRecordWeek && grade.attendance === 'PRESENT';
+        const gradeAttendance: 'PRESENT' | 'ABSENT' = isPresent ? 'PRESENT' : 'ABSENT';
 
         return {
           ...mem,
           memberType,
           firstWeek,
-          isExempt,
-          isNewVisitor,
+          isExempt: false,
+          isNewVisitor: memberType === 'VISITOR' && firstWeek === selectedWeek,
           gradeAttendance,
-          lessonTotal: isExempt ? 0 : (grade ? grade.lessonTotal : 0)
+          lessonTotal: grade ? grade.lessonTotal : 0
         };
-      }).filter(m => !m.isExempt);
+      }).filter((m): m is NonNullable<typeof m> => m !== null);
 
       setInspectedClassMembers(enriched);
     } catch (err) {
@@ -211,7 +224,7 @@ export const RecordOfficerView: React.FC<RecordOfficerViewProps> = ({
   const filteredNewVisitors = filteredRows.reduce((s, r) => s + r.newVisitors, 0);
   const filteredClassMembersAbsent = filteredTotalAbsent;
   const filteredRegisteredClassMembers = filteredTotalClassMembers;
-  const filteredOnboarded = filteredVisitorsCount;
+  const filteredOnboarded = filteredNewVisitors; // New people onboarded into class this week
   const filteredEndingActive = filteredTotalClassMembers;
 
   interface DepartmentSummary {

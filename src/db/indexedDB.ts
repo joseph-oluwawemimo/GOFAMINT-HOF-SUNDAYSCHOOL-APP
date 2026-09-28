@@ -3556,7 +3556,7 @@ export async function getRealEnrollmentSummary() {
 // RECORD OFFICER & ENROLLMENT OFFICER QUERY ENGINES
 // -------------------------------------------------------------
 
-function hasPermanentlyExitedBy(member: Member, quarterNumber: number, weekNumber: number, fallbackStatus: MemberStatus): boolean {
+export function hasPermanentlyExitedBy(member: Member, quarterNumber: number, weekNumber: number, fallbackStatus: MemberStatus): boolean {
   if (member.departureQuarter && member.departureWeek) {
     return quarterNumber > member.departureQuarter ||
       (quarterNumber === member.departureQuarter && weekNumber >= member.departureWeek);
@@ -3906,7 +3906,13 @@ export async function getRealEnrollmentOfficerCollation(
         const qEnr = m.quarterEnrollments?.[quarterNumber as QuarterNumber];
         const status = qEnr?.status || m.status || 'ACTIVE';
         if (hasPermanentlyExitedBy(m, quarterNumber, w, status)) return false;
-        return m.memberType === 'STUDENT' && getEffectiveStudentActivationWeek(m) === w;
+        if (w < 4) return false;
+        const isConverted =
+          (m.convertedFromVisitorAtLesson !== undefined && m.convertedFromVisitorAtLesson !== null) ||
+          m.conversionStatus === 'APPROVED' ||
+          m.statusHistory?.some(h => h.fromStatus === 'VISITOR' && h.toStatus === 'STUDENT') ||
+          m.certifiedAt !== undefined;
+        return m.memberType === 'STUDENT' && isConverted && getEffectiveStudentActivationWeek(m) === w;
       });
       const wNewlyEnrolled = wNewlyEnrolledMembers.length;
       const wPreviouslyEnrolled = prevTotalEnrolled;
