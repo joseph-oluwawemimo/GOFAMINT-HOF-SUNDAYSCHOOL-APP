@@ -439,12 +439,29 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
   };
 
   const handleRestoreMember = async (member: Member) => {
+    const displayName = member.fullName || (member as any).name || 'Member';
     const confirmed = window.confirm(
-      `Restore ${member.fullName} (${member.memberType === 'STUDENT' ? 'Student' : 'Visitor'}) to the active roster?\n\nThey will immediately reappear in the active class register and grading matrix.`
+      `Restore ${displayName} (${member.memberType === 'STUDENT' ? 'Student' : 'Visitor'}) to the active roster?\n\nThey will immediately reappear in the active class register and grading matrix.`
     );
     if (!confirmed) return;
 
     try {
+      const qNum = (selectedQuarter || 1) as QuarterNumber;
+      const currentEnrollments = member.quarterEnrollments || {};
+      const currentEnr = currentEnrollments[qNum];
+      const updatedEnrollments = {
+        ...currentEnrollments,
+        [qNum]: {
+          ...(currentEnr || {
+            quarterNumber: qNum,
+            memberType: member.memberType,
+            firstLessonWeek: member.firstLessonWeek || 1
+          }),
+          status: 'ACTIVE' as MemberStatus,
+          exitNote: undefined
+        }
+      };
+
       const updated: Member = {
         ...member,
         status: 'ACTIVE',
@@ -453,6 +470,8 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
         departureDate: undefined,
         departureReason: undefined,
         departureWeek: undefined,
+        exitNote: undefined,
+        quarterEnrollments: updatedEnrollments,
         statusHistory: [
           ...(member.statusHistory || []),
           {
@@ -467,7 +486,7 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
       };
 
       await onSaveMember(updated);
-      alert(`${member.fullName} has been restored to the active roster!`);
+      alert(`${displayName} has been restored to the active roster!`);
     } catch (err: any) {
       console.error('Failed to restore member:', err);
       alert(`Could not restore member: ${err?.message || 'Database error'}`);
@@ -615,6 +634,7 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
     }
 
     const memberToSave: Member = {
+      ...(editingMember || {}),
       id: editingMember ? editingMember.id : `mem_${Date.now()}`,
       fullName: fullName.trim(),
       phone: normalizedPhone || phone.trim(),
@@ -649,14 +669,36 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
 
   const handleMovementSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!movementMemberId) return;
+    if (!movementMemberId) {
+      alert('Please select a student or visitor to exclude or archive.');
+      return;
+    }
     const targetMember = members.find(m => m.id === movementMemberId);
-    if (!targetMember) return;
+    if (!targetMember) {
+      alert('The selected person could not be found in the current roster.');
+      return;
+    }
 
     setIsSavingMovement(true);
     try {
       const prefix = exclusionActionType === 'TEMPORARY' ? '[One-Time Visitor / Temporal] ' : '[Permanent Archive] ';
       const fullReason = `${prefix}${movementReasonCategory}${movementNotes ? ': ' + movementNotes.trim() : ''}`;
+      const qNum = (selectedQuarter || 1) as QuarterNumber;
+      const currentEnrollments = targetMember.quarterEnrollments || {};
+      const currentEnr = currentEnrollments[qNum];
+      const updatedEnrollments = {
+        ...currentEnrollments,
+        [qNum]: {
+          ...(currentEnr || {
+            quarterNumber: qNum,
+            memberType: targetMember.memberType,
+            firstLessonWeek: targetMember.firstLessonWeek || 1
+          }),
+          status: 'LEFT_CLASS' as MemberStatus,
+          exitNote: fullReason
+        }
+      };
+
       const updated: Member = {
         ...targetMember,
         status: 'LEFT_CLASS',
@@ -665,6 +707,8 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
         departureDate: movementDate,
         departureReason: fullReason,
         departureWeek: currentWeek,
+        exitNote: fullReason,
+        quarterEnrollments: updatedEnrollments,
         statusHistory: [
           ...(targetMember.statusHistory || []),
           {
@@ -682,7 +726,8 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
       setMovementMemberId('');
       setMovementNotes('');
       setActiveRosterTab('ARCHIVED');
-      alert(`${targetMember.fullName} successfully excluded and moved to Archived & Excluded roster. Previous lesson records remain safely preserved.`);
+      const displayName = targetMember.fullName || (targetMember as any).name || 'Member';
+      alert(`${displayName} successfully excluded and moved to Archived & Excluded roster. Previous lesson records remain safely preserved.`);
     } catch (err: any) {
       console.error('Failed to record student movement:', err);
       alert(`Could not record student movement: ${err?.message || 'Database error'}`);
@@ -1053,7 +1098,7 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                           </button>
 
                           {activeMoreMenuMemberId === member.id && (
-                            <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 text-xs">
+                            <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 text-xs">
                               <button
                                 type="button"
                                 onClick={() => handleOpenTransferModal(member)}
@@ -1062,6 +1107,20 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                                 <ArrowRightLeft className="w-3.5 h-3.5 text-indigo-600" />
                                 <span>Transfer {member.memberType === 'VISITOR' ? 'Visitor' : 'Student'}</span>
                               </button>
+                              {member.status !== 'LEFT_CLASS' && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveMoreMenuMemberId(null);
+                                    setMovementMemberId(member.id);
+                                    setIsMovementModalOpen(true);
+                                  }}
+                                  className="w-full px-3 py-2 text-left text-rose-700 hover:bg-rose-50 font-bold flex items-center gap-2 cursor-pointer border-t border-slate-100"
+                                >
+                                  <UserMinus className="w-3.5 h-3.5 text-rose-600" />
+                                  <span>Exclusion & Archive</span>
+                                </button>
+                              )}
                             </div>
                           )}
                         </div>
@@ -1915,7 +1974,7 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                   <option value="">-- Choose Person --</option>
                   {members.filter(m => m.status !== 'LEFT_CLASS').map(m => (
                     <option key={m.id} value={m.id}>
-                      {m.fullName} ({m.memberType})
+                      {m.fullName || (m as any).name || 'Unnamed Member'} ({m.memberType || 'STUDENT'})
                     </option>
                   ))}
                 </select>

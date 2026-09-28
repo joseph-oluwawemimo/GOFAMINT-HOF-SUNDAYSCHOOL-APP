@@ -53,6 +53,7 @@ import { GOFAMINT_HOF_12_LESSONS } from './data/mockQuarterLessons';
 import { pushSyncToServer, pullSyncFromServer } from './services/api';
 import { checkVisitorQualification, getConsecutiveAbsences, getConsecutiveVisits } from './utils/calculations';
 import { runFullCloudSyncCycle, getLastHydrationError, startRealtimeCloudSync, stopRealtimeCloudSync, flushSyncQueueToCloud } from './services/cloudSyncManager';
+import { saveDocument } from './services/supabaseDatabase';
 import type { SyncScope } from './services/cloudSyncManager';
 
 // Subcomponents
@@ -1189,13 +1190,15 @@ export default function App() {
 
   // Member CRUD Handlers
   const handleSaveMember = async (memberToSave: Member) => {
-    if (!classProfile) return;
+    const targetClassId = memberToSave.classId || classProfile?.id || currentUserProfile?.classId;
+    if (!targetClassId) return;
     const withClass: Member = {
       ...memberToSave,
-      classId: classProfile.id
+      classId: targetClassId
     };
     await saveMemberToDB(withClass, selectedQuarter);
-    await loadClassQuarterData(classProfile.id, selectedQuarter);
+    saveDocument('members', withClass).catch(err => console.warn('Direct cloud save member warning:', err));
+    await loadClassQuarterData(targetClassId, selectedQuarter);
 
     await addToSyncQueue({
       id: `sync_mem_${memberToSave.id}_${Date.now()}`,
@@ -1209,13 +1212,17 @@ export default function App() {
   };
 
   const handleSaveBulkMembers = async (membersList: Member[]) => {
-    if (!classProfile) return;
+    const targetClassId = classProfile?.id || currentUserProfile?.classId;
+    if (!targetClassId) return;
     const withClass = membersList.map(m => ({
       ...m,
-      classId: classProfile.id
+      classId: m.classId || targetClassId
     }));
     await saveBulkMembersToDB(withClass, selectedQuarter);
-    await loadClassQuarterData(classProfile.id, selectedQuarter);
+    for (const m of withClass) {
+      saveDocument('members', m).catch(err => console.warn('Direct cloud save bulk member warning:', err));
+    }
+    await loadClassQuarterData(targetClassId, selectedQuarter);
 
     for (const m of withClass) {
       await addToSyncQueue({

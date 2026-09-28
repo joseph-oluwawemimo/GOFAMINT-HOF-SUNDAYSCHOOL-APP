@@ -48,6 +48,7 @@ import {
   deleteMemberFromDB,
   getClassProfile
 } from '../../db/indexedDB';
+import { saveDocument, removeDocument } from '../../services/supabaseDatabase';
 import { fetchClassInspectionApi } from '../../services/adminUserApi';
 import { RosterManagementView } from '../RosterManagementView';
 import { GradingMatrixView } from '../GradingMatrixView';
@@ -221,22 +222,53 @@ export const DepartmentClassExplorer: React.FC<DepartmentClassExplorerProps> = (
   };
 
   const handleAdminSaveMember = async (member: Member) => {
-    await saveMemberToDB({ ...member, classId: selectedClassId });
-    const updated = await getMembersByClass(selectedClassId);
+    const withClass: Member = { ...member, classId: selectedClassId };
+    await saveMemberToDB(withClass, selectedQuarter);
+    await saveDocument('members', withClass).catch(err => console.warn('Cloud save member warning:', err));
+    const updated = await getMembersByClass(selectedClassId, selectedQuarter);
     setClassMembers(updated);
   };
 
   const handleAdminSaveBulkMembers = async (membersList: Member[]) => {
     const withClass = membersList.map(m => ({ ...m, classId: selectedClassId }));
-    await saveBulkMembersToDB(withClass);
-    const updated = await getMembersByClass(selectedClassId);
+    await saveBulkMembersToDB(withClass, selectedQuarter);
+    for (const m of withClass) {
+      await saveDocument('members', m).catch(err => console.warn('Cloud save member warning:', err));
+    }
+    const updated = await getMembersByClass(selectedClassId, selectedQuarter);
     setClassMembers(updated);
   };
 
   const handleAdminDeleteMember = async (id: string) => {
     await deleteMemberFromDB(id);
-    const updated = await getMembersByClass(selectedClassId);
+    await removeDocument('members', id).catch(err => console.warn('Cloud delete member warning:', err));
+    const updated = await getMembersByClass(selectedClassId, selectedQuarter);
     setClassMembers(updated);
+  };
+
+  const handleAdminConvertVisitorToStudent = async (memberId: string) => {
+    const mem = classMembers.find(m => m.id === memberId);
+    if (!mem) return;
+    const requested: Member = {
+      ...mem,
+      conversionStatus: 'PENDING_APPROVAL',
+      conversionRequestedAt: new Date().toISOString(),
+      conversionRequestedBy: currentAdmin?.profileName || 'Department Superintendent',
+      updatedAt: new Date().toISOString()
+    };
+    await handleAdminSaveMember(requested);
+  };
+
+  const handleAdminUpdateMemberStatus = async (memberId: string, status: any, exitNote?: string) => {
+    const mem = classMembers.find(m => m.id === memberId);
+    if (!mem) return;
+    const updated: Member = {
+      ...mem,
+      status,
+      notes: exitNote ? `${mem.notes || ''} [Exit Note: ${exitNote}]` : mem.notes,
+      updatedAt: new Date().toISOString()
+    };
+    await handleAdminSaveMember(updated);
   };
 
   // Read-only notification banner handler
@@ -608,14 +640,14 @@ export const DepartmentClassExplorer: React.FC<DepartmentClassExplorerProps> = (
                   grades={classGrades}
                   currentWeek={selectedWeek}
                   classProfile={selectedClass}
-                  quarterStatus="ARCHIVED"
+                  quarterStatus={inspectedQuarter?.status || 'ACTIVE'}
                   selectedQuarter={selectedQuarter}
                   lessons={activeLessons}
                   sundaySchoolYear={sundaySchoolYear || undefined}
-                  onSaveMember={handleReadOnlyAction}
-                  onSaveBulkMembers={handleReadOnlyAction}
-                  onDeleteMember={handleReadOnlyAction}
-                  onConvertVisitorToStudent={handleReadOnlyAction}
+                  onSaveMember={handleAdminSaveMember}
+                  onSaveBulkMembers={handleAdminSaveBulkMembers}
+                  onDeleteMember={handleAdminDeleteMember}
+                  onConvertVisitorToStudent={handleAdminConvertVisitorToStudent}
                 />
               )}
 
@@ -630,7 +662,7 @@ export const DepartmentClassExplorer: React.FC<DepartmentClassExplorerProps> = (
                   lessons={activeLessons}
                   classProfile={selectedClass}
                   adminComments={classComments}
-                  quarterStatus="ARCHIVED"
+                  quarterStatus={inspectedQuarter?.status || 'ACTIVE'}
                   selectedQuarter={selectedQuarter}
                   onUpdateGrade={handleReadOnlyAction}
                   onUpdateOffering={handleReadOnlyAction}
@@ -652,7 +684,7 @@ export const DepartmentClassExplorer: React.FC<DepartmentClassExplorerProps> = (
                   activeLessons={activeLessons}
                   selectedQuarterNumber={selectedQuarter}
                   onSaveAbsenceLog={handleReadOnlyAction}
-                  onUpdateMemberStatus={handleReadOnlyAction}
+                  onUpdateMemberStatus={handleAdminUpdateMemberStatus}
                   onRelegateToVisitor={handleReadOnlyAction}
                 />
               )}

@@ -402,6 +402,29 @@ export async function getAllFromStore<T>(storeName: string): Promise<T[]> {
   }
 }
 
+export async function getFromStore<T>(storeName: string, id: string): Promise<T | null> {
+  try {
+    const db = await getDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(storeName, 'readonly');
+      const store = tx.objectStore(storeName);
+      const req = store.get(id);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  } catch (error) {
+    console.warn(`IndexedDB read single unavailable for ${storeName}/${id}; using localStorage mirror:`, error);
+    const local = localStorage.getItem(`gofamint_${storeName}`);
+    if (!local) return null;
+    try {
+      const list = JSON.parse(local);
+      return list.find((item: any) => item.id === id) || null;
+    } catch {
+      return null;
+    }
+  }
+}
+
 // Map of local store names to legacy collection aliases. Exported so
 // cloudSyncManager.ts can drive the reverse direction (pulling the central
 // Supabase database down into each device's local IndexedDB cache).
@@ -925,10 +948,12 @@ export async function getMembersByClass(classId: string, quarterNumber?: number)
   for (const m of classMembers) {
     if (m.quarterEnrollments?.[qNum]) {
       const enr = m.quarterEnrollments[qNum]!;
+      const resolvedStatus = m.status === 'LEFT_CLASS' ? 'LEFT_CLASS' : (enr.status || m.status);
       result.push({
         ...m,
         memberType: enr.memberType || m.memberType,
-        status: enr.status || m.status,
+        status: resolvedStatus,
+        departureReason: m.departureReason || enr.exitNote,
         firstLessonWeek: enr.firstLessonWeek || m.firstLessonWeek || 1
       });
     } else {
@@ -944,21 +969,34 @@ export async function getMembersByClass(classId: string, quarterNumber?: number)
 
 export async function saveMember(member: Member, targetQuarter: number = 1): Promise<Member> {
   const qNum = (targetQuarter || 1) as QuarterNumber;
-  const existingEnrollment = member.quarterEnrollments?.[qNum];
+  let existingInStore: Member | null = null;
+  try {
+    existingInStore = await getFromStore<Member>('members', member.id);
+  } catch {
+    // Ignore error
+  }
+
+  const mergedQuarterEnrollments = {
+    ...(existingInStore?.quarterEnrollments || {}),
+    ...(member.quarterEnrollments || {})
+  };
+  const existingEnrollment = mergedQuarterEnrollments[qNum];
+
   const enrollments = {
-    ...(member.quarterEnrollments || {}),
+    ...mergedQuarterEnrollments,
     [qNum]: {
       ...existingEnrollment,
       quarterNumber: qNum,
-      memberType: member.memberType || existingEnrollment?.memberType || 'STUDENT',
-      status: member.status || existingEnrollment?.status || 'ACTIVE',
-      firstLessonWeek: existingEnrollment?.firstLessonWeek || member.firstLessonWeek || 1,
-      enrolledDate: existingEnrollment?.enrolledDate || member.enrolledDate || new Date().toISOString(),
-      exitNote: member.exitNote || existingEnrollment?.exitNote
+      memberType: member.memberType || existingEnrollment?.memberType || existingInStore?.memberType || 'STUDENT',
+      status: member.status || existingEnrollment?.status || existingInStore?.status || 'ACTIVE',
+      firstLessonWeek: existingEnrollment?.firstLessonWeek || member.firstLessonWeek || existingInStore?.firstLessonWeek || 1,
+      enrolledDate: existingEnrollment?.enrolledDate || member.enrolledDate || existingInStore?.enrolledDate || new Date().toISOString(),
+      exitNote: member.exitNote !== undefined ? member.exitNote : (member.departureReason || existingEnrollment?.exitNote)
     }
   };
 
   const updated: Member = {
+    ...(existingInStore || {}),
     ...member,
     quarterEnrollments: enrollments,
     updatedAt: new Date().toISOString()

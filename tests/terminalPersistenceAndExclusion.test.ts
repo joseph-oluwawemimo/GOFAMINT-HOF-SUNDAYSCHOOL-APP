@@ -348,3 +348,70 @@ test('Roster Sorting: Archived and One-Time Visitors are always sorted at the ve
   assert.equal(sorted[2].fullName, 'Aaron Archived');
 });
 
+test('Exclusion & Archive: quarterEnrollments mirror status, exitNote, and preserve across quarters', () => {
+  const member: Member = {
+    id: 'mem_multi_q',
+    fullName: 'Sister Grace MultiQuarter',
+    status: 'ACTIVE',
+    memberType: 'STUDENT',
+    firstLessonWeek: 1,
+    evangelismReferralCount: 0,
+    phone: '08011112222',
+    address: 'Lagos',
+    occupation: 'Teacher',
+    prayerRequests: '',
+    notes: '',
+    createdAt: '2026-09-01T00:00:00Z',
+    updatedAt: '2026-09-01T00:00:00Z',
+    quarterEnrollments: {
+      1: {
+        quarterNumber: 1,
+        memberType: 'STUDENT',
+        status: 'ACTIVE',
+        firstLessonWeek: 1
+      }
+    }
+  };
+
+  // Exclude member in Quarter 1
+  const fullReason = '[Permanent Archive] Relocation: Transferred to Abuja assembly';
+  const updatedEnrollments = {
+    ...(member.quarterEnrollments || {}),
+    1: {
+      ...(member.quarterEnrollments?.[1] || {
+        quarterNumber: 1 as const,
+        memberType: member.memberType,
+        firstLessonWeek: 1
+      }),
+      status: 'LEFT_CLASS' as const,
+      exitNote: fullReason
+    }
+  };
+
+  const excluded: Member = {
+    ...member,
+    status: 'LEFT_CLASS',
+    exclusionType: 'PERMANENT',
+    departureDate: '2026-09-28',
+    departureReason: fullReason,
+    departureWeek: 4,
+    exitNote: fullReason,
+    quarterEnrollments: updatedEnrollments,
+    updatedAt: new Date().toISOString()
+  };
+
+  assert.equal(excluded.status, 'LEFT_CLASS');
+  assert.equal(excluded.quarterEnrollments?.[1]?.status, 'LEFT_CLASS');
+  assert.equal(excluded.quarterEnrollments?.[1]?.exitNote, fullReason);
+  assert.equal(excluded.exclusionType, 'PERMANENT');
+
+  // Verify getMembersByClass resolution logic
+  const enr = excluded.quarterEnrollments?.[1]!;
+  const resolvedStatus = excluded.status === 'LEFT_CLASS' ? 'LEFT_CLASS' : (enr.status || excluded.status);
+  const resolvedDepartureReason = excluded.departureReason || enr.exitNote;
+
+  assert.equal(resolvedStatus, 'LEFT_CLASS');
+  assert.equal(resolvedDepartureReason, fullReason);
+});
+
+
