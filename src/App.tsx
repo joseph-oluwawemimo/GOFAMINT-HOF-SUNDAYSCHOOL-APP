@@ -45,13 +45,14 @@ import {
   saveAdminComment,
   deleteAdminComment,
   performLocalFactoryReset,
-  getSundaySchoolYear
+  getSundaySchoolYear,
+  retryFailedCloudPushes
 } from './db/indexedDB';
 import { getSystemStatus } from './services/adminUserApi';
 import { GOFAMINT_HOF_12_LESSONS } from './data/mockQuarterLessons';
 import { pushSyncToServer, pullSyncFromServer } from './services/api';
 import { checkVisitorQualification, getConsecutiveAbsences, getConsecutiveVisits } from './utils/calculations';
-import { runFullCloudSyncCycle, getLastHydrationError, startRealtimeCloudSync, stopRealtimeCloudSync } from './services/cloudSyncManager';
+import { runFullCloudSyncCycle, getLastHydrationError, startRealtimeCloudSync, stopRealtimeCloudSync, flushSyncQueueToCloud } from './services/cloudSyncManager';
 import type { SyncScope } from './services/cloudSyncManager';
 
 // Subcomponents
@@ -886,6 +887,56 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cloudUser, currentUserProfile?.role, currentUserProfile?.classId, realtimeOversightPortal, realtimeOversightClassId, profileResolution]);
 
+  // AUTOMATIC BACKGROUND SYNC:
+  // Automatically pushes queued mutations to the central Supabase database
+  // within 1.2s of any user input, and continuously runs a lightweight 20s
+  // check to pull fresh records so all connected devices stay synchronized.
+  const autoSyncDebounceRef = useRef<number | null>(null);
+  const triggerAutoFlush = () => {
+    if (navigator.onLine) {
+      if (autoSyncDebounceRef.current) {
+        window.clearTimeout(autoSyncDebounceRef.current);
+      }
+      autoSyncDebounceRef.current = window.setTimeout(async () => {
+        try {
+          await flushSyncQueueToCloud();
+          await retryFailedCloudPushes().catch(() => {});
+          const q = await getSyncQueue().catch(() => []);
+          setSyncQueue(q);
+          if (q.length === 0) {
+            setSyncStatusText('Fully Synced with Cloud');
+          }
+        } catch (err) {
+          console.warn('Auto-flush background notice:', err);
+        }
+      }, 1200);
+    }
+  };
+
+  useEffect(() => {
+    const autoSyncTimer = window.setInterval(async () => {
+      if (!navigator.onLine || document.visibilityState === 'hidden') return;
+      if (!cloudUser || profileResolution !== 'ready') return;
+      try {
+        const q = await getSyncQueue().catch(() => []);
+        if (q.length > 0) {
+          await flushSyncQueueToCloud();
+          await retryFailedCloudPushes().catch(() => {});
+          const freshQ = await getSyncQueue().catch(() => []);
+          setSyncQueue(freshQ);
+        }
+        void syncWithCloud(true);
+      } catch (err) {
+        console.warn('Auto-sync periodic interval notice:', err);
+      }
+    }, 20000);
+
+    return () => {
+      window.clearInterval(autoSyncTimer);
+      if (autoSyncDebounceRef.current) window.clearTimeout(autoSyncDebounceRef.current);
+    };
+  }, [cloudUser, profileResolution, currentUserProfile?.role]);
+
   // Compute status for selected quarter
   const selectedQuarterStatus: QuarterStatus = useMemo(() => {
     if (!sundaySchoolYear) return 'ACTIVE';
@@ -995,6 +1046,7 @@ export default function App() {
       createdAt: new Date().toISOString()
     });
     setSyncQueue(await getSyncQueue());
+    triggerAutoFlush();
 
     if (newProfile.approvalStatus === 'APPROVED') {
       setIsRegisteringNew(false);
@@ -1051,6 +1103,7 @@ export default function App() {
       createdAt: new Date().toISOString()
     });
     setSyncQueue(await getSyncQueue());
+    triggerAutoFlush();
   };
 
   const handleUnlockConsole = (inputPassword: string): boolean => {
@@ -1132,6 +1185,7 @@ export default function App() {
       createdAt: new Date().toISOString()
     });
     setSyncQueue(await getSyncQueue());
+    triggerAutoFlush();
   };
 
   // Member CRUD Handlers
@@ -1152,6 +1206,7 @@ export default function App() {
       createdAt: new Date().toISOString()
     });
     setSyncQueue(await getSyncQueue());
+    triggerAutoFlush();
   };
 
   const handleSaveBulkMembers = async (membersList: Member[]) => {
@@ -1173,6 +1228,7 @@ export default function App() {
       });
     }
     setSyncQueue(await getSyncQueue());
+    triggerAutoFlush();
   };
 
   const handleDeleteMember = async (id: string) => {
@@ -1188,6 +1244,7 @@ export default function App() {
       createdAt: new Date().toISOString()
     });
     setSyncQueue(await getSyncQueue());
+    triggerAutoFlush();
   };
 
   // Visitor to Student Conversion (Sets status to PENDING_APPROVAL for Enrollment Officer)
@@ -1219,6 +1276,7 @@ export default function App() {
       createdAt: new Date().toISOString()
     });
     setSyncQueue(await getSyncQueue());
+    triggerAutoFlush();
   };
 
   // Grade & Offering Handlers
@@ -1252,6 +1310,7 @@ export default function App() {
         createdAt: new Date().toISOString()
       });
       setSyncQueue(await getSyncQueue());
+      triggerAutoFlush();
     } catch (error) {
       console.error(`Could not save grade ${updatedGrade.id}:`, error);
       setGrades(current => {
@@ -1282,6 +1341,7 @@ export default function App() {
       createdAt: new Date().toISOString()
     });
     setSyncQueue(await getSyncQueue());
+    triggerAutoFlush();
   };
 
   // Absence Log & Escalation Handlers
@@ -1304,6 +1364,7 @@ export default function App() {
       createdAt: new Date().toISOString()
     });
     setSyncQueue(await getSyncQueue());
+    triggerAutoFlush();
   };
 
   const handleUpdateMemberStatus = async (memberId: string, status: any, exitNote?: string) => {
@@ -1369,50 +1430,75 @@ export default function App() {
     setActiveTab('AI_ASSISTANT');
   };
 
-  // Sync Push & Pull Logic
-  const handlePushSync = async () => {
-    let hostError: Error | null = null;
+  // Hard Sync: Direct, authoritative push & pull with Central Supabase Cloud
+  const handleHardSync = async () => {
+    if (isSyncing) return;
     setIsSyncing(true);
-    setSyncStatusText('Pushing mutations to Host Server...');
+    setSyncStatusText('Hard syncing with central cloud…');
     try {
-      const hostIp = localStorage.getItem('gofamint_host_ip') || 'http://192.168.1.150:5000';
-      
-      const payload: SyncPayload = {
-        classProfile,
-        members,
-        grades,
-        offerings,
-        absenceLogs,
-        referrals: [],
-        timestamp: new Date().toISOString(),
-        sourceClient: navigator.userAgent
-      };
+      // 1. Flush any pending mutations in the sync queue to Supabase
+      await flushSyncQueueToCloud().catch(err => {
+        console.warn('Queue flush warning:', err);
+      });
 
-      const res = await pushSyncToServer(payload, hostIp);
-      if (res.success) {
-        await clearSyncQueue();
-        setSyncQueue([]);
-        setSyncStatusText('Synced with Host Laptop');
+      // 2. Retry any failed durable outbox writes
+      await retryFailedCloudPushes().catch(err => {
+        console.warn('Outbox retry warning:', err);
+      });
+
+      // 3. Ensure any current class data in IndexedDB is mirrored to Supabase
+      if (classProfile?.id) {
+        try {
+          const { saveBatchDocuments } = await import('./services/supabaseDatabase');
+          if (members.length > 0) {
+            await saveBatchDocuments('members', members).catch(() => {});
+          }
+          if (grades.length > 0) {
+            await saveBatchDocuments('grades', grades).catch(() => {});
+          }
+          if (offerings.length > 0) {
+            await saveBatchDocuments('offerings', offerings).catch(() => {});
+          }
+        } catch (batchErr) {
+          console.warn('Local snapshot cloud backup notice:', batchErr);
+        }
+      }
+
+      // 4. Run two-way cloud sync cycle (pull latest cloud state and update local DB)
+      const cloudResult = await syncWithCloud(false);
+
+      // 5. Update local queue state
+      const freshQueue = await getSyncQueue().catch(() => []);
+      setSyncQueue(freshQueue);
+
+      const activeClassId = classProfile?.id || currentUserProfile?.classId;
+      if (activeClassId) {
+        await loadClassQuarterData(activeClassId, selectedQuarterRef.current);
       } else {
-        hostError = new Error(res.error || 'Host server rejected the sync request.');
-        setSyncStatusText(`Host sync failed: ${hostError.message}`);
+        await refreshStateFromLocalDB();
+      }
+
+      // Notify other components
+      window.dispatchEvent(new CustomEvent('gofamint:sync-update', {
+        detail: { stores: ['members', 'grades', 'offerings', 'absenceLogs', 'classes'], source: 'hard-sync' }
+      }));
+
+      if (cloudResult.ok && freshQueue.length === 0) {
+        setSyncStatusText('Fully Synced with Cloud');
+      } else if (freshQueue.length > 0) {
+        setSyncStatusText(`${freshQueue.length} change(s) pending cloud confirmation`);
+      } else {
+        setSyncStatusText('Synced with Central Database');
       }
     } catch (err: any) {
-      hostError = err instanceof Error ? err : new Error(err?.message || 'Host sync failed.');
-      console.warn('Sync push notification:', hostError.message);
-      setSyncStatusText('Offline - Changes Queued');
+      console.error('Hard sync failed:', err);
+      setSyncStatusText(`Sync issue: ${err?.message || 'unknown error'}`);
     } finally {
       setIsSyncing(false);
     }
-    // Always also retry/flush anything pending to the central Supabase database —
-    // this is the sync path that actually reaches every other device, regardless
-    // of whether the optional local-network Host Server above was reachable.
-    const cloudResult = await syncWithCloud(false);
-    if (hostError) {
-      const cloudNote = cloudResult.ok ? ' Central Supabase sync succeeded.' : ` Central Supabase sync also failed: ${cloudResult.error}`;
-      throw new Error(`${hostError.message}${cloudNote}`);
-    }
   };
+
+  const handlePushSync = handleHardSync;
 
   const handleCompleteExitReview = async (
     memberId: string,
@@ -1467,53 +1553,22 @@ export default function App() {
   };
 
   const handlePullSync = async () => {
-    let hostError: Error | null = null;
     setIsSyncing(true);
-    setSyncStatusText('Pulling from Host Server...');
+    setSyncStatusText('Pulling latest data from central cloud...');
     try {
-      const hostIp = localStorage.getItem('gofamint_host_ip') || 'http://192.168.1.150:5000';
-      const result = await pullSyncFromServer(hostIp);
-
-      if (result.success && result.payload) {
-        const remoteData = result.payload;
-        if (remoteData.classProfile) {
-          await saveClassProfile(remoteData.classProfile);
-          setClassProfile(remoteData.classProfile);
-        }
-        if (remoteData.members?.length) {
-          for (const m of remoteData.members) await saveMemberToDB(m, selectedQuarter);
-        }
-        if (remoteData.grades?.length) {
-          for (const g of remoteData.grades) await saveGradeToDB(g);
-        }
-        if (remoteData.offerings?.length) {
-          for (const o of remoteData.offerings) await saveOfferingToDB(o);
-        }
-        if (remoteData.absenceLogs?.length) {
-          for (const l of remoteData.absenceLogs) await saveAbsenceLogToDB(l);
-        }
-        if (classProfile) {
-          await loadClassQuarterData(classProfile.id, selectedQuarter);
-        }
-        setSyncStatusText('Pulled Latest from Host');
+      const cloudResult = await syncWithCloud(false);
+      const activeClassId = classProfile?.id || currentUserProfile?.classId;
+      if (activeClassId) {
+        await loadClassQuarterData(activeClassId, selectedQuarterRef.current);
       } else {
-        hostError = new Error(result.error || 'Host server did not return a sync payload.');
-        setSyncStatusText(`Host pull failed: ${hostError.message}`);
+        await refreshStateFromLocalDB();
       }
+      setSyncStatusText(cloudResult.ok ? 'Fully Synced with Cloud' : `Cloud issue: ${cloudResult.error || 'Check network'}`);
     } catch (err: any) {
-      hostError = err instanceof Error ? err : new Error(err?.message || 'Host pull failed.');
-      console.warn('Sync pull notification:', hostError.message);
-      setSyncStatusText('Offline Mode (Local IndexedDB)');
+      console.error('Pull sync failed:', err);
+      setSyncStatusText(`Pull failed: ${err?.message || 'unknown error'}`);
     } finally {
       setIsSyncing(false);
-    }
-    // Always also pull the latest state from the central Supabase database —
-    // this is what actually picks up changes made on other devices, regardless
-    // of whether the optional local-network Host Server above was reachable.
-    const cloudResult = await syncWithCloud(false);
-    if (hostError) {
-      const cloudNote = cloudResult.ok ? ' Central Supabase refresh succeeded.' : ` Central Supabase refresh also failed: ${cloudResult.error}`;
-      throw new Error(`${hostError.message}${cloudNote}`);
     }
   };
 

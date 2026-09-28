@@ -60,6 +60,8 @@ import {
   cloudSaveLesson,
   fetchCollection,
   fetchCollectionScoped,
+  saveDocument,
+  removeDocument,
 } from './supabaseDatabase';
 import {
   subscribeToCollection,
@@ -77,7 +79,10 @@ import {
   mergeStoreContents,
   retryFailedCloudPushes,
   getPendingCloudSyncFailures,
-  getAllWorkers
+  getAllWorkers,
+  getSyncQueue,
+  clearSyncQueue,
+  addToSyncQueue
 } from '../db/indexedDB';
 import {
   ClassProfile,
@@ -99,7 +104,8 @@ import {
   TreasuryExpenditure,
   LessonInfo,
   QuarterNumber,
-  EnrollmentCertificationRecord
+  EnrollmentCertificationRecord,
+  SyncQueueItem
 } from '../types';
 import { ScopedTaskCoordinator } from '../utils/scopedTaskCoordinator';
 
@@ -387,15 +393,78 @@ async function performHydration(scope: SyncScope | undefined, scopeKey: string):
   }
 }
 
+/**
+ * Flushes all pending mutations in the IndexedDB syncQueue directly to Supabase.
+ * Any successful mutation is cleared; failed mutations remain in the queue for retry.
+ */
+export async function flushSyncQueueToCloud(): Promise<{ processed: number; errors: number }> {
+  const queue = await getSyncQueue().catch(() => []);
+  if (!queue || queue.length === 0) return { processed: 0, errors: 0 };
+
+  let processed = 0;
+  let errors = 0;
+  const remaining: SyncQueueItem[] = [];
+
+  for (const item of queue) {
+    if (!item || !item.entity || !item.data) {
+      processed++;
+      continue;
+    }
+    try {
+      if (item.action === 'DELETE') {
+        const docId = String(item.data?.id || item.data);
+        if (docId) {
+          if (item.entity === 'MEMBER') await removeDocument('members', docId);
+          else if (item.entity === 'GRADE') await removeDocument('grades', docId);
+          else if (item.entity === 'OFFERING') await removeDocument('offerings', docId);
+          else if (item.entity === 'ABSENCE_LOG') await removeDocument('absenceLogs', docId);
+          else if (item.entity === 'CLASS_PROFILE') await removeDocument('classes', docId);
+        }
+      } else {
+        // CREATE or UPDATE
+        if (item.entity === 'MEMBER' && item.data?.id) {
+          await saveDocument('members', item.data);
+        } else if (item.entity === 'GRADE' && item.data?.id) {
+          await saveDocument('grades', item.data);
+        } else if (item.entity === 'OFFERING' && item.data?.id) {
+          await saveDocument('offerings', item.data);
+        } else if (item.entity === 'ABSENCE_LOG' && item.data?.id) {
+          await saveDocument('absenceLogs', item.data);
+        } else if (item.entity === 'CLASS_PROFILE' && item.data?.id) {
+          await saveDocument('classes', item.data);
+        }
+      }
+      processed++;
+    } catch (err) {
+      console.warn(`[SyncQueue] Failed to push queued item ${item.id} to cloud:`, err);
+      errors++;
+      remaining.push(item);
+    }
+  }
+
+  try {
+    await clearSyncQueue();
+    for (const failedItem of remaining) {
+      await addToSyncQueue(failedItem);
+    }
+  } catch (queueErr) {
+    console.warn('[SyncQueue] Could not update syncQueue storage:', queueErr);
+  }
+
+  return { processed, errors };
+}
+
 // One full sync cycle for the current user's scope
 export async function runFullCloudSyncCycle(scope?: SyncScope): Promise<{ ok: boolean; error?: string; pendingRetries: number }> {
+  await flushSyncQueueToCloud().catch((err) => console.warn('[cloud sync] queue flush pass failed:', err));
   await retryFailedCloudPushes().catch((err) => console.warn('[cloud sync] retry pass failed:', err));
   const result = await hydrateLocalFromCloud(scope);
   const pending = await getPendingCloudSyncFailures().catch((error) => {
     console.error('[cloud sync] Could not inspect the durable retry queue:', error);
     return [];
   });
-  return { ...result, pendingRetries: pending.length };
+  const queue = await getSyncQueue().catch(() => []);
+  return { ...result, pendingRetries: pending.length + queue.length };
 }
 
 // -------------------------------------------------------------------------

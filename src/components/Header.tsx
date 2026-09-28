@@ -6,7 +6,8 @@ import {
   Lock,
   Users,
   Calendar,
-  Home
+  Home,
+  CheckCircle2
 } from 'lucide-react';
 import { GofamintLogo } from './GofamintLogo';
 import { ClassProfile, QuarterData, QuarterNumber, QuarterStatus, SyncState } from '../types';
@@ -158,32 +159,40 @@ export const Header: React.FC<HeaderProps> = ({
               id="header-sync-status-pill"
               type="button"
               onClick={onSyncClick}
-              className={`flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-xl border px-3 text-xs font-bold transition ${
+              className={`flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-xl border px-3 text-xs font-bold transition cursor-pointer hover:brightness-110 active:scale-95 ${
                 !syncState.isOnline
                   ? 'border-amber-500/70 bg-amber-950/80 text-amber-300'
                   : syncState.isSyncing
-                    ? 'border-blue-400 bg-blue-900 text-white'
+                    ? 'border-blue-400 bg-blue-900 text-white shadow-sm shadow-blue-900/50'
                     : syncState.syncQueueCount > 0 || syncState.realtimeStatus === 'ERROR'
-                      ? 'border-amber-400/60 bg-amber-900/60 text-amber-200'
+                      ? 'border-amber-400/60 bg-amber-900/60 text-amber-200 shadow-sm shadow-amber-950/50 hover:bg-amber-900/80'
                       : syncState.realtimeStatus === 'CONNECTING' || syncState.realtimeStatus === 'RECONNECTING'
                         ? 'border-blue-400 bg-blue-900 text-white'
-                      : 'border-emerald-500/50 bg-emerald-950/70 text-emerald-300'
+                      : 'border-emerald-500/50 bg-emerald-950/70 text-emerald-300 hover:bg-emerald-900/60'
               }`}
-              title={syncState.syncStatusText}
+              title={
+                !syncState.isOnline
+                  ? 'Offline. Changes saved locally and will auto-sync when online.'
+                  : syncState.isSyncing
+                    ? 'Syncing with central database…'
+                    : syncState.syncQueueCount > 0
+                      ? `${syncState.syncQueueCount} pending change(s). Click to Hard Sync to Cloud now.`
+                      : 'Fully Synced with Cloud. Click to trigger Hard Sync / refresh all devices.'
+              }
               aria-label={syncState.syncStatusText || 'Synchronization status'}
             >
               {!syncState.isOnline ? (
                 <><WifiOff className="h-3.5 w-3.5" /><span>Offline</span></>
               ) : syncState.isSyncing ? (
-                <><RefreshCw className="h-3.5 w-3.5 animate-spin" /><span>Syncing</span></>
+                <><RefreshCw className="h-3.5 w-3.5 animate-spin" /><span>Syncing…</span></>
               ) : syncState.syncQueueCount > 0 ? (
-                <><RefreshCw className="h-3.5 w-3.5" /><span>{syncState.syncQueueCount} pending</span></>
+                <><RefreshCw className="h-3.5 w-3.5 text-amber-300" /><span>{syncState.syncQueueCount} pending</span></>
               ) : syncState.realtimeStatus === 'ERROR' ? (
-                <><WifiOff className="h-3.5 w-3.5" /><span>Sync issue</span></>
+                <><WifiOff className="h-3.5 w-3.5 text-rose-300" /><span>Sync issue · Retry</span></>
               ) : syncState.realtimeStatus === 'CONNECTING' || syncState.realtimeStatus === 'RECONNECTING' ? (
                 <><RefreshCw className="h-3.5 w-3.5 animate-spin" /><span>Connecting</span></>
               ) : (
-                <><Wifi className="h-3.5 w-3.5" /><span>{syncState.realtimeStatus === 'LIVE' ? 'Live' : 'Ready'}</span></>
+                <><CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /><span>Fully Synced</span></>
               )}
             </button>
 
