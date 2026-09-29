@@ -28,6 +28,14 @@ import {
   checkVisitorQualification
 } from '../utils/calculations';
 import { GOFAMINT_HOF_12_LESSONS } from '../data/mockQuarterLessons';
+import {
+  MemberFairnessMetrics,
+  WeekClusterPoint,
+  computeClassFairnessRankings,
+  generateMemberClusterWeeks,
+  formatRate
+} from '../utils/fairnessScoring';
+import { StudentClassPerformanceGraph } from './StudentClassPerformanceGraph';
 
 interface VisitorReportCardViewProps {
   memberId: string;
@@ -35,6 +43,24 @@ interface VisitorReportCardViewProps {
   grades: WeeklyGradeRecord[];
   classProfile: ClassProfile | null;
   lessons?: LessonInfo[];
+  fairnessMetrics?: MemberFairnessMetrics | null;
+  clusterWeeks?: WeekClusterPoint[];
+  classSummary?: {
+    rankings?: {
+      overall: number;
+      memoryVerse: number;
+      punctuality: number;
+      participation: number;
+      totalInClass: number;
+      totalEligibleInClass?: number;
+    };
+    classAverages?: {
+      overallRaw: number;
+      memoryRaw: number;
+      punctualityRaw: number;
+      participationRaw: number;
+    };
+  } | null;
   onBack?: () => void;
   onRefresh?: () => void;
 }
@@ -45,6 +71,9 @@ export const VisitorReportCardView: React.FC<VisitorReportCardViewProps> = ({
   grades,
   classProfile,
   lessons = GOFAMINT_HOF_12_LESSONS,
+  fairnessMetrics,
+  clusterWeeks,
+  classSummary,
   onBack,
   onRefresh
 }) => {
@@ -52,9 +81,37 @@ export const VisitorReportCardView: React.FC<VisitorReportCardViewProps> = ({
   const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
   const [refreshSuccess, setRefreshSuccess] = useState(false);
 
-  const member = members.find(m => m.id === memberId);
+  const member = members.find(m => m.id === memberId) || (members.length === 1 ? members[0] : null);
   const stats = member ? calculateMemberStats(member, grades, 12) : null;
   const qualification = member ? checkVisitorQualification(member, grades, 12) : null;
+
+  // Authoritative live fairness metrics & rankings
+  const activeMetrics = React.useMemo(() => {
+    if (fairnessMetrics) return fairnessMetrics;
+    if (!member) return null;
+    const allMembersInClass = members.length > 0 ? members : [member];
+    const rankingsResult = computeClassFairnessRankings(allMembersInClass, grades, 12);
+    return rankingsResult.memberMetrics.find(m => m.memberId === member.id) || null;
+  }, [fairnessMetrics, member, members, grades]);
+
+  const activeClusterWeeks = React.useMemo(() => {
+    if (clusterWeeks && clusterWeeks.length > 0) return clusterWeeks;
+    if (!member) return [];
+    return generateMemberClusterWeeks(member, grades, 12);
+  }, [clusterWeeks, member, grades]);
+
+  const activeRankings = React.useMemo(() => {
+    if (classSummary?.rankings) return classSummary.rankings;
+    if (activeMetrics?.rankings) return activeMetrics.rankings;
+    return {
+      overall: 1,
+      memoryVerse: 1,
+      punctuality: 1,
+      participation: 1,
+      totalInClass: Math.max(1, members.length),
+      totalEligibleInClass: members.filter(m => m.memberType === 'STUDENT').length || 1
+    };
+  }, [classSummary?.rankings, activeMetrics?.rankings, members]);
 
   const currentUrl = window.location.href;
 
@@ -107,6 +164,16 @@ export const VisitorReportCardView: React.FC<VisitorReportCardViewProps> = ({
     );
   }
 
+  const isStudent = (activeMetrics?.memberType || member.memberType) === 'STUDENT';
+  const isAwardEligible = activeMetrics?.isAwardEligible ?? isStudent;
+  const joinWeek = activeMetrics?.joinLesson || member.firstLessonWeek || 1;
+  const eligibleLessonCount = activeMetrics?.eligibleLessons ?? stats.eligibleLessonsCount;
+  const attendanceRateVal = activeMetrics
+    ? activeMetrics.attendanceRate
+    : stats.eligibleLessonsCount > 0
+    ? (stats.attendedWeeks / stats.eligibleLessonsCount) * 100
+    : 0;
+
   return (
     <div className="text-slate-800 font-sans animate-fade-in">
       <div className="max-w-3xl mx-auto space-y-4 sm:space-y-5">
@@ -122,20 +189,23 @@ export const VisitorReportCardView: React.FC<VisitorReportCardViewProps> = ({
               <span>Back to Register</span>
             </button>
           ) : (
-            <div className="text-xs font-black text-slate-700">
-              Member report
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+              <div className="text-xs font-black text-slate-700">
+                Official Live Sunday School Profile
+              </div>
             </div>
           )}
 
-          {/* Primary & Only Action Button for Visitors: REFRESH */}
+          {/* Primary & Only Action Button for Visitors/Students: REFRESH */}
           <button
             id="btn-refresh-report-card"
             onClick={handleRefreshClick}
             disabled={isRefreshing}
-            className="flex min-h-[42px] items-center gap-2 px-4 py-2.5 bg-blue-900 hover:bg-blue-800 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-sm transition active:scale-95 ml-auto"
+            className="flex min-h-[42px] items-center gap-2 px-4 py-2.5 bg-blue-900 hover:bg-blue-800 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-sm transition active:scale-95 ml-auto cursor-pointer"
           >
             <RefreshCw className={`w-4 h-4 text-amber-300 ${isRefreshing ? 'animate-spin' : ''}`} />
-            <span>{refreshSuccess ? 'Updated' : isRefreshing ? 'Updating...' : 'Refresh'}</span>
+            <span>{refreshSuccess ? 'Updated' : isRefreshing ? 'Updating...' : 'Refresh Live Data'}</span>
           </button>
         </div>
 
@@ -170,25 +240,37 @@ export const VisitorReportCardView: React.FC<VisitorReportCardViewProps> = ({
               </h1>
 
               <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-0.5">
-                <span className={`px-2.5 py-0.5 rounded text-xs font-black uppercase ${
-                  member.memberType === 'STUDENT'
-                    ? 'bg-blue-100 text-blue-900 border border-blue-300'
-                    : 'bg-purple-100 text-purple-900 border border-purple-300'
+                {/* Student / Visitor status badge */}
+                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wide border ${
+                  isStudent
+                    ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
+                    : 'bg-amber-50 text-amber-900 border-amber-300'
                 }`}>
-                  {member.memberType}
+                  <span className={`w-2 h-2 rounded-full ${isStudent ? 'bg-emerald-600' : 'bg-amber-600'}`} />
+                  <span>{isStudent ? 'STUDENT' : 'VISITOR'}</span>
+                </span>
+
+                {/* Award Eligibility Badge */}
+                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black border ${
+                  isAwardEligible
+                    ? 'bg-blue-50 text-blue-900 border-blue-200'
+                    : 'bg-slate-100 text-slate-600 border-slate-300'
+                }`}>
+                  <Award className="w-3.5 h-3.5" />
+                  <span>{isAwardEligible ? 'Eligible for Awards' : 'Not Eligible for Awards'}</span>
                 </span>
 
                 <span className="text-xs text-slate-600 font-semibold">
-                  Class: <strong className="text-slate-900">{classProfile?.className || 'Sunday School Class'}</strong>
+                  Class: <strong className="text-slate-900">{classProfile?.className || member.className || 'Sunday School Class'}</strong>
                 </span>
 
                 <span className="text-xs text-slate-600">
-                  • Dept: <strong className="text-blue-900">{classProfile?.department || 'General'}</strong>
+                  • Dept: <strong className="text-blue-900">{classProfile?.department || member.department || 'General'}</strong>
                 </span>
               </div>
 
               <div className="text-xs text-slate-500 pt-1">
-                Secretary: {classProfile?.secretaryName || 'Sunday School Secretary'} | First Joined: Week {member.firstLessonWeek || 1}
+                Secretary: {classProfile?.secretaryName || 'Sunday School Secretary'} | Joined Quarter: Week {joinWeek} ({eligibleLessonCount} Eligible Lessons)
               </div>
             </div>
 
@@ -204,9 +286,20 @@ export const VisitorReportCardView: React.FC<VisitorReportCardViewProps> = ({
 
           </div>
 
+          {/* Award Eligibility & Visitor Progression Explanation */}
+          {!isStudent && (
+            <div className="mt-4 p-3.5 rounded-xl border bg-amber-50/70 border-amber-200 text-amber-950 flex items-start gap-3 text-xs leading-relaxed">
+              <Sparkles className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+              <div>
+                <strong className="block font-bold">Visitor Performance Tracking Active:</strong>
+                All your attendance, memory verse scores, and punctuality marks are recorded with 100% precision. Under Sunday School rules, award eligibility activates automatically once you achieve Student status (attend 3 consecutive lessons or 6 lessons in the quarter).
+              </div>
+            </div>
+          )}
+
           {/* Qualification Banner for Visitors */}
           {member.memberType === 'VISITOR' && qualification && (
-            <div className={`mt-5 p-4 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${
+            <div className={`mt-3 p-4 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${
               qualification.isQualified
                 ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
                 : 'bg-purple-50 border-purple-200 text-purple-950'
@@ -235,50 +328,113 @@ export const VisitorReportCardView: React.FC<VisitorReportCardViewProps> = ({
 
         </div>
 
-        {/* Summary Stats Overview */}
+        {/* Summary Stats Overview: Accurate Live Scoring & Fairness */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
+          
+          {/* Attendance Stat Card */}
           <div className="bg-white border border-slate-200 rounded-2xl p-3 sm:p-4 text-center shadow-sm">
             <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 block mb-1">
-              Attendance
+              Attendance & Consistency
             </span>
             <span className="text-xl sm:text-2xl font-black text-slate-900">
-              {stats.attendedWeeks}
+              {stats.attendedWeeks} <span className="text-xs text-slate-400 font-normal">/ {eligibleLessonCount}</span>
             </span>
-            <span className="text-xs text-slate-500 font-bold block mt-0.5">/ 12 Weeks</span>
+            <div className="text-[11px] font-bold text-emerald-700 mt-0.5">
+              {formatRate(attendanceRateVal)}% Attended
+            </div>
+            <span className="text-[10px] text-slate-400 block mt-0.5">
+              {(activeMetrics ? activeMetrics.absentWeeks : stats.absentWeeks)} absent {joinWeek > 1 ? `• Wk 1-${joinWeek - 1} N/A` : ''}
+            </span>
           </div>
 
+          {/* Points & Diligence Stat Card */}
           <div className="bg-white border border-slate-200 rounded-2xl p-3 sm:p-4 text-center shadow-sm">
             <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 block mb-1">
-              Total Points
-            </span>
-            <span className="text-xl sm:text-2xl font-black text-blue-900">
-              {stats.totalPointsEarned}
-            </span>
-            <span className="text-xs text-slate-500 font-bold block mt-0.5">/ {stats.totalPossiblePointsSinceFirst}</span>
-          </div>
-
-          <div className="bg-white border border-slate-200 rounded-2xl p-3 sm:p-4 text-center shadow-sm">
-            <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 block mb-1">
-              Hard Work Rate
+              Overall Diligence Rate
             </span>
             <span className="text-xl sm:text-2xl font-black text-purple-900">
-              {stats.hardWorkRate}%
+              {formatRate(activeMetrics?.overall.rawRate ?? stats.hardWorkRate)}%
             </span>
-            <span className="text-xs text-slate-500 font-bold block mt-0.5">Performance</span>
+            <div className="text-[11px] font-bold text-indigo-700 mt-0.5">
+              Adjusted: {formatRate(activeMetrics?.overall.adjustedRate ?? stats.hardWorkRate)}%
+            </div>
+            <span className="text-[10px] text-slate-400 block mt-0.5">
+              {activeMetrics ? activeMetrics.totalPointsEarned : stats.totalPointsEarned} / {activeMetrics ? activeMetrics.maxAvailablePoints : stats.totalPossiblePointsSinceFirst} pts
+            </span>
           </div>
 
+          {/* Memory Verse Stat Card */}
           <div className="bg-white border border-slate-200 rounded-2xl p-3 sm:p-4 text-center shadow-sm">
             <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 block mb-1">
               Memory Verse Recitation
             </span>
             <span className="text-xl sm:text-2xl font-black text-amber-700">
-              {stats.memoryVersePercentage}%
+              {formatRate(activeMetrics?.memoryVerse.rawRate ?? stats.memoryVersePercentage)}%
             </span>
-            <span className="text-xs text-slate-500 font-bold block mt-0.5">
-              {stats.memoryVerseScoreObtained} / {stats.memoryVerseMaxObtainable} marks
+            <div className="text-[11px] font-bold text-amber-900 mt-0.5">
+              Adjusted: {formatRate(activeMetrics?.memoryVerse.adjustedRate ?? stats.memoryVersePercentage)}%
+            </div>
+            <span className="text-[10px] text-slate-400 block mt-0.5">
+              {activeMetrics ? activeMetrics.memoryVerse.points : stats.memoryVerseScoreObtained} / {activeMetrics ? activeMetrics.memoryVerse.maxPoints : stats.memoryVerseMaxObtainable} marks
             </span>
           </div>
+
+          {/* Punctuality & Participation Stat Card */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-3 sm:p-4 text-center shadow-sm">
+            <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 block mb-1">
+              Punctuality & Class Part.
+            </span>
+            <div className="flex items-center justify-center gap-2 mt-1">
+              <div>
+                <span className="text-[9px] text-slate-400 block uppercase font-bold">Punct.</span>
+                <span className="text-base font-black text-emerald-800">
+                  {formatRate(activeMetrics?.punctuality.rawRate ?? 0)}%
+                </span>
+              </div>
+              <span className="text-slate-300">|</span>
+              <div>
+                <span className="text-[9px] text-slate-400 block uppercase font-bold">Part.</span>
+                <span className="text-base font-black text-blue-900">
+                  {formatRate(activeMetrics?.participation.rawRate ?? 0)}%
+                </span>
+              </div>
+            </div>
+            <span className="text-[10px] text-slate-400 block mt-1">
+              Combined: {((activeMetrics?.punctuality.points || 0) + (activeMetrics?.participation.points || 0))} pts
+            </span>
+          </div>
+
         </div>
+
+        {/* 5 & 6: Student Class Performance / Ranking Graph & 12-Lesson Performance Cluster */}
+        <StudentClassPerformanceGraph
+          memberName={member.fullName}
+          memberType={isStudent ? 'STUDENT' : 'VISITOR'}
+          className={classProfile?.className || member.className}
+          isAwardEligible={isAwardEligible}
+          awardEligibilityLabel={isAwardEligible ? 'Eligible for Awards' : 'Not Eligible for Awards'}
+          rankings={{
+            overall: activeRankings.overall,
+            memoryVerse: activeRankings.memoryVerse,
+            punctuality: activeRankings.punctuality,
+            participation: activeRankings.participation,
+            totalInClass: activeRankings.totalInClass,
+            totalEligibleInClass: activeRankings.totalEligibleInClass
+          }}
+          rates={activeMetrics ? {
+            overall: activeMetrics.overall,
+            memoryVerse: activeMetrics.memoryVerse,
+            punctuality: activeMetrics.punctuality,
+            participation: activeMetrics.participation
+          } : {
+            overall: { rawRate: stats.hardWorkRate, adjustedRate: stats.hardWorkRate, points: stats.totalPointsEarned, maxPoints: stats.totalPossiblePointsSinceFirst, referenceRate: 70 },
+            memoryVerse: { rawRate: stats.memoryVersePercentage, adjustedRate: stats.memoryVersePercentage, points: stats.memoryVerseScoreObtained, maxPoints: stats.memoryVerseMaxObtainable, referenceRate: 70 },
+            punctuality: { rawRate: 0, adjustedRate: 0, points: 0, maxPoints: eligibleLessonCount * 15, referenceRate: 70 },
+            participation: { rawRate: 0, adjustedRate: 0, points: 0, maxPoints: eligibleLessonCount * 20, referenceRate: 70 }
+          }}
+          clusterWeeks={activeClusterWeeks}
+          classAverages={classSummary?.classAverages}
+        />
 
         {/* 12-Week Scorecard Breakdown Table */}
         <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
@@ -296,9 +452,10 @@ export const VisitorReportCardView: React.FC<VisitorReportCardViewProps> = ({
             {Array.from({ length: 12 }, (_, i) => i + 1).map((weekNum) => {
               const grade = grades.find(g => g.memberId === member.id && g.weekNumber === weekNum);
               const lesson = lessons.find(l => l.weekNumber === weekNum);
+              const isBeforeJoin = weekNum < joinWeek;
               const isPresent = grade?.attendance === 'PRESENT';
               const isAbsent = grade?.attendance === 'ABSENT';
-              const isExempt = !grade || grade.attendance === 'EXEMPT' || weekNum < (member.firstLessonWeek || 1);
+              const isExempt = grade?.attendance === 'EXEMPT';
 
               return (
                 <div key={weekNum} className="p-3.5 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/70 transition">
@@ -326,7 +483,12 @@ export const VisitorReportCardView: React.FC<VisitorReportCardViewProps> = ({
                     
                     {/* Status Badge */}
                     <div className="shrink-0">
-                      {isPresent ? (
+                      {isBeforeJoin ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 text-slate-500 rounded-lg text-xs font-semibold border border-slate-200">
+                          <MinusCircle className="w-3.5 h-3.5 text-slate-400" />
+                          <span>N/A (Joined Wk {joinWeek})</span>
+                        </span>
+                      ) : isPresent ? (
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-100 text-emerald-800 rounded-lg text-xs font-bold border border-emerald-300">
                           <CheckCircle2 className="w-3.5 h-3.5" />
                           <span>Present</span>
@@ -336,10 +498,15 @@ export const VisitorReportCardView: React.FC<VisitorReportCardViewProps> = ({
                           <XCircle className="w-3.5 h-3.5" />
                           <span>Absent</span>
                         </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 text-slate-500 rounded-lg text-xs font-bold border border-slate-200">
+                      ) : isExempt ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 text-blue-700 rounded-lg text-xs font-semibold border border-blue-200">
                           <MinusCircle className="w-3.5 h-3.5" />
-                          <span>Exempt</span>
+                          <span>Excused</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 text-slate-400 rounded-lg text-xs font-semibold border border-slate-200">
+                          <MinusCircle className="w-3.5 h-3.5" />
+                          <span>No Entry</span>
                         </span>
                       )}
                     </div>
@@ -369,7 +536,11 @@ export const VisitorReportCardView: React.FC<VisitorReportCardViewProps> = ({
                       </div>
                     ) : (
                       <div className="text-xs text-slate-400 italic">
-                        {isAbsent ? '0 / 50 pts' : 'Exempt from scoring'}
+                        {isBeforeJoin
+                          ? 'Excluded from denominator'
+                          : isAbsent
+                          ? '0 / 50 pts (Missed lesson)'
+                          : 'No score recorded'}
                       </div>
                     )}
 

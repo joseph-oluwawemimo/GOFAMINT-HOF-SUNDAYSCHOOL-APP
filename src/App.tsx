@@ -66,6 +66,7 @@ const GradingMatrixView = lazy(() => import('./components/GradingMatrixView').th
 const RosterManagementView = lazy(() => import('./components/RosterManagementView').then(module => ({ default: module.RosterManagementView })));
 const WelfareFollowUpView = lazy(() => import('./components/WelfareFollowUpView').then(module => ({ default: module.WelfareFollowUpView })));
 const FollowUpAssignmentsView = lazy(() => import('./components/FollowUpAssignmentsView').then(module => ({ default: module.FollowUpAssignmentsView })));
+const ClassVisitationView = lazy(() => import('./components/ClassVisitationView').then(module => ({ default: module.ClassVisitationView })));
 const QuarterAnalysisView = lazy(() => import('./components/QuarterAnalysisView').then(module => ({ default: module.QuarterAnalysisView })));
 const ClassDiscussionView = lazy(() => import('./components/ClassDiscussionView').then(module => ({ default: module.ClassDiscussionView })));
 const QRPortalView = lazy(() => import('./components/QRPortalView').then(module => ({ default: module.QRPortalView })));
@@ -75,6 +76,7 @@ const SyncSettingsView = lazy(() => import('./components/SyncSettingsView').then
 const AdminPortalRoot = lazy(() => import('./components/AdminPortal/AdminPortalRoot').then(module => ({ default: module.AdminPortalRoot })));
 const WorkersModuleView = lazy(() => import('./components/WorkersModule/WorkersModuleView').then(module => ({ default: module.WorkersModuleView })));
 const SibPortalRoot = lazy(() => import('./sib/components/SibPortalRoot').then(module => ({ default: module.SibPortalRoot })));
+const FollowUpPortalRoot = lazy(() => import('./components/FollowUpPortal/FollowUpPortalRoot').then(module => ({ default: module.FollowUpPortalRoot })));
 const QuarterTransitionModal = lazy(() => import('./components/QuarterTransitionModal').then(module => ({ default: module.QuarterTransitionModal })));
 import { CloudLoginGate } from './components/CloudLoginGate';
 import { LockScreen } from './components/LockScreen';
@@ -95,11 +97,11 @@ import { shouldResolveProfileForAuthEvent } from './utils/authEventPolicy';
 const getVisitorTokenFromUrl = (): string | null => {
   if (typeof window === 'undefined') return null;
   const hash = window.location.hash || '';
-  const hashMatch = hash.match(/#\/?(?:visitor-profile|member-profile|profile-link|student-profile)\/([a-zA-Z0-9_-]+)/);
+  const hashMatch = hash.match(/#\/?(?:visitor-profile|member-profile|profile-link)\/([a-zA-Z0-9_-]+)/);
   if (hashMatch && hashMatch[1]) return hashMatch[1];
   const search = window.location.search || '';
   const params = new URLSearchParams(search);
-  const paramToken = params.get('visitor_token') || params.get('profile_token') || params.get('student_token');
+  const paramToken = params.get('visitor_token') || params.get('profile_token');
   if (paramToken) return paramToken;
   return null;
 };
@@ -107,11 +109,11 @@ const getVisitorTokenFromUrl = (): string | null => {
 const getReportCardTokenFromUrl = (): string | null => {
   if (typeof window === 'undefined') return null;
   const hash = window.location.hash || '';
-  const hashMatch = hash.match(/#\/?(?:report-card|student-report)\/([a-zA-Z0-9_-]+)/);
+  const hashMatch = hash.match(/#\/?(?:report-card|student-report|student-profile)\/([a-zA-Z0-9_-]+)/);
   if (hashMatch && hashMatch[1]) return hashMatch[1];
   const search = window.location.search || '';
   const params = new URLSearchParams(search);
-  const paramToken = params.get('report_card_token') || params.get('student_report_token');
+  const paramToken = params.get('report_card_token') || params.get('student_report_token') || params.get('student_token');
   if (paramToken) return paramToken;
   return null;
 };
@@ -129,6 +131,18 @@ const ADMIN_PORTAL_ROLES = new Set([
 ]);
 const WORKERS_MODULE_ROLES = new Set(['ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY', 'WORKER']);
 const CLASS_PORTAL_ROLES = new Set(['TEACHER', 'CLASS_SECRETARY', 'TEACHER / CLASS_SECRETARY']);
+const FOLLOW_UP_PORTAL_ROLES = new Set([
+  'EVANGELISM_AND_FOLLOW_UP_PERSONNEL',
+  'TEACHER',
+  'CLASS_SECRETARY',
+  'TEACHER / CLASS_SECRETARY',
+  'GENERAL_SUPERINTENDENT',
+  'GENERAL_SECRETARY',
+  'ASST_GENERAL_SECRETARY',
+  'ASSISTANT_GENERAL_SECRETARY',
+  'SUPER_ADMIN',
+  'DEPARTMENT_SUPERINTENDENT'
+]);
 
 const PortalChunkFallback = ({ label = 'Opening workspace' }: { label?: string }) => (
   <div role="status" className="min-h-[35vh] grid place-items-center bg-[#f4f7fb] text-slate-600">
@@ -194,7 +208,7 @@ export default function App() {
       }
 
       const role = profile.role;
-      const isRecognizedRole = ADMIN_PORTAL_ROLES.has(role) || WORKERS_MODULE_ROLES.has(role) || CLASS_PORTAL_ROLES.has(role);
+      const isRecognizedRole = ADMIN_PORTAL_ROLES.has(role) || WORKERS_MODULE_ROLES.has(role) || CLASS_PORTAL_ROLES.has(role) || FOLLOW_UP_PORTAL_ROLES.has(role);
       if (!isRecognizedRole) {
         resolvedProfileUserRef.current = user.id;
         setProfileResolution('invalid');
@@ -236,6 +250,12 @@ export default function App() {
         setShowOpeningPage(false);
       } else if (savedPortal === 'SIB') {
         setShowSibPortal(true);
+        setShowAdminPortal(false);
+        setShowWorkersModule(false);
+        setShowOpeningPage(false);
+      } else if (savedPortal === 'FOLLOW_UP') {
+        setShowFollowUpPortal(true);
+        setShowSibPortal(false);
         setShowAdminPortal(false);
         setShowWorkersModule(false);
         setShowOpeningPage(false);
@@ -336,6 +356,7 @@ export default function App() {
   const [showAdminPortal, setShowAdminPortal] = useState(false);
   const [showWorkersModule, setShowWorkersModule] = useState(false);
   const [showSibPortal, setShowSibPortal] = useState(false);
+  const [showFollowUpPortal, setShowFollowUpPortal] = useState(false);
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isRegisteringNew, setIsRegisteringNew] = useState(false);
@@ -413,6 +434,8 @@ export default function App() {
       ? '#admin'
       : showSibPortal
       ? '#sib'
+      : showFollowUpPortal
+      ? '#follow-up'
       : showOpeningPage
       ? '#welcome'
       : `#class-${(activeTab || '').toLowerCase()}`;
@@ -438,11 +461,12 @@ export default function App() {
         handleExitOversight();
         return;
       }
-      if (showAdminPortal || showWorkersModule || showSibPortal) {
+      if (showAdminPortal || showWorkersModule || showSibPortal || showFollowUpPortal) {
         sessionStorage.removeItem('gofamint_active_portal');
         setShowAdminPortal(false);
         setShowWorkersModule(false);
         setShowSibPortal(false);
+        setShowFollowUpPortal(false);
         setShowOpeningPage(true);
         return;
       }
@@ -458,7 +482,7 @@ export default function App() {
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [isAuthModalOpen, isQuarterTransitionOpen, oversightTarget, showAdminPortal, showWorkersModule, showOpeningPage, activeTab]);
+  }, [isAuthModalOpen, isQuarterTransitionOpen, oversightTarget, showAdminPortal, showWorkersModule, showSibPortal, showFollowUpPortal, showOpeningPage, activeTab]);
 
   // Protect in-progress form entry from an accidental browser refresh/close.
   // A successful durable database write emits sync-update and clears the guard;
@@ -2007,6 +2031,36 @@ export default function App() {
     );
   }
 
+  // If user entered Evangelism & Follow-Up Portal (Fifth Portal)
+  if (showFollowUpPortal) {
+    return (
+      <Suspense fallback={<PortalChunkFallback label="Opening Evangelism & Follow-Up Portal" />}>
+        {isProfileLocked && (
+          <LockScreen
+            userEmail={cloudUser.email || ''}
+            userRole={currentUserProfile?.role}
+            onUnlocked={() => setIsProfileLocked(false)}
+          />
+        )}
+        <FollowUpPortalRoot
+          authProfile={currentUserProfile}
+          allMembers={members}
+          allGrades={grades}
+          allAbsenceLogs={absenceLogs}
+          quarterNumber={selectedQuarter}
+          currentWeek={selectedWeek}
+          onBackToPortalSelect={() => {
+            sessionStorage.removeItem('gofamint_active_portal');
+            setShowFollowUpPortal(false);
+            setShowOpeningPage(true);
+          }}
+          onSaveAbsenceLog={handleSaveAbsenceLog}
+          onUpdateClassProfile={handleUpdateClassProfile}
+        />
+      </Suspense>
+    );
+  }
+
   // If user is at the Opening Page
   if (showOpeningPage) {
     return (
@@ -2047,6 +2101,11 @@ export default function App() {
             sessionStorage.setItem('gofamint_active_portal', 'SIB');
             setShowOpeningPage(false);
             setShowSibPortal(true);
+          }}
+          onEnterFollowUpPortal={() => {
+            sessionStorage.setItem('gofamint_active_portal', 'FOLLOW_UP');
+            setShowOpeningPage(false);
+            setShowFollowUpPortal(true);
           }}
           onRegisterNewClassSubmit={handleRegisterNewClassSubmit}
           onClearDataAndStartScratch={handleClearDataAndStartScratch}
@@ -2236,6 +2295,19 @@ export default function App() {
             absenceLogs={absenceLogs}
             onSaveAbsenceLog={handleSaveAbsenceLog}
             onDeleteAbsenceLog={handleDeleteAbsenceLog}
+            onUpdateClassProfile={handleUpdateClassProfile}
+          />
+        )}
+
+        {activeTab === 'VISITATION' && (
+          <ClassVisitationView
+            members={members}
+            grades={grades}
+            currentWeek={selectedWeek}
+            quarterNumber={selectedQuarter}
+            classProfile={classProfile}
+            absenceLogs={absenceLogs}
+            onSaveAbsenceLog={handleSaveAbsenceLog}
             onUpdateClassProfile={handleUpdateClassProfile}
           />
         )}

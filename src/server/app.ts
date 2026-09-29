@@ -6,10 +6,11 @@ import { GOFAMINT_ROLES, getBearerToken, getSupabaseAdmin, provisionSupabaseUser
 import { hasInitializedSystem } from '../utils/systemInitialization.js';
 import { normalizeClassLoginIdentifier, normalizeLoginIdentifier } from '../utils/loginIdentifier.js';
 import { collectAllPages } from '../utils/paginatedRead.js';
+import { computeClassFairnessRankings } from '../utils/fairnessScoring.js';
 
 const EXEC: GofamintRole[] = ['SUPER_ADMIN', 'GENERAL_SUPERINTENDENT', 'GENERAL_SECRETARY'];
 const APPROVERS: GofamintRole[] = ['SUPER_ADMIN', 'GENERAL_SUPERINTENDENT', 'GENERAL_SECRETARY'];
-const ADMIN_PROFILES = new Set<GofamintRole>([...EXEC, 'DEPARTMENT_SUPERINTENDENT', 'ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY', 'TREASURER', 'RECORD_OFFICER', 'ENROLLMENT_OFFICER']);
+const ADMIN_PROFILES = new Set<GofamintRole>([...EXEC, 'DEPARTMENT_SUPERINTENDENT', 'ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY', 'TREASURER', 'RECORD_OFFICER', 'ENROLLMENT_OFFICER', 'EVANGELISM_AND_FOLLOW_UP_PERSONNEL']);
 const CLASS_ADMINS: GofamintRole[] = ['SUPER_ADMIN', 'GENERAL_SUPERINTENDENT', 'GENERAL_SECRETARY', 'ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY'];
 const CLASS_CREATORS: GofamintRole[] = ['ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY'];
 const CLASS_PORTAL_ROLES: GofamintRole[] = ['TEACHER', 'CLASS_SECRETARY', 'TEACHER / CLASS_SECRETARY'];
@@ -428,7 +429,7 @@ export function createApp() {
         if (!department) return r.status(400).json({ error: `Department "${departmentId}" does not exist.` });
         if (assignedCount) return r.status(409).json({ error: `A Departmental Superintendent is already assigned to ${departmentId}.` });
       }
-      const pending=['DEPARTMENT_SUPERINTENDENT','ASST_GENERAL_SECRETARY','ASSISTANT_GENERAL_SECRETARY','TREASURER','RECORD_OFFICER','ENROLLMENT_OFFICER'].includes(roleType);
+      const pending=['DEPARTMENT_SUPERINTENDENT','ASST_GENERAL_SECRETARY','ASSISTANT_GENERAL_SECRETARY','TREASURER','RECORD_OFFICER','ENROLLMENT_OFFICER','EVANGELISM_AND_FOLLOW_UP_PERSONNEL'].includes(roleType);
       const provisioned=await provisionSupabaseUserProfile({email:email(raw),password,displayName,role:roleType,isApproved:!pending,classId:classId||null,workerId:workerId||null,departmentId:departmentId||null,createdBy:c.id,approvedBy:pending?null:c.id});userId=provisioned.userId;
       if(classId){
         const {data:existingClass}=await db.from('classes').select('id').eq('id',classId).maybeSingle();
@@ -1425,14 +1426,27 @@ export function createApp() {
         return r.status(400).json({ error: 'Report card token is required.' });
       }
 
-      // Fetch member by token in data->reportCardToken->>token OR data->>reportCardToken OR data->>oneTimeProfileToken OR id
+      // Fetch member by token across all possible token fields:
+      // 1. data->oneTimeProfileToken->>token (student profile link token)
+      // 2. data->reportCardToken->>token (report card token)
+      // 3. data->>reportCardToken
+      // 4. data->>oneTimeProfileToken
+      // 5. id = token
       let members: any[] = [];
 
-      const { data: m1 } = await db.from('members')
+      const { data: m0 } = await db.from('members')
         .select('*')
-        .eq('data->reportCardToken->>token', token)
+        .eq('data->oneTimeProfileToken->>token', token)
         .limit(1);
-      if (m1 && m1.length > 0) members = m1;
+      if (m0 && m0.length > 0) members = m0;
+
+      if (members.length === 0) {
+        const { data: m1 } = await db.from('members')
+          .select('*')
+          .eq('data->reportCardToken->>token', token)
+          .limit(1);
+        if (m1 && m1.length > 0) members = m1;
+      }
 
       if (members.length === 0) {
         const { data: m2 } = await db.from('members')
@@ -1440,14 +1454,6 @@ export function createApp() {
           .eq('data->>reportCardToken', token)
           .limit(1);
         if (m2 && m2.length > 0) members = m2;
-      }
-
-      if (members.length === 0) {
-        const { data: m3 } = await db.from('members')
-          .select('*')
-          .eq('data->>oneTimeProfileToken', token)
-          .limit(1);
-        if (m3 && m3.length > 0) members = m3;
       }
 
       if (members.length === 0) {
@@ -1465,8 +1471,9 @@ export function createApp() {
       const memberRow = members[0];
       const memberData = memberRow.data || {};
       const memberId = memberRow.id;
+      const classId = memberData.classId || memberRow.class_id;
 
-      // Fetch student's grades (READ ONLY, for this memberId ONLY)
+      // 1. Fetch student's own grades
       const gradesData = await readAllServerRows(db, 'grades', {
         filters: [{ column: 'member_id', value: memberId }],
       });
@@ -1488,7 +1495,76 @@ export function createApp() {
         };
       });
 
-      // Return ONLY student's personal report card info (NO class registers, NO other students, NO admin fields)
+      // 2. Fetch class members and class grades to compute rankings & cluster safely (NO personal data of peers leaked)
+      let classRankings = {
+        overall: 1,
+        memoryVerse: 1,
+        punctuality: 1,
+        participation: 1,
+        totalInClass: 1,
+        totalEligibleInClass: 1
+      };
+      let classAverages = {
+        overallRaw: 0,
+        memoryRaw: 0,
+        punctualityRaw: 0,
+        participationRaw: 0
+      };
+      let memberMetrics: any = null;
+
+      try {
+        if (classId) {
+          const classMembersRows = await readAllServerRows(db, 'members', {
+            filters: [{ column: 'class_id', value: classId }]
+          });
+          const classGradesRows = await readAllServerRows(db, 'grades', {
+            filters: [{ column: 'class_id', value: classId }]
+          });
+
+          const normalizedClassMembers = classMembersRows.map((r: any) => ({
+            id: r.id,
+            fullName: r.data?.fullName || r.name || r.id,
+            memberType: r.data?.memberType || 'STUDENT',
+            status: r.data?.status || 'ACTIVE',
+            firstLessonWeek: r.data?.firstLessonWeek || 1,
+            classId: r.class_id || classId,
+            department: r.data?.department,
+            quarterEnrollments: r.data?.quarterEnrollments,
+            ...r.data
+          }));
+
+          const normalizedClassGrades = classGradesRows.map((g: any) => {
+            const gData = g.data || g;
+            return {
+              ...gData,
+              id: g.id || gData.id,
+              memberId: g.member_id || gData.memberId,
+              classId: g.class_id || gData.classId || classId,
+              weekNumber: Number(gData.weekNumber || gData.week_number || g.week_number || 1),
+              quarterNumber: Number(gData.quarterNumber || gData.quarter_number || g.quarter_number || 1),
+              attendance: gData.attendance || gData.attendanceMark || 'PRESENT',
+              punctuality: Number(gData.punctuality ?? 0),
+              memoryVerse: Number(gData.memoryVerse ?? 0),
+              classParticipation: Number(gData.classParticipation ?? 0)
+            };
+          });
+
+          // Determine current max evaluated week from existing recorded grades in class
+          const maxWk = Math.max(1, Math.min(12, ...normalizedClassGrades.map(g => g.weekNumber)));
+          const classFairness = computeClassFairnessRankings(normalizedClassMembers, normalizedClassGrades, maxWk);
+
+          const foundMetrics = classFairness.memberMetrics.find(m => m.memberId === memberId);
+          if (foundMetrics) {
+            memberMetrics = foundMetrics;
+            classRankings = foundMetrics.rankings;
+          }
+          classAverages = classFairness.classAverages;
+        }
+      } catch (classCalcErr) {
+        console.warn('[Server] Non-fatal class fairness calculation warning:', classCalcErr);
+      }
+
+      // Return ONLY student's personal report card info with ranking position (NO other student scores leaked)
       r.json({
         success: true,
         reportCard: {
@@ -1498,13 +1574,34 @@ export function createApp() {
           gender: memberData.gender,
           department: memberData.department,
           className: memberData.className,
-          classId: memberData.classId || memberRow.class_id,
-          memberType: memberData.memberType,
+          classId: classId,
+          memberType: memberMetrics?.memberType || memberData.memberType || 'STUDENT',
+          isAwardEligible: memberMetrics?.isAwardEligible ?? (memberData.memberType === 'STUDENT'),
+          awardEligibilityLabel: memberMetrics?.awardEligibilityLabel ?? (memberData.memberType === 'STUDENT' ? 'Eligible for Awards' : 'Not Eligible for Awards'),
           status: memberData.status,
           photoBase64: memberData.photoBase64,
           enrolledDate: memberData.enrolledDate,
-          firstLessonWeek: memberData.firstLessonWeek,
-          grades: grades
+          firstLessonWeek: memberMetrics?.joinLesson || memberData.firstLessonWeek || 1,
+          grades: grades,
+          fairnessMetrics: memberMetrics ? {
+            joinLesson: memberMetrics.joinLesson,
+            eligibleLessons: memberMetrics.eligibleLessons,
+            attendedWeeks: memberMetrics.attendedWeeks,
+            absentWeeks: memberMetrics.absentWeeks,
+            attendanceRate: memberMetrics.attendanceRate,
+            totalPointsEarned: memberMetrics.totalPointsEarned,
+            maxAvailablePoints: memberMetrics.maxAvailablePoints,
+            overall: memberMetrics.overall,
+            memoryVerse: memberMetrics.memoryVerse,
+            punctuality: memberMetrics.punctuality,
+            participation: memberMetrics.participation,
+            rankings: memberMetrics.rankings
+          } : null,
+          clusterWeeks: memberMetrics?.clusterWeeks || [],
+          classSummary: {
+            rankings: classRankings,
+            classAverages: classAverages
+          }
         }
       });
     } catch (e: any) {

@@ -4,6 +4,7 @@ import { Member, WeeklyGradeRecord, ClassProfile } from '../types';
 import { getAllMembers, getAllFromStore, getClassProfile } from '../db/indexedDB';
 import { GofamintLogo } from '../components/GofamintLogo';
 import { AlertCircle, Lock } from 'lucide-react';
+import { computeClassFairnessRankings, generateMemberClusterWeeks, MemberFairnessMetrics, WeekClusterPoint } from '../utils/fairnessScoring';
 
 interface StandaloneReportCardViewProps {
   token: string;
@@ -19,6 +20,9 @@ export const StandaloneReportCardView: React.FC<StandaloneReportCardViewProps> =
   const [member, setMember] = useState<Member | null>(null);
   const [grades, setGrades] = useState<WeeklyGradeRecord[]>([]);
   const [classProfile, setClassProfile] = useState<ClassProfile | null>(null);
+  const [fairnessMetrics, setFairnessMetrics] = useState<MemberFairnessMetrics | null>(null);
+  const [clusterWeeks, setClusterWeeks] = useState<WeekClusterPoint[]>([]);
+  const [classSummary, setClassSummary] = useState<any>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
@@ -28,103 +32,121 @@ export const StandaloneReportCardView: React.FC<StandaloneReportCardViewProps> =
       setLoading(true);
       setError(null);
 
+      // 1. Prioritize authoritative Central Database API for live, accurate records
       try {
-        // 1. Check local IndexedDB first
-        try {
-          const allMembers = await getAllMembers();
-          const matched = allMembers.find(m =>
-            m.reportCardToken?.token === token ||
-            (m as any).reportCardToken === token ||
-            (m as any).oneTimeProfileToken === token ||
-            m.id === token
-          );
-          if (matched && isMounted) {
-            setMember(matched);
-            const allGrades = await getAllFromStore<WeeklyGradeRecord>('grades');
-            const memberGrades = allGrades.filter(g => g.memberId === matched.id);
-            setGrades(memberGrades);
-            const profile = await getClassProfile();
-            setClassProfile(profile || {
-              id: matched.classId || 'my-class',
-              className: matched.className || 'Sunday School Class',
-              department: matched.department || 'General',
+        const res = await fetch(`/api/report-card/${encodeURIComponent(token)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.reportCard && isMounted) {
+            const rc = data.reportCard;
+            const memberRealId = rc.id || `rc_${token}`;
+            const syntheticMember: Member = {
+              id: memberRealId,
+              fullName: rc.fullName,
+              phone: rc.phone || '',
+              address: '',
+              occupation: '',
+              gender: rc.gender,
+              department: rc.department,
+              className: rc.className,
+              classId: rc.classId,
+              memberType: rc.memberType || 'STUDENT',
+              status: rc.status || 'ACTIVE',
+              firstLessonWeek: rc.firstLessonWeek || 1,
+              evangelismReferralCount: 0,
+              prayerRequests: '',
+              notes: '',
+              photoBase64: rc.photoBase64,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            };
+
+            const normalizedGrades: WeeklyGradeRecord[] = (Array.isArray(rc.grades) ? rc.grades : []).map((g: any) => ({
+              ...g,
+              memberId: memberRealId,
+              weekNumber: Number(g.weekNumber || g.week_number || 1),
+              quarterNumber: Number(g.quarterNumber || g.quarter_number || 1),
+              attendance: g.attendance || g.attendanceMark || 'PRESENT',
+              punctuality: Number(g.punctuality ?? 0),
+              memoryVerse: Number(g.memoryVerse ?? 0),
+              classParticipation: Number(g.classParticipation ?? 0)
+            }));
+
+            setMember(syntheticMember);
+            setGrades(normalizedGrades);
+            setClassProfile({
+              id: rc.classId || 'my-class',
+              className: rc.className || 'Sunday School Class',
+              department: rc.department || 'General',
               teacherName: 'Class Teacher',
               secretaries: [],
               assignedWorkers: [],
               approvalStatus: 'APPROVED'
             });
+            setFairnessMetrics(rc.fairnessMetrics || null);
+            setClusterWeeks(rc.clusterWeeks || []);
+            setClassSummary(rc.classSummary || null);
             setLoading(false);
             return;
           }
-        } catch {
-          // Fall through to server API
         }
+      } catch (networkErr) {
+        console.warn('Authoritative report card fetch warning, attempting offline cache:', networkErr);
+      }
 
-        // 2. Fetch from authoritative server endpoint
-        const res = await fetch(`/api/report-card/${encodeURIComponent(token)}`);
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.error || 'Report card not found or link has expired.');
-        }
+      // 2. Offline fallback to local IndexedDB
+      try {
+        const allMembers = await getAllMembers();
+        const matched = allMembers.find(m =>
+          m.reportCardToken?.token === token ||
+          (m as any).reportCardToken === token ||
+          (m as any).oneTimeProfileToken === token ||
+          (m as any).oneTimeProfileToken?.token === token ||
+          m.id === token
+        );
 
-        const data = await res.json();
-        if (!data.success || !data.reportCard) {
-          throw new Error('Report card data is unavailable.');
-        }
+        if (matched && isMounted) {
+          setMember(matched);
+          const allGrades = await getAllFromStore<WeeklyGradeRecord>('grades');
+          const memberGrades = allGrades.filter(g => g.memberId === matched.id);
+          setGrades(memberGrades);
 
-        if (isMounted) {
-          const rc = data.reportCard;
-          const memberRealId = rc.id || `rc_${token}`;
-          const syntheticMember: Member = {
-            id: memberRealId,
-            fullName: rc.fullName,
-            phone: rc.phone || '',
-            address: '',
-            occupation: '',
-            gender: rc.gender,
-            department: rc.department,
-            className: rc.className,
-            classId: rc.classId,
-            memberType: rc.memberType || 'VISITOR',
-            status: rc.status || 'ACTIVE',
-            firstLessonWeek: rc.firstLessonWeek || 1,
-            evangelismReferralCount: 0,
-            prayerRequests: '',
-            notes: '',
-            photoBase64: rc.photoBase64,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          };
-
-          const normalizedGrades: WeeklyGradeRecord[] = (Array.isArray(rc.grades) ? rc.grades : []).map(g => ({
-            ...g,
-            memberId: memberRealId,
-            weekNumber: Number(g.weekNumber || g.week_number || 1),
-            quarterNumber: Number(g.quarterNumber || g.quarter_number || 1),
-            attendance: g.attendance || g.attendanceMark || 'PRESENT',
-            punctuality: Number(g.punctuality ?? 0),
-            memoryVerse: Number(g.memoryVerse ?? 0),
-            classParticipation: Number(g.classParticipation ?? 0)
-          }));
-
-          setMember(syntheticMember);
-          setGrades(normalizedGrades);
-          setClassProfile({
-            id: rc.classId || 'my-class',
-            className: rc.className || 'Sunday School Class',
-            department: rc.department || 'General',
+          const profile = await getClassProfile();
+          setClassProfile(profile || {
+            id: matched.classId || 'my-class',
+            className: matched.className || 'Sunday School Class',
+            department: matched.department || 'General',
             teacherName: 'Class Teacher',
             secretaries: [],
             assignedWorkers: [],
             approvalStatus: 'APPROVED'
           });
+
+          // Compute fairness and cluster weeks from local grades
+          const classMembers = allMembers.filter(m => m.classId === matched.classId);
+          const classGrades = allGrades.filter(g => g.classId === matched.classId);
+          const fairness = computeClassFairnessRankings(
+            classMembers.length > 0 ? classMembers : [matched],
+            classGrades.length > 0 ? classGrades : memberGrades,
+            12
+          );
+          const myMetrics = fairness.memberMetrics.find(m => m.memberId === matched.id) || null;
+          setFairnessMetrics(myMetrics);
+          setClusterWeeks(generateMemberClusterWeeks(matched, memberGrades, 12));
+          setClassSummary({
+            rankings: myMetrics?.rankings,
+            classAverages: fairness.classAverages
+          });
           setLoading(false);
+          return;
         }
-      } catch (err: any) {
-        if (isMounted) {
-          setError(err?.message || 'Failed to load report card.');
-          setLoading(false);
-        }
+      } catch (localErr) {
+        console.warn('Local database lookup error:', localErr);
+      }
+
+      if (isMounted) {
+        setError('Report card not found or link has expired. Please verify your student profile link.');
+        setLoading(false);
       }
     }
 
@@ -172,6 +194,9 @@ export const StandaloneReportCardView: React.FC<StandaloneReportCardViewProps> =
         members={[member]}
         grades={grades}
         classProfile={classProfile}
+        fairnessMetrics={fairnessMetrics}
+        clusterWeeks={clusterWeeks}
+        classSummary={classSummary}
         onBack={onBack}
         onRefresh={() => setRefreshKey(k => k + 1)}
       />

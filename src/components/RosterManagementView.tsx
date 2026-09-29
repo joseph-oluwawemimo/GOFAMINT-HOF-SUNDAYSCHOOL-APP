@@ -47,6 +47,8 @@ import { GofamintLogo } from './GofamintLogo';
 import {
   Member,
   MemberType,
+  MemberStatus,
+  QuarterNumber,
   WeeklyGradeRecord,
   ClassProfile,
   VisitorQualification,
@@ -1832,13 +1834,13 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
                 <input
                   type="text"
                   readOnly
-                  value={`${window.location.origin}/#visitor-profile/${activeLinkModalMember.oneTimeProfileToken.token}`}
+                  value={`${window.location.origin}/#student-profile/${activeLinkModalMember.oneTimeProfileToken.token}`}
                   className="flex-1 bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-800 focus:outline-none"
                 />
                 <button
                   type="button"
                   onClick={() => {
-                    const url = `${window.location.origin}/#visitor-profile/${activeLinkModalMember.oneTimeProfileToken?.token}`;
+                    const url = `${window.location.origin}/#student-profile/${activeLinkModalMember.oneTimeProfileToken?.token}`;
                     void navigator.clipboard.writeText(url);
                     setCopiedLink(true);
                     setTimeout(() => setCopiedLink(false), 2000);
@@ -1855,7 +1857,7 @@ export const RosterManagementView: React.FC<RosterManagementViewProps> = ({
               <a
                 href={buildWhatsAppDirectLink(
                   activeLinkModalMember.phone,
-                  `Hello ${activeLinkModalMember.fullName}! Welcome to GOFAMINT House of Favour Sunday School. Access your Sunday School student profile and live report card here: ${window.location.origin}/#visitor-profile/${activeLinkModalMember.oneTimeProfileToken.token}`
+                  `Hello ${activeLinkModalMember.fullName}! Welcome to GOFAMINT House of Favour Sunday School. Access your Sunday School student profile and live report card here: ${window.location.origin}/#student-profile/${activeLinkModalMember.oneTimeProfileToken.token}`
                 )}
                 target="_blank"
                 rel="noreferrer"

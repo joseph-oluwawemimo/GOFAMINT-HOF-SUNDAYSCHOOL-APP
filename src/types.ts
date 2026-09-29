@@ -19,6 +19,7 @@ export type AdminRoleType =
   | 'TREASURER'
   | 'RECORD_OFFICER'
   | 'ENROLLMENT_OFFICER'
+  | 'EVANGELISM_AND_FOLLOW_UP_PERSONNEL'
   | 'ASST_GENERAL_SECRETARY'
   | 'ASSISTANT_GENERAL_SECRETARY';
 
@@ -162,6 +163,8 @@ export interface ClassProfile {
   quarter?: QuarterNumber;
   serverIp?: string;
   followUpAssignments?: Record<string, FollowUpAssignmentRecord>;
+  visitationAssignments?: Record<string, VisitationAssignmentRecord>;
+  followUpReports?: Record<string, ClassFollowUpReportRecord>;
   createdAt: string;
   updatedAt: string;
 }
@@ -178,6 +181,95 @@ export interface FollowUpAssignmentRecord {
   status: 'PENDING' | 'REACHED_OUT';
   reachedOutAt?: string;
   updatedAt: string;
+}
+
+export type VisitationStatus = 'PENDING' | 'ASSIGNED' | 'SCHEDULED' | 'COMPLETED' | 'UNABLE_TO_MEET' | 'RESCHEDULED';
+export type VisitationPriority = 'HIGH' | 'MEDIUM' | 'LOW';
+
+export interface VisitationCandidate {
+  memberId: string;
+  fullName: string;
+  phone: string;
+  address: string;
+  memberType: MemberType;
+  classId: string;
+  consecutiveWeeksAbsent: number;
+  priority: VisitationPriority;
+  priorityRank: 1 | 2 | 3;
+  eligibilityReason: string;
+  lastVisitedDate?: string;
+  lastVisitedWeek?: number;
+  isInCooldown: boolean;
+  cooldownWeeksRemaining: number;
+  assignedStaffId?: string;
+  assignedStaffName?: string;
+  assignedStaffRole?: string;
+  assignedStaffPhone?: string;
+  visitStatus: VisitationStatus;
+  notes?: string;
+}
+
+export interface VisitationAssignmentRecord {
+  id: string; // `${classId}_q${quarter}_w${week}_m${memberId}`
+  classId: string;
+  quarterNumber?: number;
+  weekNumber: number;
+  memberId: string;
+  memberName?: string;
+  assignedStaffId?: string;
+  assignedStaffName: string;
+  assignedStaffRole?: string;
+  assignedStaffPhone?: string;
+  assignedDate?: string;
+  priority?: VisitationPriority;
+  status: VisitationStatus;
+  scheduledDate?: string;
+  completedAt?: string;
+  outcome?: string;
+  nextAction?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface VisitationRecord {
+  id: string;
+  classId: string;
+  memberId: string;
+  memberName: string;
+  quarterNumber: number;
+  weekNumber: number;
+  visitedDate: string;
+  visitorName: string;
+  visitorRole?: string;
+  visitorId?: string;
+  visitStatus: VisitationStatus;
+  outcome: string;
+  nextAction?: string;
+  consecutiveWeeksAbsent: number;
+  cooldownUntilWeek?: number;
+  createdAt: string;
+}
+
+export interface ClassFollowUpReportRecord {
+  id: string; // `${classId}_q${quarter}_w${week}`
+  classId: string;
+  className: string;
+  department: string;
+  quarterNumber: number;
+  weekNumber: number;
+  submittedAt: string;
+  submittedBy: string;
+  totalClassMembers: number;
+  present: number;
+  absent: number;
+  membersRequiringFollowUp: number;
+  membersRequiringVisitation: number;
+  followUpCompleted: number;
+  visitationCompleted: number;
+  pendingFollowUp: number;
+  pendingVisitation: number;
+  status: 'SUBMITTED' | 'DRAFT';
+  notes?: string;
 }
 
 export interface VisitorQualification {
@@ -607,6 +699,7 @@ export type ActiveTab =
   | 'ROSTER_MANAGEMENT'
   | 'WELFARE_FOLLOW_UP'
   | 'ASSIGNMENTS'
+  | 'VISITATION'
   | 'QUARTER_ANALYSIS'
   | 'QR_PORTAL'
   | 'CLASS_DISCUSSION'

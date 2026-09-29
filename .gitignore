@@ -9,3 +9,11 @@ coverage/
 scratch/
 .vercel/
 .vercel
+backups/
+analyze_grades.cjs
+backup_current_database.cjs
+check_damage.cjs
+check_supabase.cjs
+execute_restoration.cjs
+inspect_details.cjs
+restore_preview.cjs

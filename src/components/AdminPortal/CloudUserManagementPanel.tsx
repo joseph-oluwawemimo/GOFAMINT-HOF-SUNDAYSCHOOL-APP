@@ -31,6 +31,7 @@ const ASSIGNABLE_ADMIN_ROLES = [
   { value: 'TREASURER', label: 'Treasurer (Finance & Collections)' },
   { value: 'RECORD_OFFICER', label: 'Record Officer (Sunday School Collation)' },
   { value: 'ENROLLMENT_OFFICER', label: 'Enrollment Officer (Student Registration)' },
+  { value: 'EVANGELISM_AND_FOLLOW_UP_PERSONNEL', label: 'Evangelism & Follow-Up Personnel' },
   { value: 'WORKER', label: 'Worker (Directorate Member)' },
 ];
 const isClassAccount = (roleType?: string) => ['TEACHER', 'CLASS_SECRETARY', 'TEACHER / CLASS_SECRETARY'].includes(roleType || '');

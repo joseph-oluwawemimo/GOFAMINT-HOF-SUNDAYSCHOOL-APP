@@ -10,7 +10,8 @@ import {
   Sparkles,
   ArrowLeft,
   Lock,
-  UserCheck
+  UserCheck,
+  Home
 } from 'lucide-react';
 import { ActiveTab, ClassProfile } from '../types';
 import { GofamintLogo } from './GofamintLogo';
@@ -75,6 +76,12 @@ export const Navigation: React.FC<NavigationProps> = ({
       label: 'Follow-Up Assignments',
       shortLabel: 'Assignments',
       icon: UserCheck
+    },
+    {
+      id: 'VISITATION',
+      label: 'Class Visitation',
+      shortLabel: 'Visitation',
+      icon: Home
     },
     {
       id: 'QUARTER_ANALYSIS',

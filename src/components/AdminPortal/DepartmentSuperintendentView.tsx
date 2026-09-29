@@ -50,6 +50,7 @@ import {
 } from '../../utils/calculations';
 import { DEFAULT_DEPARTMENTS } from '../../data/mockQuarterLessons';
 import { fetchCollection } from '../../services/supabaseDatabase';
+import { MultiClassPlottingGraph } from './MultiClassPlottingGraph';
 import type {
   AdminProfile,
   ClassProfile,
@@ -590,52 +591,121 @@ export const DepartmentSuperintendentView: React.FC<Props> = ({
         </div>
       </section>
 
-      {/* 2. Supervisory Perspectives (3 Specialized Lenses) - Desktop Top Bar */}
-      <div className="hidden md:flex bg-white rounded-2xl border border-slate-200 p-2 shadow-xs flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={() => setActiveTab('OVERSIGHT')}
-          className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 cursor-pointer ${
-            activeTab === 'OVERSIGHT'
-              ? 'bg-[#320b86] text-amber-300 shadow-sm'
-              : 'text-slate-600 hover:bg-slate-100'
-          }`}
-        >
-          <BarChart3 className="w-4 h-4" />
-          <span>Superintendent Oversight & Multi-Class Comparison</span>
-        </button>
+      {/* 2. Responsive Layout: Desktop Sidebar Navigation + Main Content Area */}
+      <div className="grid grid-cols-1 md:grid-cols-[250px_1fr] lg:grid-cols-[280px_1fr] gap-6 items-start">
+        {/* Desktop Sidebar Navigation */}
+        <aside className="hidden md:block sticky top-4 space-y-4">
+          <div className="bg-white rounded-3xl border border-slate-200 p-3 shadow-xs space-y-2">
+            <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between">
+              <span className="text-[10px] uppercase font-black tracking-wider text-slate-400">
+                Supervisory Lenses
+              </span>
+              <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-indigo-50 text-indigo-700">
+                {selectedDepartment}
+              </span>
+            </div>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('RECORD_OFFICER_LENS')}
-          className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 cursor-pointer ${
-            activeTab === 'RECORD_OFFICER_LENS'
-              ? 'bg-[#320b86] text-amber-300 shadow-sm'
-              : 'text-slate-600 hover:bg-slate-100'
-          }`}
-        >
-          <ClipboardList className="w-4 h-4" />
-          <span>Record Officer Collation Lens</span>
-        </button>
+            <nav aria-label="Desktop Supervisory Lenses" className="space-y-1">
+              <button
+                type="button"
+                id="btn-sidebar-lens-oversight"
+                onClick={() => setActiveTab('OVERSIGHT')}
+                className={`w-full text-left px-3.5 py-3 rounded-2xl text-xs font-black transition flex items-center gap-3 cursor-pointer ${
+                  activeTab === 'OVERSIGHT'
+                    ? 'bg-[#320b86] text-amber-300 shadow-md scale-101'
+                    : 'text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <div className={`p-2 rounded-xl shrink-0 ${activeTab === 'OVERSIGHT' ? 'bg-white/10 text-amber-300' : 'bg-slate-100 text-[#320b86]'}`}>
+                  <BarChart3 className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <span className="block truncate font-black">Superintendent Oversight</span>
+                  <span className={`block text-[10px] font-normal truncate ${activeTab === 'OVERSIGHT' ? 'text-indigo-200' : 'text-slate-400'}`}>
+                    Multi-class comparison
+                  </span>
+                </div>
+              </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('ENROLLMENT_OFFICER_LENS')}
-          className={`px-4 py-2.5 rounded-xl text-xs font-black transition flex items-center gap-2 cursor-pointer ${
-            activeTab === 'ENROLLMENT_OFFICER_LENS'
-              ? 'bg-[#320b86] text-amber-300 shadow-sm'
-              : 'text-slate-600 hover:bg-slate-100'
-          }`}
-        >
-          <FileCheck className="w-4 h-4" />
-          <span>Enrollment Officer Visitor Pipeline Lens</span>
-          {automatedInsights.readyForConversion.length > 0 && (
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-400 text-slate-950">
-              {automatedInsights.readyForConversion.length} Qualified
+              <button
+                type="button"
+                id="btn-sidebar-lens-record"
+                onClick={() => setActiveTab('RECORD_OFFICER_LENS')}
+                className={`w-full text-left px-3.5 py-3 rounded-2xl text-xs font-black transition flex items-center gap-3 cursor-pointer ${
+                  activeTab === 'RECORD_OFFICER_LENS'
+                    ? 'bg-[#320b86] text-amber-300 shadow-md scale-101'
+                    : 'text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <div className={`p-2 rounded-xl shrink-0 ${activeTab === 'RECORD_OFFICER_LENS' ? 'bg-white/10 text-amber-300' : 'bg-slate-100 text-[#320b86]'}`}>
+                  <ClipboardList className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <span className="block truncate font-black">Record Officer Lens</span>
+                  <span className={`block text-[10px] font-normal truncate ${activeTab === 'RECORD_OFFICER_LENS' ? 'text-indigo-200' : 'text-slate-400'}`}>
+                    Register collation
+                  </span>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                id="btn-sidebar-lens-enrollment"
+                onClick={() => setActiveTab('ENROLLMENT_OFFICER_LENS')}
+                className={`w-full text-left px-3.5 py-3 rounded-2xl text-xs font-black transition flex items-center gap-3 cursor-pointer ${
+                  activeTab === 'ENROLLMENT_OFFICER_LENS'
+                    ? 'bg-[#320b86] text-amber-300 shadow-md scale-101'
+                    : 'text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <div className={`p-2 rounded-xl shrink-0 ${activeTab === 'ENROLLMENT_OFFICER_LENS' ? 'bg-white/10 text-amber-300' : 'bg-slate-100 text-[#320b86]'}`}>
+                  <FileCheck className="w-4 h-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="block truncate font-black">Enrollment Lens</span>
+                    {automatedInsights.readyForConversion.length > 0 && (
+                      <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-amber-400 text-slate-950 shrink-0">
+                        {automatedInsights.readyForConversion.length} Qualified
+                      </span>
+                    )}
+                  </div>
+                  <span className={`block text-[10px] font-normal truncate ${activeTab === 'ENROLLMENT_OFFICER_LENS' ? 'text-indigo-200' : 'text-slate-400'}`}>
+                    Visitor pipeline
+                  </span>
+                </div>
+              </button>
+            </nav>
+          </div>
+
+          {/* Quick Department Snapshot Card in Sidebar */}
+          <div className="bg-gradient-to-br from-indigo-900 to-slate-900 rounded-3xl p-4 text-white shadow-xs space-y-3">
+            <span className="text-[10px] uppercase font-black tracking-wider text-indigo-300 block border-b border-indigo-700/50 pb-1.5">
+              Department Snapshot
             </span>
-          )}
-        </button>
-      </div>
+            <div className="space-y-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-indigo-200">Department:</span>
+                <span className="font-bold text-white">{selectedDepartment}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-indigo-200">Classes:</span>
+                <span className="font-bold text-amber-300">{departmentClasses.length} Classes</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-indigo-200">Roster Total:</span>
+                <span className="font-bold text-emerald-300">{activeDeptMembers.length} Members</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-indigo-200">Evaluation:</span>
+                <span className="font-bold text-white">Week {selectedWeek}</span>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        {/* Right Main Content Area */}
+        <div className="min-w-0 space-y-6">
 
       {/* Item 31: Mobile Sticky Bottom Control Bar for Specialized Perspectives */}
       <nav
@@ -785,8 +855,10 @@ export const DepartmentSuperintendentView: React.FC<Props> = ({
             </div>
           </div>
 
-          {/* MULTI-CLASS COMPARATIVE 12-WEEK TRAJECTORY GRAPH */}
-          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
+          {/* MULTI-CLASS COMPARATIVE 12-WEEK TRAJECTORY GRAPH & PLOTTING VIEW */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+            {/* 1. Existing Bar Chart - Preserved and available */}
+            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
               <div>
                 <h3 className="font-black text-sm uppercase tracking-wider text-slate-900 flex items-center gap-2">
@@ -883,6 +955,18 @@ export const DepartmentSuperintendentView: React.FC<Props> = ({
               </div>
             </div>
           </div>
+
+          {/* 2. New Proper Graph / Plotting View with Active Students / Total Present / Total Absent datasets */}
+          <MultiClassPlottingGraph
+            departmentClasses={departmentClasses}
+            members={members}
+            grades={grades}
+            selectedQuarter={selectedQuarter}
+            selectedWeek={selectedWeek}
+            onSelectWeek={setSelectedWeek}
+            totalWeeks={activeQuarterData.totalLessonWeeks || 12}
+          />
+        </div>
 
           {/* CLASS-BY-CLASS COMPARATIVE BREAKDOWN CARDS */}
           <div className="space-y-3">
@@ -1356,6 +1440,9 @@ export const DepartmentSuperintendentView: React.FC<Props> = ({
 
         </div>
       )}
+
+        </div>
+      </div>
 
       {/* ========================================================================= */}
       {/* 4. CLASS READ-ONLY INSPECTION MODAL                                       */}

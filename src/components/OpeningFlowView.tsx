@@ -15,7 +15,8 @@ import {
   Plus,
   Trash2,
   X,
-  Activity
+  Activity,
+  HeartHandshake
 } from 'lucide-react';
 import { GofamintLogo } from './GofamintLogo';
 import { ClassProfile, TeacherInfo, Member, WorkerProfile } from '../types';
@@ -37,6 +38,7 @@ interface OpeningFlowViewProps {
   onEnterAdminPortal?: () => void;
   onEnterWorkersModule?: () => void;
   onEnterSibPortal?: () => void;
+  onEnterFollowUpPortal?: () => void;
   onRegisterNewClassSubmit: (profile: ClassProfile) => void;
   onClearDataAndStartScratch?: () => void;
   onDatabaseRestored?: () => void;
@@ -55,7 +57,8 @@ const ADMIN_ROLES = [
   'ASSISTANT_GENERAL_SECRETARY',
   'TREASURER',
   'RECORD_OFFICER',
-  'ENROLLMENT_OFFICER'
+  'ENROLLMENT_OFFICER',
+  'EVANGELISM_AND_FOLLOW_UP_PERSONNEL'
 ];
 
 const ROLE_FORMATTED_NAMES: Record<string, string> = {
@@ -67,6 +70,7 @@ const ROLE_FORMATTED_NAMES: Record<string, string> = {
   TREASURER: 'Sunday School Treasurer',
   RECORD_OFFICER: 'Record Officer',
   ENROLLMENT_OFFICER: 'Enrollment Officer',
+  EVANGELISM_AND_FOLLOW_UP_PERSONNEL: 'Evangelism & Follow-Up Personnel',
   TEACHER: 'Class Teacher',
   CLASS_SECRETARY: 'Class Secretary',
   'TEACHER / CLASS_SECRETARY': 'Class Teacher / Secretary',
@@ -82,6 +86,7 @@ export const OpeningFlowView: React.FC<OpeningFlowViewProps> = ({
   onEnterAdminPortal,
   onEnterWorkersModule,
   onEnterSibPortal,
+  onEnterFollowUpPortal,
   onRegisterNewClassSubmit,
   currentUserProfile,
   cloudUser
@@ -177,6 +182,15 @@ export const OpeningFlowView: React.FC<OpeningFlowViewProps> = ({
       onEnterSibPortal();
     } else {
       setAuthErrorModalMessage('You are not authorized to enter this portal.');
+    }
+  };
+
+  // Handle Follow-Up Portal click (Portal 5)
+  const handleFollowUpPortalClick = () => {
+    if (onEnterFollowUpPortal) {
+      onEnterFollowUpPortal();
+    } else {
+      setAuthErrorModalMessage('You are not authorized to enter the Evangelism & Follow-Up Portal.');
     }
   };
 
@@ -411,8 +425,8 @@ export const OpeningFlowView: React.FC<OpeningFlowViewProps> = ({
             </p>
           </div>
 
-          {/* 4 Clean Elevated Portal Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-2">
+          {/* 5 Clean Elevated Portal Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 pt-2">
             
             {/* 1. Admin Portal */}
             <div className="bg-white border border-slate-200/90 rounded-3xl p-6 flex flex-col justify-between shadow-lg hover:shadow-2xl hover:-translate-y-1.5 transition-all duration-300 relative group overflow-hidden border-t-8 border-t-amber-500">
@@ -592,6 +606,51 @@ export const OpeningFlowView: React.FC<OpeningFlowViewProps> = ({
                 >
                   <Activity className="w-4 h-4 text-indigo-300" />
                   <span>Enter SIB Portal</span>
+                  <ArrowRight className="w-4 h-4 text-white group-hover:translate-x-1 transition-transform" />
+                </button>
+              </div>
+            </div>
+
+            {/* 5. Evangelism & Follow-Up Portal */}
+            <div className="bg-white border border-slate-200/90 rounded-3xl p-6 flex flex-col justify-between shadow-lg hover:shadow-2xl hover:-translate-y-1.5 transition-all duration-300 relative group overflow-hidden border-t-8 border-t-rose-600">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="w-13 h-13 rounded-2xl bg-gradient-to-br from-rose-500 to-rose-700 flex items-center justify-center text-white shadow-md group-hover:scale-105 transition-transform">
+                    <HeartHandshake className="w-6 h-6 text-white" />
+                  </div>
+                  <span className="px-2.5 py-1 bg-rose-50 text-rose-900 text-[10px] font-black uppercase tracking-wider rounded-full border border-rose-300">
+                    Oversight
+                  </span>
+                </div>
+
+                <div>
+                  <h3 className="text-lg font-black text-slate-900 font-['Cinzel',serif] group-hover:text-rose-800 transition-colors">
+                    5. Follow-Up Portal
+                  </h3>
+                  <span className="text-[11px] font-bold text-rose-700 block mt-0.5">
+                    Evangelism & Visitation
+                  </span>
+                  <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+                    Centralized follow-up reporting, 4-week cooldown visitation queue, class follow-up metrics, and mission intelligence.
+                  </p>
+                </div>
+
+                <div className="pt-2 flex flex-wrap gap-1.5">
+                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Dashboard</span>
+                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Visitation</span>
+                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Class Collation</span>
+                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Intelligence</span>
+                </div>
+              </div>
+
+              <div className="pt-6 mt-4 border-t border-slate-100">
+                <button
+                  id="btn-portal-select-follow-up"
+                  onClick={handleFollowUpPortalClick}
+                  className="w-full py-3.5 bg-rose-700 hover:bg-rose-600 active:scale-[0.98] text-white rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-md transition cursor-pointer group-hover:shadow-lg"
+                >
+                  <HeartHandshake className="w-4 h-4 text-rose-200" />
+                  <span>Enter Follow-Up Portal</span>
                   <ArrowRight className="w-4 h-4 text-white group-hover:translate-x-1 transition-transform" />
                 </button>
               </div>

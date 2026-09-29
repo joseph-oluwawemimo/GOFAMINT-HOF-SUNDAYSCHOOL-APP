@@ -33,6 +33,12 @@ import {
 } from '../types';
 import { calculateMemberStats, generate2DTrendData } from '../utils/calculations';
 import { GOFAMINT_HOF_12_LESSONS } from '../data/mockQuarterLessons';
+import {
+  computeClassFairnessRankings,
+  formatRate,
+  MemberFairnessMetrics,
+  FAIRNESS_RELIABILITY_K
+} from '../utils/fairnessScoring';
 
 interface QuarterAnalysisViewProps {
   members: Member[];
@@ -73,6 +79,9 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
   onOpenQuarterTransition
 }) => {
   const [selectedAwardCategory, setSelectedAwardCategory] = useState<AwardCategory>('OVERALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'STUDENT' | 'VISITOR'>('ALL');
+  const [awardEligibilityFilter, setAwardEligibilityFilter] = useState<'ALL' | 'ELIGIBLE' | 'NOT_ELIGIBLE'>('ALL');
+  const [sortBy, setSortBy] = useState<'ADJUSTED_RATE' | 'RAW_RATE' | 'ATTENDANCE_RATE' | 'TOTAL_POINTS' | 'NAME'>('ADJUSTED_RATE');
   const [showQuarterReviewModal, setShowQuarterReviewModal] = useState(false);
   const [reviewSuccessFeedback, setReviewSuccessFeedback] = useState<string | null>(null);
 
@@ -127,35 +136,154 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
     .filter(o => o.isNoRecordWeek)
     .map(o => o.weekNumber);
 
-  // Member statistics calculated using the report-card formula
-  const allMemberStatsList: HardWorkStats[] = members.map(m =>
-    calculateMemberStats(m, grades, totalWeeksInQuarter, noRecordWeeks)
-  );
+  // Determine current evaluated week to avoid penalizing future lessons in an ongoing quarter
+  const currentEvaluatedWeek = useMemo(() => {
+    const recordedWeeks = grades
+      .filter(g => g.weekNumber && (g.attendance === 'PRESENT' || g.attendance === 'ABSENT' || Number(g.lessonTotal) > 0))
+      .map(g => g.weekNumber);
+    const maxGradeWeek = recordedWeeks.length > 0 ? Math.max(...recordedWeeks) : 1;
+    const maxCalWeek = currentCalendarWeek || 1;
+    return Math.max(1, Math.min(totalWeeksInQuarter, Math.max(maxGradeWeek, maxCalWeek)));
+  }, [grades, currentCalendarWeek, totalWeeksInQuarter]);
 
-  // Leaderboard for Awards: STRICTLY STUDENTS ONLY (Visitors are excluded from award competitions)
-  const studentLeaderboardList = allMemberStatsList.filter(s => s.memberType === 'STUDENT');
+  // Compute fair-play scores and reliability shrinkage using fairnessScoring engine
+  const classFairness = useMemo(() => {
+    return computeClassFairnessRankings(
+      members,
+      grades,
+      currentEvaluatedWeek,
+      noRecordWeeks,
+      FAIRNESS_RELIABILITY_K
+    );
+  }, [members, grades, currentEvaluatedWeek, noRecordWeeks]);
 
-  // Leaderboard Sorting based on selected category percentage
-  const sortedLeaderboard = [...studentLeaderboardList].sort((a, b) => {
-    switch (selectedAwardCategory) {
-      case 'OVERALL':
-        if (b.hardWorkRate !== a.hardWorkRate) return b.hardWorkRate - a.hardWorkRate;
-        return b.totalPointsEarned - a.totalPointsEarned;
-      case 'PUNCTUALITY':
-        if (b.punctualityPercentage !== a.punctualityPercentage) return b.punctualityPercentage - a.punctualityPercentage;
-        return b.punctualityScoreObtained - a.punctualityScoreObtained;
-      case 'MEMORY_VERSE':
-        if (b.memoryVersePercentage !== a.memoryVersePercentage) return b.memoryVersePercentage - a.memoryVersePercentage;
-        return b.memoryVerseScoreObtained - a.memoryVerseScoreObtained;
-      case 'PARTICIPATION':
-        if (b.participationPercentage !== a.participationPercentage) return b.participationPercentage - a.participationPercentage;
-        return b.participationScoreObtained - a.participationScoreObtained;
-      case 'EVANGELISM':
-        return b.totalReferrals - a.totalReferrals;
-      default:
-        return b.hardWorkRate - a.hardWorkRate;
+  // Award Contenders for Podium: strictly Award-Eligible members (students) with eligible lessons
+  const eligibleContenders = useMemo(() => {
+    return classFairness.memberMetrics.filter(m => m.isAwardEligible && m.eligibleLessons > 0);
+  }, [classFairness]);
+
+  const sortedPodium = useMemo(() => {
+    const list = [...eligibleContenders];
+    list.sort((a, b) => {
+      let aVal = 0;
+      let bVal = 0;
+      let aRaw = 0;
+      let bRaw = 0;
+
+      switch (selectedAwardCategory) {
+        case 'OVERALL':
+          aVal = a.overall.adjustedRate;
+          bVal = b.overall.adjustedRate;
+          aRaw = a.overall.rawRate;
+          bRaw = b.overall.rawRate;
+          break;
+        case 'PUNCTUALITY':
+          aVal = a.punctuality.adjustedRate;
+          bVal = b.punctuality.adjustedRate;
+          aRaw = a.punctuality.rawRate;
+          bRaw = b.punctuality.rawRate;
+          break;
+        case 'MEMORY_VERSE':
+          aVal = a.memoryVerse.adjustedRate;
+          bVal = b.memoryVerse.adjustedRate;
+          aRaw = a.memoryVerse.rawRate;
+          bRaw = b.memoryVerse.rawRate;
+          break;
+        case 'PARTICIPATION':
+          aVal = a.participation.adjustedRate;
+          bVal = b.participation.adjustedRate;
+          aRaw = a.participation.rawRate;
+          bRaw = b.participation.rawRate;
+          break;
+        case 'EVANGELISM': {
+          const aMem = members.find(m => m.id === a.memberId);
+          const bMem = members.find(m => m.id === b.memberId);
+          return (bMem?.evangelismReferralCount || 0) - (aMem?.evangelismReferralCount || 0);
+        }
+      }
+
+      if (Math.abs(bVal - aVal) > 0.0001) return bVal - aVal;
+      if (Math.abs(bRaw - aRaw) > 0.0001) return bRaw - aRaw;
+      return b.eligibleLessons - a.eligibleLessons;
+    });
+    return list;
+  }, [eligibleContenders, selectedAwardCategory, members]);
+
+  // Filtered and sorted members for the full Leaderboard table (Students & Visitors)
+  const filteredAndSortedMembers = useMemo(() => {
+    let list = [...classFairness.memberMetrics];
+
+    // Status filter
+    if (statusFilter === 'STUDENT') {
+      list = list.filter(m => m.memberType === 'STUDENT');
+    } else if (statusFilter === 'VISITOR') {
+      list = list.filter(m => m.memberType === 'VISITOR');
     }
-  });
+
+    // Award eligibility filter
+    if (awardEligibilityFilter === 'ELIGIBLE') {
+      list = list.filter(m => m.isAwardEligible);
+    } else if (awardEligibilityFilter === 'NOT_ELIGIBLE') {
+      list = list.filter(m => !m.isAwardEligible);
+    }
+
+    // Sort order
+    list.sort((a, b) => {
+      if (sortBy === 'NAME') {
+        return a.fullName.localeCompare(b.fullName);
+      }
+      if (sortBy === 'ATTENDANCE_RATE') {
+        return b.attendanceRate - a.attendanceRate;
+      }
+      if (sortBy === 'TOTAL_POINTS') {
+        return b.totalPointsEarned - a.totalPointsEarned;
+      }
+      if (sortBy === 'RAW_RATE') {
+        let aRaw = a.overall.rawRate;
+        let bRaw = b.overall.rawRate;
+        if (selectedAwardCategory === 'PUNCTUALITY') { aRaw = a.punctuality.rawRate; bRaw = b.punctuality.rawRate; }
+        else if (selectedAwardCategory === 'MEMORY_VERSE') { aRaw = a.memoryVerse.rawRate; bRaw = b.memoryVerse.rawRate; }
+        else if (selectedAwardCategory === 'PARTICIPATION') { aRaw = a.participation.rawRate; bRaw = b.participation.rawRate; }
+        else if (selectedAwardCategory === 'EVANGELISM') {
+          const aMem = members.find(m => m.id === a.memberId);
+          const bMem = members.find(m => m.id === b.memberId);
+          return (bMem?.evangelismReferralCount || 0) - (aMem?.evangelismReferralCount || 0);
+        }
+        return bRaw - aRaw;
+      }
+
+      // Default: ADJUSTED_RATE
+      let aAdj = a.overall.adjustedRate;
+      let bAdj = b.overall.adjustedRate;
+      let aRaw = a.overall.rawRate;
+      let bRaw = b.overall.rawRate;
+      if (selectedAwardCategory === 'PUNCTUALITY') {
+        aAdj = a.punctuality.adjustedRate; bAdj = b.punctuality.adjustedRate;
+        aRaw = a.punctuality.rawRate; bRaw = b.punctuality.rawRate;
+      } else if (selectedAwardCategory === 'MEMORY_VERSE') {
+        aAdj = a.memoryVerse.adjustedRate; bAdj = b.memoryVerse.adjustedRate;
+        aRaw = a.memoryVerse.rawRate; bRaw = b.memoryVerse.rawRate;
+      } else if (selectedAwardCategory === 'PARTICIPATION') {
+        aAdj = a.participation.adjustedRate; bAdj = b.participation.adjustedRate;
+        aRaw = a.participation.rawRate; bRaw = b.participation.rawRate;
+      } else if (selectedAwardCategory === 'EVANGELISM') {
+        const aMem = members.find(m => m.id === a.memberId);
+        const bMem = members.find(m => m.id === b.memberId);
+        return (bMem?.evangelismReferralCount || 0) - (aMem?.evangelismReferralCount || 0);
+      }
+
+      if (Math.abs(bAdj - aAdj) > 0.0001) return bAdj - aAdj;
+      if (Math.abs(bRaw - aRaw) > 0.0001) return bRaw - aRaw;
+      return b.eligibleLessons - a.eligibleLessons;
+    });
+
+    return list;
+  }, [classFairness.memberMetrics, statusFilter, awardEligibilityFilter, sortBy, selectedAwardCategory, members]);
+
+  // Member statistics calculated for the legacy report card / printable form
+  const allMemberStatsList: HardWorkStats[] = members.map(m =>
+    calculateMemberStats(m, grades, currentEvaluatedWeek, noRecordWeeks)
+  );
 
   // 2D Trend Data (+Y Students, -Y Visitors, X Weeks 1 to totalWeeksInQuarter)
   const trendData = generate2DTrendData(members, grades, totalWeeksInQuarter);
@@ -318,12 +446,17 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
           </div>
           <div className="flex items-baseline gap-1.5">
             <span className="text-2xl font-black text-amber-800">
-              {sortedLeaderboard[0]?.hardWorkRate || 0}%
+              {sortedPodium[0] ? `${sortedPodium[0].overall.adjustedRate}%` : '0%'}
             </span>
-            <span className="text-xs text-slate-500">Top Rate</span>
+            <span className="text-xs text-slate-500">Fair Rate</span>
           </div>
           <p className="text-[11px] text-amber-900 font-semibold mt-1 truncate">
-            Leader: {sortedLeaderboard[0]?.fullName || 'None'}
+            Leader: {sortedPodium[0]?.fullName || 'None'}
+            {sortedPodium[0] && (
+              <span className="text-slate-500 font-normal ml-1">
+                ({sortedPodium[0].overall.rawRate}% raw)
+              </span>
+            )}
           </p>
         </div>
 
@@ -416,16 +549,16 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
 
       {/* 5 Award Leaderboards Section */}
       <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm print:hidden">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-5">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
           <div>
             <div className="flex items-center gap-2">
-              <Trophy className="w-4 h-4 text-amber-500" />
+              <Trophy className="w-5 h-5 text-amber-500" />
               <h3 className="text-base font-black text-slate-900 uppercase tracking-wide">
                 Quarter {quarterNumber} Awards & Recognition Champions
               </h3>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              Top performers calculated fairly with non-recorded weeks excluded from denominators.
+              Fair Play empirical Bayes rankings across active lessons (Weeks 1 to {currentEvaluatedWeek}). Excludes unrecorded weeks.
             </p>
           </div>
 
@@ -433,7 +566,7 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
           <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg overflow-x-auto">
             <button
               onClick={() => setSelectedAwardCategory('OVERALL')}
-              className={`px-3 py-1 rounded-md text-xs font-bold transition whitespace-nowrap ${
+              className={`px-3 py-1.5 rounded-md text-xs font-bold transition whitespace-nowrap ${
                 selectedAwardCategory === 'OVERALL' ? 'bg-amber-500 text-blue-950 shadow-xs' : 'text-slate-700 hover:bg-slate-200'
               }`}
             >
@@ -441,7 +574,7 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
             </button>
             <button
               onClick={() => setSelectedAwardCategory('PUNCTUALITY')}
-              className={`px-3 py-1 rounded-md text-xs font-bold transition whitespace-nowrap ${
+              className={`px-3 py-1.5 rounded-md text-xs font-bold transition whitespace-nowrap ${
                 selectedAwardCategory === 'PUNCTUALITY' ? 'bg-amber-500 text-blue-950 shadow-xs' : 'text-slate-700 hover:bg-slate-200'
               }`}
             >
@@ -449,7 +582,7 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
             </button>
             <button
               onClick={() => setSelectedAwardCategory('MEMORY_VERSE')}
-              className={`px-3 py-1 rounded-md text-xs font-bold transition whitespace-nowrap ${
+              className={`px-3 py-1.5 rounded-md text-xs font-bold transition whitespace-nowrap ${
                 selectedAwardCategory === 'MEMORY_VERSE' ? 'bg-amber-500 text-blue-950 shadow-xs' : 'text-slate-700 hover:bg-slate-200'
               }`}
             >
@@ -457,7 +590,7 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
             </button>
             <button
               onClick={() => setSelectedAwardCategory('PARTICIPATION')}
-              className={`px-3 py-1 rounded-md text-xs font-bold transition whitespace-nowrap ${
+              className={`px-3 py-1.5 rounded-md text-xs font-bold transition whitespace-nowrap ${
                 selectedAwardCategory === 'PARTICIPATION' ? 'bg-amber-500 text-blue-950 shadow-xs' : 'text-slate-700 hover:bg-slate-200'
               }`}
             >
@@ -465,7 +598,7 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
             </button>
             <button
               onClick={() => setSelectedAwardCategory('EVANGELISM')}
-              className={`px-3 py-1 rounded-md text-xs font-bold transition whitespace-nowrap ${
+              className={`px-3 py-1.5 rounded-md text-xs font-bold transition whitespace-nowrap ${
                 selectedAwardCategory === 'EVANGELISM' ? 'bg-amber-500 text-blue-950 shadow-xs' : 'text-slate-700 hover:bg-slate-200'
               }`}
             >
@@ -474,123 +607,379 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
           </div>
         </div>
 
-        {/* Podium Champions Display (Top 3) */}
-        {sortedLeaderboard.length >= 3 && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 mb-5">
-            {/* 2nd Silver */}
-            <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 text-center relative order-2 md:order-1 shadow-xs">
-              <div className="w-8 h-8 rounded-full bg-slate-200 text-slate-800 font-black text-sm flex items-center justify-center mx-auto mb-2">
-                2nd
-              </div>
-              <h4 className="font-bold text-slate-900 text-sm">{sortedLeaderboard[1].fullName}</h4>
-              <div className="text-xs text-slate-700 mt-1 font-bold">
-                {selectedAwardCategory === 'OVERALL' && `${sortedLeaderboard[1].hardWorkRate}% (${sortedLeaderboard[1].totalPointsEarned}/${sortedLeaderboard[1].totalPossiblePointsSinceFirst} pts)`}
-                {selectedAwardCategory === 'PUNCTUALITY' && `${sortedLeaderboard[1].punctualityPercentage}% (${sortedLeaderboard[1].punctualityScoreObtained}/${sortedLeaderboard[1].punctualityMaxObtainable} marks)`}
-                {selectedAwardCategory === 'MEMORY_VERSE' && `${sortedLeaderboard[1].memoryVersePercentage}% (${sortedLeaderboard[1].memoryVerseScoreObtained}/${sortedLeaderboard[1].memoryVerseMaxObtainable} marks)`}
-                {selectedAwardCategory === 'PARTICIPATION' && `${sortedLeaderboard[1].participationPercentage}% (${sortedLeaderboard[1].participationScoreObtained}/${sortedLeaderboard[1].participationMaxObtainable} marks)`}
-                {selectedAwardCategory === 'EVANGELISM' && `${sortedLeaderboard[1].totalReferrals} visitors invited`}
-              </div>
-              <p className="text-[10px] text-slate-500 mt-0.5">
-                {sortedLeaderboard[1].eligibleLessonsCount} eligible lessons (joined W{sortedLeaderboard[1].firstLessonWeek})
-              </p>
-            </div>
+        {/* Fair Play Scoring Explanation Banner */}
+        <div className="mb-5 p-3 sm:p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl flex items-start gap-3">
+          <ShieldCheck className="w-5 h-5 text-blue-700 shrink-0 mt-0.5" />
+          <div className="text-xs text-blue-900 leading-relaxed">
+            <span className="font-bold">Fair Play Scoring Active (Empirical Bayes Shrinkage, k=6): </span>
+            Evaluated on completed lessons ({currentEvaluatedWeek} of {totalWeeksInQuarter}) so students are not penalized for future dates.
+            Podium champions are exclusively award-eligible registered students with at least 1 evaluated lesson. Visitors receive honest ratings and can be reviewed without zeroing out their scores.
+          </div>
+        </div>
 
-            {/* 1st Gold */}
-            <div className="bg-amber-50/70 p-5 rounded-lg border-2 border-amber-400 shadow-sm text-center relative order-1 md:order-2 transform md:scale-105">
+        {/* Filter & Sort Controls Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-5 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+          {/* Member Status Filter */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mr-1">Roster:</span>
+            <button
+              onClick={() => setStatusFilter('ALL')}
+              className={`px-2.5 py-1 rounded-md font-bold transition ${
+                statusFilter === 'ALL' ? 'bg-slate-800 text-white shadow-xs' : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-200'
+              }`}
+            >
+              All ({classFairness.memberMetrics.length})
+            </button>
+            <button
+              onClick={() => setStatusFilter('STUDENT')}
+              className={`px-2.5 py-1 rounded-md font-bold transition ${
+                statusFilter === 'STUDENT' ? 'bg-blue-700 text-white shadow-xs' : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-200'
+              }`}
+            >
+              Students ({classFairness.memberMetrics.filter(m => m.memberType === 'STUDENT').length})
+            </button>
+            <button
+              onClick={() => setStatusFilter('VISITOR')}
+              className={`px-2.5 py-1 rounded-md font-bold transition ${
+                statusFilter === 'VISITOR' ? 'bg-purple-700 text-white shadow-xs' : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-200'
+              }`}
+            >
+              Visitors ({classFairness.memberMetrics.filter(m => m.memberType === 'VISITOR').length})
+            </button>
+          </div>
+
+          {/* Award Eligibility Filter */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mr-1">Awards:</span>
+            <button
+              onClick={() => setAwardEligibilityFilter('ALL')}
+              className={`px-2.5 py-1 rounded-md font-bold transition ${
+                awardEligibilityFilter === 'ALL' ? 'bg-slate-800 text-white shadow-xs' : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-200'
+              }`}
+            >
+              All
+            </button>
+            <button
+              onClick={() => setAwardEligibilityFilter('ELIGIBLE')}
+              className={`px-2.5 py-1 rounded-md font-bold transition ${
+                awardEligibilityFilter === 'ELIGIBLE' ? 'bg-emerald-700 text-white shadow-xs' : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-200'
+              }`}
+            >
+              Eligible ({classFairness.memberMetrics.filter(m => m.isAwardEligible).length})
+            </button>
+            <button
+              onClick={() => setAwardEligibilityFilter('NOT_ELIGIBLE')}
+              className={`px-2.5 py-1 rounded-md font-bold transition ${
+                awardEligibilityFilter === 'NOT_ELIGIBLE' ? 'bg-slate-600 text-white shadow-xs' : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-200'
+              }`}
+            >
+              Visitors & Ineligible ({classFairness.memberMetrics.filter(m => !m.isAwardEligible).length})
+            </button>
+          </div>
+
+          {/* Sort By Dropdown */}
+          <div className="flex items-center gap-1.5 ml-auto">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Sort By:</span>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              className="bg-white border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-800 shadow-xs focus:ring-1 focus:ring-blue-500"
+            >
+              <option value="ADJUSTED_RATE">Fair / Adjusted Rate</option>
+              <option value="RAW_RATE">Raw Rate</option>
+              <option value="ATTENDANCE_RATE">Attendance Rate</option>
+              <option value="TOTAL_POINTS">Total Points</option>
+              <option value="NAME">Name (A-Z)</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Podium Champions Display (Top 3 Award-Eligible Students) */}
+        {sortedPodium.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 mb-6">
+            {/* 2nd Silver */}
+            {sortedPodium.length >= 2 && (
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-center relative order-2 md:order-1 shadow-xs">
+                <div className="w-8 h-8 rounded-full bg-slate-200 text-slate-800 font-black text-sm flex items-center justify-center mx-auto mb-2">
+                  2nd
+                </div>
+                <h4 className="font-bold text-slate-900 text-sm">{sortedPodium[1].fullName}</h4>
+                <div className="mt-1.5">
+                  {selectedAwardCategory === 'OVERALL' && (
+                    <>
+                      <div className="text-base font-black text-slate-900">
+                        {sortedPodium[1].overall.adjustedRate}% <span className="text-[11px] font-semibold text-slate-500">Fair</span>
+                      </div>
+                      <div className="text-xs text-slate-600 font-medium">
+                        {sortedPodium[1].overall.rawRate}% Raw ({sortedPodium[1].totalPointsEarned}/{sortedPodium[1].maxAvailablePoints} pts)
+                      </div>
+                    </>
+                  )}
+                  {selectedAwardCategory === 'PUNCTUALITY' && (
+                    <>
+                      <div className="text-base font-black text-slate-900">
+                        {sortedPodium[1].punctuality.adjustedRate}% <span className="text-[11px] font-semibold text-slate-500">Fair</span>
+                      </div>
+                      <div className="text-xs text-slate-600 font-medium">
+                        {sortedPodium[1].punctuality.rawRate}% Raw ({sortedPodium[1].punctuality.scoreObtained}/{sortedPodium[1].punctuality.maxObtainable} marks)
+                      </div>
+                    </>
+                  )}
+                  {selectedAwardCategory === 'MEMORY_VERSE' && (
+                    <>
+                      <div className="text-base font-black text-slate-900">
+                        {sortedPodium[1].memoryVerse.adjustedRate}% <span className="text-[11px] font-semibold text-slate-500">Fair</span>
+                      </div>
+                      <div className="text-xs text-slate-600 font-medium">
+                        {sortedPodium[1].memoryVerse.rawRate}% Raw ({sortedPodium[1].memoryVerse.scoreObtained}/{sortedPodium[1].memoryVerse.maxObtainable} marks)
+                      </div>
+                    </>
+                  )}
+                  {selectedAwardCategory === 'PARTICIPATION' && (
+                    <>
+                      <div className="text-base font-black text-slate-900">
+                        {sortedPodium[1].participation.adjustedRate}% <span className="text-[11px] font-semibold text-slate-500">Fair</span>
+                      </div>
+                      <div className="text-xs text-slate-600 font-medium">
+                        {sortedPodium[1].participation.rawRate}% Raw ({sortedPodium[1].participation.scoreObtained}/{sortedPodium[1].participation.maxObtainable} marks)
+                      </div>
+                    </>
+                  )}
+                  {selectedAwardCategory === 'EVANGELISM' && (
+                    <div className="text-base font-black text-purple-700">
+                      {members.find(m => m.id === sortedPodium[1].memberId)?.evangelismReferralCount || 0} souls invited
+                    </div>
+                  )}
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1">
+                  {sortedPodium[1].attendedWeeks}/{sortedPodium[1].eligibleLessons} attended • {sortedPodium[1].eligibleLessons} eligible (joined W{sortedPodium[1].joinLesson})
+                </p>
+              </div>
+            )}
+
+            {/* 1st Gold Champion */}
+            <div className="bg-amber-50/80 p-5 rounded-xl border-2 border-amber-400 shadow-md text-center relative order-1 md:order-2 transform md:scale-105">
               <div className="w-10 h-10 rounded-full bg-amber-400 text-slate-950 font-black text-base flex items-center justify-center mx-auto mb-2 shadow-xs">
                 👑
               </div>
               <span className="text-[10px] font-black uppercase text-amber-900 tracking-wider">
                 1st Place Champion
               </span>
-              <h4 className="font-black text-slate-950 text-base mt-0.5">{sortedLeaderboard[0].fullName}</h4>
-              <div className="text-sm font-extrabold text-amber-950 mt-1">
-                {selectedAwardCategory === 'OVERALL' && `${sortedLeaderboard[0].hardWorkRate}% (${sortedLeaderboard[0].totalPointsEarned}/${sortedLeaderboard[0].totalPossiblePointsSinceFirst} pts)`}
-                {selectedAwardCategory === 'PUNCTUALITY' && `${sortedLeaderboard[0].punctualityPercentage}% (${sortedLeaderboard[0].punctualityScoreObtained}/${sortedLeaderboard[0].punctualityMaxObtainable} marks)`}
-                {selectedAwardCategory === 'MEMORY_VERSE' && `${sortedLeaderboard[0].memoryVersePercentage}% (${sortedLeaderboard[0].memoryVerseScoreObtained}/${sortedLeaderboard[0].memoryVerseMaxObtainable} marks)`}
-                {selectedAwardCategory === 'PARTICIPATION' && `${sortedLeaderboard[0].participationPercentage}% (${sortedLeaderboard[0].participationScoreObtained}/${sortedLeaderboard[0].participationMaxObtainable} marks)`}
-                {selectedAwardCategory === 'EVANGELISM' && `${sortedLeaderboard[0].totalReferrals} visitors invited`}
+              <h4 className="font-black text-slate-950 text-base mt-0.5">{sortedPodium[0].fullName}</h4>
+              <div className="mt-1.5">
+                {selectedAwardCategory === 'OVERALL' && (
+                  <>
+                    <div className="text-lg font-black text-amber-950">
+                      {sortedPodium[0].overall.adjustedRate}% <span className="text-xs font-bold text-amber-700">Fair Rate</span>
+                    </div>
+                    <div className="text-xs text-amber-900/80 font-semibold">
+                      {sortedPodium[0].overall.rawRate}% Raw ({sortedPodium[0].totalPointsEarned}/{sortedPodium[0].maxAvailablePoints} pts)
+                    </div>
+                  </>
+                )}
+                {selectedAwardCategory === 'PUNCTUALITY' && (
+                  <>
+                    <div className="text-lg font-black text-amber-950">
+                      {sortedPodium[0].punctuality.adjustedRate}% <span className="text-xs font-bold text-amber-700">Fair Rate</span>
+                    </div>
+                    <div className="text-xs text-amber-900/80 font-semibold">
+                      {sortedPodium[0].punctuality.rawRate}% Raw ({sortedPodium[0].punctuality.scoreObtained}/{sortedPodium[0].punctuality.maxObtainable} marks)
+                    </div>
+                  </>
+                )}
+                {selectedAwardCategory === 'MEMORY_VERSE' && (
+                  <>
+                    <div className="text-lg font-black text-amber-950">
+                      {sortedPodium[0].memoryVerse.adjustedRate}% <span className="text-xs font-bold text-amber-700">Fair Rate</span>
+                    </div>
+                    <div className="text-xs text-amber-900/80 font-semibold">
+                      {sortedPodium[0].memoryVerse.rawRate}% Raw ({sortedPodium[0].memoryVerse.scoreObtained}/{sortedPodium[0].memoryVerse.maxObtainable} marks)
+                    </div>
+                  </>
+                )}
+                {selectedAwardCategory === 'PARTICIPATION' && (
+                  <>
+                    <div className="text-lg font-black text-amber-950">
+                      {sortedPodium[0].participation.adjustedRate}% <span className="text-xs font-bold text-amber-700">Fair Rate</span>
+                    </div>
+                    <div className="text-xs text-amber-900/80 font-semibold">
+                      {sortedPodium[0].participation.rawRate}% Raw ({sortedPodium[0].participation.scoreObtained}/{sortedPodium[0].participation.maxObtainable} marks)
+                    </div>
+                  </>
+                )}
+                {selectedAwardCategory === 'EVANGELISM' && (
+                  <div className="text-lg font-black text-purple-800">
+                    {members.find(m => m.id === sortedPodium[0].memberId)?.evangelismReferralCount || 0} souls invited
+                  </div>
+                )}
               </div>
-              <p className="text-[11px] text-amber-800 font-semibold mt-0.5">
-                {sortedLeaderboard[0].eligibleLessonsCount} eligible lessons (joined W{sortedLeaderboard[0].firstLessonWeek})
+              <p className="text-[11px] text-amber-900/80 font-semibold mt-1">
+                {sortedPodium[0].attendedWeeks}/{sortedPodium[0].eligibleLessons} attended • {sortedPodium[0].eligibleLessons} eligible (joined W{sortedPodium[0].joinLesson})
               </p>
             </div>
 
             {/* 3rd Bronze */}
-            <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 text-center relative order-3 shadow-xs">
-              <div className="w-8 h-8 rounded-full bg-amber-100 text-amber-900 font-black text-sm flex items-center justify-center mx-auto mb-2">
-                3rd
+            {sortedPodium.length >= 3 && (
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-center relative order-3 shadow-xs">
+                <div className="w-8 h-8 rounded-full bg-amber-100 text-amber-900 font-black text-sm flex items-center justify-center mx-auto mb-2">
+                  3rd
+                </div>
+                <h4 className="font-bold text-slate-900 text-sm">{sortedPodium[2].fullName}</h4>
+                <div className="mt-1.5">
+                  {selectedAwardCategory === 'OVERALL' && (
+                    <>
+                      <div className="text-base font-black text-slate-900">
+                        {sortedPodium[2].overall.adjustedRate}% <span className="text-[11px] font-semibold text-slate-500">Fair</span>
+                      </div>
+                      <div className="text-xs text-slate-600 font-medium">
+                        {sortedPodium[2].overall.rawRate}% Raw ({sortedPodium[2].totalPointsEarned}/{sortedPodium[2].maxAvailablePoints} pts)
+                      </div>
+                    </>
+                  )}
+                  {selectedAwardCategory === 'PUNCTUALITY' && (
+                    <>
+                      <div className="text-base font-black text-slate-900">
+                        {sortedPodium[2].punctuality.adjustedRate}% <span className="text-[11px] font-semibold text-slate-500">Fair</span>
+                      </div>
+                      <div className="text-xs text-slate-600 font-medium">
+                        {sortedPodium[2].punctuality.rawRate}% Raw ({sortedPodium[2].punctuality.scoreObtained}/{sortedPodium[2].punctuality.maxObtainable} marks)
+                      </div>
+                    </>
+                  )}
+                  {selectedAwardCategory === 'MEMORY_VERSE' && (
+                    <>
+                      <div className="text-base font-black text-slate-900">
+                        {sortedPodium[2].memoryVerse.adjustedRate}% <span className="text-[11px] font-semibold text-slate-500">Fair</span>
+                      </div>
+                      <div className="text-xs text-slate-600 font-medium">
+                        {sortedPodium[2].memoryVerse.rawRate}% Raw ({sortedPodium[2].memoryVerse.scoreObtained}/{sortedPodium[2].memoryVerse.maxObtainable} marks)
+                      </div>
+                    </>
+                  )}
+                  {selectedAwardCategory === 'PARTICIPATION' && (
+                    <>
+                      <div className="text-base font-black text-slate-900">
+                        {sortedPodium[2].participation.adjustedRate}% <span className="text-[11px] font-semibold text-slate-500">Fair</span>
+                      </div>
+                      <div className="text-xs text-slate-600 font-medium">
+                        {sortedPodium[2].participation.rawRate}% Raw ({sortedPodium[2].participation.scoreObtained}/{sortedPodium[2].participation.maxObtainable} marks)
+                      </div>
+                    </>
+                  )}
+                  {selectedAwardCategory === 'EVANGELISM' && (
+                    <div className="text-base font-black text-purple-700">
+                      {members.find(m => m.id === sortedPodium[2].memberId)?.evangelismReferralCount || 0} souls invited
+                    </div>
+                  )}
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1">
+                  {sortedPodium[2].attendedWeeks}/{sortedPodium[2].eligibleLessons} attended • {sortedPodium[2].eligibleLessons} eligible (joined W{sortedPodium[2].joinLesson})
+                </p>
               </div>
-              <h4 className="font-bold text-slate-900 text-sm">{sortedLeaderboard[2].fullName}</h4>
-              <div className="text-xs text-slate-700 mt-1 font-bold">
-                {selectedAwardCategory === 'OVERALL' && `${sortedLeaderboard[2].hardWorkRate}% (${sortedLeaderboard[2].totalPointsEarned}/${sortedLeaderboard[2].totalPossiblePointsSinceFirst} pts)`}
-                {selectedAwardCategory === 'PUNCTUALITY' && `${sortedLeaderboard[2].punctualityPercentage}% (${sortedLeaderboard[2].punctualityScoreObtained}/${sortedLeaderboard[2].punctualityMaxObtainable} marks)`}
-                {selectedAwardCategory === 'MEMORY_VERSE' && `${sortedLeaderboard[2].memoryVersePercentage}% (${sortedLeaderboard[2].memoryVerseScoreObtained}/${sortedLeaderboard[2].memoryVerseMaxObtainable} marks)`}
-                {selectedAwardCategory === 'PARTICIPATION' && `${sortedLeaderboard[2].participationPercentage}% (${sortedLeaderboard[2].participationScoreObtained}/${sortedLeaderboard[2].participationMaxObtainable} marks)`}
-                {selectedAwardCategory === 'EVANGELISM' && `${sortedLeaderboard[2].totalReferrals} visitors invited`}
-              </div>
-              <p className="text-[10px] text-slate-500 mt-0.5">
-                {sortedLeaderboard[2].eligibleLessonsCount} eligible lessons (joined W{sortedLeaderboard[2].firstLessonWeek})
-              </p>
-            </div>
+            )}
+          </div>
+        ) : (
+          <div className="p-6 mb-6 text-center bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600">
+            No award-eligible students found for the current evaluation criteria.
           </div>
         )}
 
-        {/* Leaderboard Table */}
+        {/* Leaderboard Table (Fair Play Breakdown) */}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs text-slate-700">
             <thead className="bg-slate-100 text-slate-700 uppercase text-[10px] font-bold border-b border-slate-200">
               <tr>
                 <th className="py-3 px-3">Rank</th>
-                <th className="py-3 px-3">Student Name</th>
-                <th className="py-3 px-3">Eligible Lessons</th>
+                <th className="py-3 px-3">Student / Visitor</th>
+                <th className="py-3 px-3">Award Status</th>
                 <th className="py-3 px-3">Attended</th>
                 <th className="py-3 px-3">Punctuality (15/ea)</th>
                 <th className="py-3 px-3">Verse (15/ea)</th>
                 <th className="py-3 px-3">Participation (20/ea)</th>
-                <th className="py-3 px-3 text-amber-800 font-black">Diligence Rate</th>
+                <th className="py-3 px-3 text-amber-900 font-black">Diligence Rate</th>
                 <th className="py-3 px-3">Soul Winning</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {sortedLeaderboard.map((item, idx) => (
-                <tr key={item.memberId} className="hover:bg-slate-50 transition">
-                  <td className="py-2.5 px-3 font-bold text-slate-500">
-                    {idx === 0 ? '🥇 1' : idx === 1 ? '🥈 2' : idx === 2 ? '🥉 3' : `${idx + 1}`}
-                  </td>
-                  <td className="py-2.5 px-3 font-bold text-slate-900">
-                    <div>{item.fullName}</div>
-                    <span className="text-[10px] font-normal text-slate-400">
-                      Joined Week {item.firstLessonWeek}
-                    </span>
-                  </td>
-                  <td className="py-2.5 px-3">
-                    <span className="font-semibold text-slate-800">{item.eligibleLessonsCount} lessons</span>
-                  </td>
-                  <td className="py-2.5 px-3">
-                    <span className="text-emerald-700 font-bold">{item.attendedWeeks}</span> / {item.eligibleLessonsCount}
-                  </td>
-                  <td className="py-2.5 px-3">
-                    <div className="font-bold text-slate-900">{item.punctualityPercentage}%</div>
-                    <div className="text-[10px] text-slate-500">{item.punctualityScoreObtained} / {item.punctualityMaxObtainable}</div>
-                  </td>
-                  <td className="py-2.5 px-3">
-                    <div className="font-bold text-amber-800">{item.memoryVersePercentage}%</div>
-                    <div className="text-[10px] text-slate-500">{item.memoryVerseScoreObtained} / {item.memoryVerseMaxObtainable}</div>
-                  </td>
-                  <td className="py-2.5 px-3">
-                    <div className="font-bold text-indigo-800">{item.participationPercentage}%</div>
-                    <div className="text-[10px] text-slate-500">{item.participationScoreObtained} / {item.participationMaxObtainable}</div>
-                  </td>
-                  <td className="py-2.5 px-3">
-                    <div className="font-extrabold text-amber-900 text-sm">{item.hardWorkRate}%</div>
-                    <div className="text-[10px] text-slate-500">{item.totalPointsEarned} / {item.totalPossiblePointsSinceFirst} pts</div>
-                  </td>
-                  <td className="py-2.5 px-3 font-semibold text-purple-700">
-                    {item.totalReferrals}
-                  </td>
-                </tr>
-              ))}
+              {filteredAndSortedMembers.map((item, idx) => {
+                const podiumRank = sortedPodium.findIndex(p => p.memberId === item.memberId);
+                const rankDisplay = podiumRank === 0 ? '🥇 1' : podiumRank === 1 ? '🥈 2' : podiumRank === 2 ? '🥉 3' : `${idx + 1}`;
+
+                return (
+                  <tr key={item.memberId} className="hover:bg-slate-50 transition">
+                    <td className="py-2.5 px-3 font-bold text-slate-700">
+                      {rankDisplay}
+                    </td>
+                    <td className="py-2.5 px-3 font-bold text-slate-900">
+                      <div className="flex items-center gap-1.5">
+                        <span>{item.fullName}</span>
+                        {item.memberType === 'VISITOR' ? (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-purple-100 text-purple-700">
+                            VISITOR
+                          </span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-blue-100 text-blue-700">
+                            STUDENT
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] font-normal text-slate-400">
+                        Joined Week {item.joinLesson}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3">
+                      {item.isAwardEligible ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Eligible
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200" title="Visitors & members with < 1 lesson are not eligible for podium championship awards.">
+                          Ineligible ({item.memberType === 'VISITOR' ? 'Visitor' : 'Low Att.'})
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <span className="text-emerald-700 font-bold">{item.attendedWeeks}</span> / {item.eligibleLessons}
+                      <div className="text-[10px] text-slate-500">{item.attendanceRate}%</div>
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <div className="font-bold text-slate-900">
+                        {item.punctuality.adjustedRate}% <span className="text-[9px] font-semibold text-slate-500">fair</span>
+                      </div>
+                      <div className="text-[10px] text-slate-500">
+                        {item.punctuality.scoreObtained} / {item.punctuality.maxObtainable} ({item.punctuality.rawRate}%)
+                      </div>
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <div className="font-bold text-amber-800">
+                        {item.memoryVerse.adjustedRate}% <span className="text-[9px] font-semibold text-slate-500">fair</span>
+                      </div>
+                      <div className="text-[10px] text-slate-500">
+                        {item.memoryVerse.scoreObtained} / {item.memoryVerse.maxObtainable} ({item.memoryVerse.rawRate}%)
+                      </div>
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <div className="font-bold text-indigo-800">
+                        {item.participation.adjustedRate}% <span className="text-[9px] font-semibold text-slate-500">fair</span>
+                      </div>
+                      <div className="text-[10px] text-slate-500">
+                        {item.participation.scoreObtained} / {item.participation.maxObtainable} ({item.participation.rawRate}%)
+                      </div>
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <div className="font-extrabold text-amber-950 text-sm">
+                        {item.overall.adjustedRate}% <span className="text-[10px] font-bold text-amber-700">Fair</span>
+                      </div>
+                      <div className="text-[10px] text-slate-500 font-medium">
+                        {item.totalPointsEarned} / {item.maxAvailablePoints} pts ({item.overall.rawRate}%)
+                      </div>
+                    </td>
+                    <td className="py-2.5 px-3 font-semibold text-purple-700">
+                      {members.find(m => m.id === item.memberId)?.evangelismReferralCount || 0}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
