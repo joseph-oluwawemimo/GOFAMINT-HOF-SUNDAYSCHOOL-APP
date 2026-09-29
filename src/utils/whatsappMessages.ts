@@ -1,5 +1,5 @@
 import { LessonInfo } from '../types';
-import { GOFAMINT_HOF_12_LESSONS } from '../data/mockQuarterLessons';
+import { GOFAMINT_HOF_12_LESSONS } from '../data/mockQuarterLessons.js';
 
 export interface AbsenceFollowUpOptions {
   memberName: string;

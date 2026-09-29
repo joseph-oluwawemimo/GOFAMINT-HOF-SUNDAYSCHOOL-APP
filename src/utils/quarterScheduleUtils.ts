@@ -6,7 +6,7 @@ import {
   WorkerAttendanceRecord, 
   WorkerPrepAttendanceRecord 
 } from '../types';
-import { getLessonByWeek } from './whatsappMessages';
+import { getLessonByWeek } from './whatsappMessages.js';
 
 export interface WeekScheduleInfo {
   weekNumber: number;

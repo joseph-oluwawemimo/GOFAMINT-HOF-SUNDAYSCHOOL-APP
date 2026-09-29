@@ -14,7 +14,7 @@
  */
 
 import { ClockInConfig, QuarterNumber, WeekLockRecord } from '../types';
-import { getNigeriaDateISO, getNigeriaTimeParts } from './quarterScheduleUtils';
+import { getNigeriaDateISO, getNigeriaTimeParts } from './quarterScheduleUtils.js';
 
 export type AttendanceSessionType = 'THURSDAY' | 'SUNDAY';
 

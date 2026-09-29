@@ -9,7 +9,7 @@ import {
   VisitationAssignmentRecord,
   ClassFollowUpReportRecord
 } from '../types';
-import { getConsecutiveAbsences } from './calculations';
+import { getConsecutiveAbsences } from './calculations.js';
 
 export const VISITATION_TARGET_PER_CLASS_PER_WEEK = 3;
 export const VISITATION_MAX_PER_CLASS_PER_WEEK = 4;

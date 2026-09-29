@@ -1,5 +1,5 @@
 import type { Member, WeeklyGradeRecord } from '../types';
-import { isMemberStudentAtWeek, getEffectiveStudentActivationWeek } from './calculations';
+import { isMemberStudentAtWeek, getEffectiveStudentActivationWeek } from './calculations.js';
 
 /**
  * CONFIGURABLE CONSTANTS FOR SUNDAY SCHOOL SCORING & FAIRNESS SYSTEM
