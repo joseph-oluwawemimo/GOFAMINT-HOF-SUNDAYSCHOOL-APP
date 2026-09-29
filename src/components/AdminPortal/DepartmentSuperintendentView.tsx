@@ -67,6 +67,8 @@ interface Props {
   currentAdmin: AdminProfile;
   allClasses: ClassProfile[];
   sundaySchoolYear: SundaySchoolYear;
+  activeTab?: DepartmentSuperintendentTab;
+  onTabChange?: (tab: DepartmentSuperintendentTab) => void;
 }
 
 export type DepartmentSuperintendentTab =
@@ -77,7 +79,9 @@ export type DepartmentSuperintendentTab =
 export const DepartmentSuperintendentView: React.FC<Props> = ({
   currentAdmin,
   allClasses,
-  sundaySchoolYear
+  sundaySchoolYear,
+  activeTab: propActiveTab,
+  onTabChange
 }) => {
   const [members, setMembers] = useState<Member[]>([]);
   const [grades, setGrades] = useState<WeeklyGradeRecord[]>([]);
@@ -87,8 +91,13 @@ export const DepartmentSuperintendentView: React.FC<Props> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Active Supervisory Perspective Tab
-  const [activeTab, setActiveTab] = useState<DepartmentSuperintendentTab>('OVERSIGHT');
+  // Active Supervisory Perspective Tab (controlled or uncontrolled fallback)
+  const [internalActiveTab, setInternalActiveTab] = useState<DepartmentSuperintendentTab>('OVERSIGHT');
+  const activeTab = propActiveTab ?? internalActiveTab;
+  const setActiveTab = (tab: DepartmentSuperintendentTab) => {
+    if (onTabChange) onTabChange(tab);
+    setInternalActiveTab(tab);
+  };
 
   // Quarter & Week selection
   const activeQuarterNumber = sundaySchoolYear?.activeQuarterNumber || 1;
@@ -591,172 +600,58 @@ export const DepartmentSuperintendentView: React.FC<Props> = ({
         </div>
       </section>
 
-      {/* 2. Responsive Layout: Desktop Sidebar Navigation + Main Content Area */}
-      <div className="grid grid-cols-1 md:grid-cols-[250px_1fr] lg:grid-cols-[280px_1fr] gap-6 items-start">
-        {/* Desktop Sidebar Navigation */}
-        <aside className="hidden md:block sticky top-4 space-y-4">
-          <div className="bg-white rounded-3xl border border-slate-200 p-3 shadow-xs space-y-2">
-            <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between">
-              <span className="text-[10px] uppercase font-black tracking-wider text-slate-400">
-                Supervisory Lenses
-              </span>
-              <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-indigo-50 text-indigo-700">
-                {selectedDepartment}
-              </span>
-            </div>
-
-            <nav aria-label="Desktop Supervisory Lenses" className="space-y-1">
-              <button
-                type="button"
-                id="btn-sidebar-lens-oversight"
-                onClick={() => setActiveTab('OVERSIGHT')}
-                className={`w-full text-left px-3.5 py-3 rounded-2xl text-xs font-black transition flex items-center gap-3 cursor-pointer ${
-                  activeTab === 'OVERSIGHT'
-                    ? 'bg-[#320b86] text-amber-300 shadow-md scale-101'
-                    : 'text-slate-700 hover:bg-slate-100'
-                }`}
-              >
-                <div className={`p-2 rounded-xl shrink-0 ${activeTab === 'OVERSIGHT' ? 'bg-white/10 text-amber-300' : 'bg-slate-100 text-[#320b86]'}`}>
-                  <BarChart3 className="w-4 h-4" />
-                </div>
-                <div className="min-w-0">
-                  <span className="block truncate font-black">Superintendent Oversight</span>
-                  <span className={`block text-[10px] font-normal truncate ${activeTab === 'OVERSIGHT' ? 'text-indigo-200' : 'text-slate-400'}`}>
-                    Multi-class comparison
-                  </span>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                id="btn-sidebar-lens-record"
-                onClick={() => setActiveTab('RECORD_OFFICER_LENS')}
-                className={`w-full text-left px-3.5 py-3 rounded-2xl text-xs font-black transition flex items-center gap-3 cursor-pointer ${
-                  activeTab === 'RECORD_OFFICER_LENS'
-                    ? 'bg-[#320b86] text-amber-300 shadow-md scale-101'
-                    : 'text-slate-700 hover:bg-slate-100'
-                }`}
-              >
-                <div className={`p-2 rounded-xl shrink-0 ${activeTab === 'RECORD_OFFICER_LENS' ? 'bg-white/10 text-amber-300' : 'bg-slate-100 text-[#320b86]'}`}>
-                  <ClipboardList className="w-4 h-4" />
-                </div>
-                <div className="min-w-0">
-                  <span className="block truncate font-black">Record Officer Lens</span>
-                  <span className={`block text-[10px] font-normal truncate ${activeTab === 'RECORD_OFFICER_LENS' ? 'text-indigo-200' : 'text-slate-400'}`}>
-                    Register collation
-                  </span>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                id="btn-sidebar-lens-enrollment"
-                onClick={() => setActiveTab('ENROLLMENT_OFFICER_LENS')}
-                className={`w-full text-left px-3.5 py-3 rounded-2xl text-xs font-black transition flex items-center gap-3 cursor-pointer ${
-                  activeTab === 'ENROLLMENT_OFFICER_LENS'
-                    ? 'bg-[#320b86] text-amber-300 shadow-md scale-101'
-                    : 'text-slate-700 hover:bg-slate-100'
-                }`}
-              >
-                <div className={`p-2 rounded-xl shrink-0 ${activeTab === 'ENROLLMENT_OFFICER_LENS' ? 'bg-white/10 text-amber-300' : 'bg-slate-100 text-[#320b86]'}`}>
-                  <FileCheck className="w-4 h-4" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-1">
-                    <span className="block truncate font-black">Enrollment Lens</span>
-                    {automatedInsights.readyForConversion.length > 0 && (
-                      <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-amber-400 text-slate-950 shrink-0">
-                        {automatedInsights.readyForConversion.length} Qualified
-                      </span>
-                    )}
-                  </div>
-                  <span className={`block text-[10px] font-normal truncate ${activeTab === 'ENROLLMENT_OFFICER_LENS' ? 'text-indigo-200' : 'text-slate-400'}`}>
-                    Visitor pipeline
-                  </span>
-                </div>
-              </button>
-            </nav>
-          </div>
-
-          {/* Quick Department Snapshot Card in Sidebar */}
-          <div className="bg-gradient-to-br from-indigo-900 to-slate-900 rounded-3xl p-4 text-white shadow-xs space-y-3">
-            <span className="text-[10px] uppercase font-black tracking-wider text-indigo-300 block border-b border-indigo-700/50 pb-1.5">
-              Department Snapshot
-            </span>
-            <div className="space-y-2 text-xs">
-              <div className="flex justify-between">
-                <span className="text-indigo-200">Department:</span>
-                <span className="font-bold text-white">{selectedDepartment}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-indigo-200">Classes:</span>
-                <span className="font-bold text-amber-300">{departmentClasses.length} Classes</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-indigo-200">Roster Total:</span>
-                <span className="font-bold text-emerald-300">{activeDeptMembers.length} Members</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-indigo-200">Evaluation:</span>
-                <span className="font-bold text-white">Week {selectedWeek}</span>
-              </div>
-            </div>
-          </div>
-        </aside>
-
-        {/* Right Main Content Area */}
-        <div className="min-w-0 space-y-6">
-
-      {/* Item 31: Mobile Sticky Bottom Control Bar for Specialized Perspectives */}
-      <nav
-        aria-label="Departmental Perspectives"
-        className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-2xl px-3 py-2 flex items-center justify-around gap-2 pb-[max(0.6rem,env(safe-area-inset-bottom))]"
-      >
+      {/* Mobile Perspective Selector Bar */}
+      <div className="lg:hidden flex items-center gap-1.5 p-1.5 bg-slate-100 rounded-2xl border border-slate-200 overflow-x-auto no-scrollbar">
         <button
           type="button"
           id="btn-mobile-lens-oversight"
           onClick={() => setActiveTab('OVERSIGHT')}
-          className={`flex-1 py-2 px-1.5 rounded-xl text-[10px] font-black flex flex-col items-center gap-1 transition ${
+          className={`px-3 py-2 rounded-xl text-xs font-black transition flex items-center gap-2 whitespace-nowrap cursor-pointer ${
             activeTab === 'OVERSIGHT'
-              ? 'bg-[#320b86] text-amber-300 shadow-sm'
-              : 'text-slate-600 hover:bg-slate-100'
+              ? 'bg-[#320b86] text-amber-300 shadow-xs'
+              : 'text-slate-600 hover:text-slate-900'
           }`}
         >
-          <BarChart3 className="w-4 h-4" />
-          <span className="truncate">Oversight</span>
+          <BarChart3 className="w-3.5 h-3.5" />
+          <span>Superintendent Oversight</span>
         </button>
 
         <button
           type="button"
           id="btn-mobile-lens-record"
           onClick={() => setActiveTab('RECORD_OFFICER_LENS')}
-          className={`flex-1 py-2 px-1.5 rounded-xl text-[10px] font-black flex flex-col items-center gap-1 transition ${
+          className={`px-3 py-2 rounded-xl text-xs font-black transition flex items-center gap-2 whitespace-nowrap cursor-pointer ${
             activeTab === 'RECORD_OFFICER_LENS'
-              ? 'bg-[#320b86] text-amber-300 shadow-sm'
-              : 'text-slate-600 hover:bg-slate-100'
+              ? 'bg-[#320b86] text-amber-300 shadow-xs'
+              : 'text-slate-600 hover:text-slate-900'
           }`}
         >
-          <ClipboardList className="w-4 h-4" />
-          <span className="truncate">Record Lens</span>
+          <ClipboardList className="w-3.5 h-3.5" />
+          <span>Record Officer Lens</span>
         </button>
 
         <button
           type="button"
           id="btn-mobile-lens-enrollment"
           onClick={() => setActiveTab('ENROLLMENT_OFFICER_LENS')}
-          className={`flex-1 py-2 px-1.5 rounded-xl text-[10px] font-black flex flex-col items-center gap-1 transition relative ${
+          className={`px-3 py-2 rounded-xl text-xs font-black transition flex items-center gap-2 whitespace-nowrap cursor-pointer ${
             activeTab === 'ENROLLMENT_OFFICER_LENS'
-              ? 'bg-[#320b86] text-amber-300 shadow-sm'
-              : 'text-slate-600 hover:bg-slate-100'
+              ? 'bg-[#320b86] text-amber-300 shadow-xs'
+              : 'text-slate-600 hover:text-slate-900'
           }`}
         >
-          <FileCheck className="w-4 h-4" />
-          <span className="truncate">Pipeline Lens</span>
+          <FileCheck className="w-3.5 h-3.5" />
+          <span>Enrollment Lens</span>
           {automatedInsights.readyForConversion.length > 0 && (
-            <span className="absolute top-1 right-2 w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+            <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-amber-400 text-slate-950">
+              {automatedInsights.readyForConversion.length} Qualified
+            </span>
           )}
         </button>
-      </nav>
+      </div>
+
+      {/* Main Content Area: Full Width */}
+      <div className="w-full space-y-6">
 
       {/* 3. Evaluation Week Selector Bar */}
       <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs flex items-center justify-between gap-4 flex-wrap">
@@ -855,9 +750,9 @@ export const DepartmentSuperintendentView: React.FC<Props> = ({
             </div>
           </div>
 
-          {/* MULTI-CLASS COMPARATIVE 12-WEEK TRAJECTORY GRAPH & PLOTTING VIEW */}
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
-            {/* 1. Existing Bar Chart - Preserved and available */}
+          {/* MULTI-CLASS COMPARATIVE 12-WEEK TRAJECTORY GRAPH & PLOTTING VIEW (VERTICALLY PLACED: MULTI-BAR ON TOP, PLOTTING VIEW UNDER) */}
+          <div className="flex flex-col gap-6 w-full">
+            {/* 1. Existing Bar Chart - Preserved and available on TOP */}
             <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
               <div>
@@ -1442,7 +1337,6 @@ export const DepartmentSuperintendentView: React.FC<Props> = ({
       )}
 
         </div>
-      </div>
 
       {/* ========================================================================= */}
       {/* 4. CLASS READ-ONLY INSPECTION MODAL                                       */}

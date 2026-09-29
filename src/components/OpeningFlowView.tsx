@@ -425,237 +425,268 @@ export const OpeningFlowView: React.FC<OpeningFlowViewProps> = ({
             </p>
           </div>
 
-          {/* 5 Clean Elevated Portal Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 pt-2">
-            
-            {/* 1. Admin Portal */}
-            <div className="bg-white border border-slate-200/90 rounded-3xl p-6 flex flex-col justify-between shadow-lg hover:shadow-2xl hover:-translate-y-1.5 transition-all duration-300 relative group overflow-hidden border-t-8 border-t-amber-500">
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="w-13 h-13 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-slate-950 shadow-md group-hover:scale-105 transition-transform">
-                    <Shield className="w-6 h-6 text-slate-950" />
-                  </div>
-                  <span className="px-2.5 py-1 bg-amber-50 text-amber-900 text-[10px] font-black uppercase tracking-wider rounded-full border border-amber-300">
-                    Executive
-                  </span>
-                </div>
-
-                <div>
-                  <h3 className="text-lg font-black text-slate-900 font-['Cinzel',serif] group-hover:text-amber-800 transition-colors">
-                    1. Admin Portal
-                  </h3>
-                  <span className="text-[11px] font-bold text-amber-700 block mt-0.5">
-                    Executive Directorate
-                  </span>
-                  <p className="text-xs text-slate-600 mt-2 leading-relaxed">
-                    General Superintendent, General Secretary, Treasurer, Record Officer, Enrollment Officer, and Departmental Superintendents.
-                  </p>
-                </div>
-
-                <div className="pt-2 flex flex-wrap gap-1.5">
-                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">12-Week Matrix</span>
-                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Treasury</span>
-                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Record Officer</span>
-                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Enrollment</span>
-                </div>
-              </div>
-
-              <div className="pt-6 mt-4 border-t border-slate-100">
-                <button
-                  id="btn-portal-select-admin"
-                  onClick={handleAdminPortalClick}
-                  className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-amber-400 rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-md transition cursor-pointer group-hover:shadow-lg"
-                >
-                  <Shield className="w-4 h-4 text-amber-400" />
-                  <span>Enter Admin Portal</span>
-                  <ArrowRight className="w-4 h-4 text-amber-400 group-hover:translate-x-1 transition-transform" />
-                </button>
-              </div>
+          {/* Section 1: Operational & Teaching Consoles (3 Cards) */}
+          <div className="space-y-3 pt-2">
+            <div className="flex items-center gap-3 pb-1">
+              <span className="w-2 h-2 rounded-full bg-amber-500" />
+              <h3 className="text-xs sm:text-sm font-black uppercase tracking-wider text-slate-800 font-['Cinzel',serif]">
+                Operational & Teaching Consoles
+              </h3>
+              <div className="h-px bg-slate-200 flex-1" />
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest bg-slate-100 px-2.5 py-0.5 rounded-full">
+                3 Consoles
+              </span>
             </div>
 
-            {/* 2. Workers Directorate */}
-            <div className="bg-white border border-slate-200/90 rounded-3xl p-6 flex flex-col justify-between shadow-lg hover:shadow-2xl hover:-translate-y-1.5 transition-all duration-300 relative group overflow-hidden border-t-8 border-t-emerald-600">
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="w-13 h-13 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center text-white shadow-md group-hover:scale-105 transition-transform">
-                    <Sparkles className="w-6 h-6 text-white" />
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              
+              {/* 1. Admin Portal */}
+              <div className="bg-white border border-slate-200/90 rounded-3xl p-6 flex flex-col justify-between shadow-lg hover:shadow-2xl hover:-translate-y-1.5 transition-all duration-300 relative group overflow-hidden border-t-8 border-t-amber-500">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="w-13 h-13 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-slate-950 shadow-md group-hover:scale-105 transition-transform">
+                      <Shield className="w-6 h-6 text-slate-950" />
+                    </div>
+                    <span className="px-2.5 py-1 bg-amber-50 text-amber-900 text-[10px] font-black uppercase tracking-wider rounded-full border border-amber-300">
+                      Executive
+                    </span>
                   </div>
-                  <span className="px-2.5 py-1 bg-emerald-50 text-emerald-900 text-[10px] font-black uppercase tracking-wider rounded-full border border-emerald-300">
-                    Workforce
-                  </span>
+
+                  <div>
+                    <h3 className="text-lg font-black text-slate-900 font-['Cinzel',serif] group-hover:text-amber-800 transition-colors">
+                      1. Admin Portal
+                    </h3>
+                    <span className="text-[11px] font-bold text-amber-700 block mt-0.5">
+                      Executive Directorate
+                    </span>
+                    <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+                      General Superintendent, General Secretary, Treasurer, Record Officer, Enrollment Officer, and Departmental Superintendents.
+                    </p>
+                  </div>
+
+                  <div className="pt-2 flex flex-wrap gap-1.5">
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">12-Week Matrix</span>
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Treasury</span>
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Record Officer</span>
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Enrollment</span>
+                  </div>
                 </div>
 
-                <div>
-                  <h3 className="text-lg font-black text-slate-900 font-['Cinzel',serif] group-hover:text-emerald-800 transition-colors">
-                    2. Workers Directorate
-                  </h3>
-                  <span className="text-[11px] font-bold text-emerald-700 block mt-0.5">
-                    Operations & Attendance
-                  </span>
-                  <p className="text-xs text-slate-600 mt-2 leading-relaxed">
-                    High-speed Sunday QR Code Clock-In Terminal, Master Worker Directory, and workers' attendance tracking.
-                  </p>
-                </div>
-
-                <div className="pt-2 flex flex-wrap gap-1.5">
-                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">QR Terminal</span>
-                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Preparatory</span>
-                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Directory</span>
-                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Clock-In</span>
+                <div className="pt-6 mt-4 border-t border-slate-100">
+                  <button
+                    id="btn-portal-select-admin"
+                    onClick={handleAdminPortalClick}
+                    className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-amber-400 rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-md transition cursor-pointer group-hover:shadow-lg"
+                  >
+                    <Shield className="w-4 h-4 text-amber-400" />
+                    <span>Enter Admin Portal</span>
+                    <ArrowRight className="w-4 h-4 text-amber-400 group-hover:translate-x-1 transition-transform" />
+                  </button>
                 </div>
               </div>
 
-              <div className="pt-6 mt-4 border-t border-slate-100">
-                <button
-                  id="btn-portal-select-workers"
-                  onClick={handleWorkersModuleClick}
-                  className="w-full py-3.5 bg-emerald-700 hover:bg-emerald-600 active:scale-[0.98] text-white rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-md transition cursor-pointer group-hover:shadow-lg"
-                >
-                  <Sparkles className="w-4 h-4 text-amber-300" />
-                  <span>Workers Directorate</span>
-                  <ArrowRight className="w-4 h-4 text-white group-hover:translate-x-1 transition-transform" />
-                </button>
+              {/* 2. Workers Directorate */}
+              <div className="bg-white border border-slate-200/90 rounded-3xl p-6 flex flex-col justify-between shadow-lg hover:shadow-2xl hover:-translate-y-1.5 transition-all duration-300 relative group overflow-hidden border-t-8 border-t-emerald-600">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="w-13 h-13 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center text-white shadow-md group-hover:scale-105 transition-transform">
+                      <Sparkles className="w-6 h-6 text-white" />
+                    </div>
+                    <span className="px-2.5 py-1 bg-emerald-50 text-emerald-900 text-[10px] font-black uppercase tracking-wider rounded-full border border-emerald-300">
+                      Workforce
+                    </span>
+                  </div>
+
+                  <div>
+                    <h3 className="text-lg font-black text-slate-900 font-['Cinzel',serif] group-hover:text-emerald-800 transition-colors">
+                      2. Workers Directorate
+                    </h3>
+                    <span className="text-[11px] font-bold text-emerald-700 block mt-0.5">
+                      Operations & Attendance
+                    </span>
+                    <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+                      High-speed Sunday QR Code Clock-In Terminal, Master Worker Directory, and workers' attendance tracking.
+                    </p>
+                  </div>
+
+                  <div className="pt-2 flex flex-wrap gap-1.5">
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">QR Terminal</span>
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Preparatory</span>
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Directory</span>
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Clock-In</span>
+                  </div>
+                </div>
+
+                <div className="pt-6 mt-4 border-t border-slate-100">
+                  <button
+                    id="btn-portal-select-workers"
+                    onClick={handleWorkersModuleClick}
+                    className="w-full py-3.5 bg-emerald-700 hover:bg-emerald-600 active:scale-[0.98] text-white rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-md transition cursor-pointer group-hover:shadow-lg"
+                  >
+                    <Sparkles className="w-4 h-4 text-amber-300" />
+                    <span>Workers Directorate</span>
+                    <ArrowRight className="w-4 h-4 text-white group-hover:translate-x-1 transition-transform" />
+                  </button>
+                </div>
               </div>
+
+              {/* 3. Teacher / Secretary Portal */}
+              <div className="bg-white border border-slate-200/90 rounded-3xl p-6 flex flex-col justify-between shadow-lg hover:shadow-2xl hover:-translate-y-1.5 transition-all duration-300 relative group overflow-hidden border-t-8 border-t-[#320b86]">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="w-13 h-13 rounded-2xl bg-gradient-to-br from-[#320b86] to-[#4318ff] flex items-center justify-center text-white shadow-md group-hover:scale-105 transition-transform">
+                      <UserCheck className="w-6 h-6 text-white" />
+                    </div>
+                    <span className="px-2.5 py-1 bg-purple-50 text-purple-900 text-[10px] font-black uppercase tracking-wider rounded-full border border-purple-300">
+                      Class Console
+                    </span>
+                  </div>
+
+                  <div>
+                    <h3 className="text-lg font-black text-slate-900 font-['Cinzel',serif] group-hover:text-[#320b86] transition-colors">
+                      3. Class Register
+                    </h3>
+                    <span className="text-[11px] font-bold text-purple-800 block mt-0.5">
+                      Teacher & Secretary Suite
+                    </span>
+                    <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+                      Class registration, weekly student attendance grading, offering remittance, and pastoral registers.
+                    </p>
+                  </div>
+
+                  <div className="pt-2 flex flex-wrap gap-1.5">
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Register Matrix</span>
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Student Census</span>
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Welfare Care</span>
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Report Cards</span>
+                  </div>
+                </div>
+
+                <div className="pt-6 mt-4 border-t border-slate-100">
+                  <button
+                    id="btn-portal-select-teacher"
+                    onClick={() => {
+                      void refreshClassesAndWorkers(true);
+                      setCurrentStep('TEACHER_PORTAL_HOME');
+                    }}
+                    className="w-full py-3.5 bg-[#320b86] hover:bg-[#28076e] active:scale-[0.98] text-white rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-md transition cursor-pointer group-hover:shadow-lg"
+                  >
+                    <UserCheck className="w-4 h-4 text-amber-300" />
+                    <span>Enter Class Portal</span>
+                    <ArrowRight className="w-4 h-4 text-amber-300 group-hover:translate-x-1 transition-transform" />
+                  </button>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          {/* Section 2: Intelligence & Mission Outreach (2 Cards) */}
+          <div className="space-y-3 pt-6">
+            <div className="flex items-center gap-3 pb-1">
+              <span className="w-2 h-2 rounded-full bg-indigo-500" />
+              <h3 className="text-xs sm:text-sm font-black uppercase tracking-wider text-slate-800 font-['Cinzel',serif]">
+                Intelligence & Mission Outreach
+              </h3>
+              <div className="h-px bg-slate-200 flex-1" />
+              <span className="text-[10px] font-bold text-indigo-700 uppercase tracking-widest bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-200/60">
+                2 Consoles
+              </span>
             </div>
 
-            {/* 3. Teacher / Secretary Portal */}
-            <div className="bg-white border border-slate-200/90 rounded-3xl p-6 flex flex-col justify-between shadow-lg hover:shadow-2xl hover:-translate-y-1.5 transition-all duration-300 relative group overflow-hidden border-t-8 border-t-[#320b86]">
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="w-13 h-13 rounded-2xl bg-gradient-to-br from-[#320b86] to-[#4318ff] flex items-center justify-center text-white shadow-md group-hover:scale-105 transition-transform">
-                    <UserCheck className="w-6 h-6 text-white" />
+            <div className="grid grid-cols-1 md:grid-cols-2 max-w-4xl mx-auto gap-6">
+
+              {/* 4. School Intelligence Board (SIB) */}
+              <div className="bg-white border border-slate-200/90 rounded-3xl p-6 flex flex-col justify-between shadow-lg hover:shadow-2xl hover:-translate-y-1.5 transition-all duration-300 relative group overflow-hidden border-t-8 border-t-indigo-600">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="w-13 h-13 rounded-2xl bg-gradient-to-br from-indigo-900 to-slate-950 flex items-center justify-center text-amber-300 shadow-md group-hover:scale-105 transition-transform border border-amber-400/20">
+                      <Activity className="w-6 h-6 text-amber-300" />
+                    </div>
+                    <span className="px-2.5 py-1 bg-indigo-50 text-indigo-900 text-[10px] font-black uppercase tracking-wider rounded-full border border-indigo-300">
+                      AI Layer
+                    </span>
                   </div>
-                  <span className="px-2.5 py-1 bg-purple-50 text-purple-900 text-[10px] font-black uppercase tracking-wider rounded-full border border-purple-300">
-                    Class Console
-                  </span>
-                </div>
 
-                <div>
-                  <h3 className="text-lg font-black text-slate-900 font-['Cinzel',serif] group-hover:text-[#320b86] transition-colors">
-                    3. Class Register
-                  </h3>
-                  <span className="text-[11px] font-bold text-purple-800 block mt-0.5">
-                    Teacher & Secretary Suite
-                  </span>
-                  <p className="text-xs text-slate-600 mt-2 leading-relaxed">
-                    Class registration, weekly student attendance grading, offering remittance, and pastoral registers.
-                  </p>
-                </div>
-
-                <div className="pt-2 flex flex-wrap gap-1.5">
-                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Register Matrix</span>
-                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Student Census</span>
-                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Welfare Care</span>
-                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Report Cards</span>
-                </div>
-              </div>
-
-              <div className="pt-6 mt-4 border-t border-slate-100">
-                <button
-                  id="btn-portal-select-teacher"
-                  onClick={() => {
-                    void refreshClassesAndWorkers(true);
-                    setCurrentStep('TEACHER_PORTAL_HOME');
-                  }}
-                  className="w-full py-3.5 bg-[#320b86] hover:bg-[#28076e] active:scale-[0.98] text-white rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-md transition cursor-pointer group-hover:shadow-lg"
-                >
-                  <UserCheck className="w-4 h-4 text-amber-300" />
-                  <span>Enter Class Portal</span>
-                  <ArrowRight className="w-4 h-4 text-amber-300 group-hover:translate-x-1 transition-transform" />
-                </button>
-              </div>
-            </div>
-
-            {/* 4. School Intelligence Board (SIB) */}
-            <div className="bg-white border border-slate-200/90 rounded-3xl p-6 flex flex-col justify-between shadow-lg hover:shadow-2xl hover:-translate-y-1.5 transition-all duration-300 relative group overflow-hidden border-t-8 border-t-indigo-600">
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="w-13 h-13 rounded-2xl bg-gradient-to-br from-indigo-900 to-slate-950 flex items-center justify-center text-amber-300 shadow-md group-hover:scale-105 transition-transform border border-amber-400/20">
-                    <Activity className="w-6 h-6 text-amber-300" />
+                  <div>
+                    <h3 className="text-lg font-black text-slate-900 font-['Cinzel',serif] group-hover:text-indigo-900 transition-colors">
+                      4. Intelligence Board
+                    </h3>
+                    <span className="text-[11px] font-bold text-indigo-700 block mt-0.5">
+                      Decision Support & AI (SIB)
+                    </span>
+                    <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+                      Deterministic class health scores, repeated absence alerts, pastoral follow-up tracking, evidence drawers, and Ask SIB AI agent.
+                    </p>
                   </div>
-                  <span className="px-2.5 py-1 bg-indigo-50 text-indigo-900 text-[10px] font-black uppercase tracking-wider rounded-full border border-indigo-300">
-                    AI Layer
-                  </span>
-                </div>
 
-                <div>
-                  <h3 className="text-lg font-black text-slate-900 font-['Cinzel',serif] group-hover:text-indigo-900 transition-colors">
-                    4. Intelligence Board
-                  </h3>
-                  <span className="text-[11px] font-bold text-indigo-700 block mt-0.5">
-                    Decision Support & AI (SIB)
-                  </span>
-                  <p className="text-xs text-slate-600 mt-2 leading-relaxed">
-                    Deterministic class health scores, repeated absence alerts, pastoral follow-up tracking, evidence drawers, and Ask SIB AI agent.
-                  </p>
-                </div>
-
-                <div className="pt-2 flex flex-wrap gap-1.5">
-                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Health Scores</span>
-                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Absence Alerts</span>
-                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Evidence Audit</span>
-                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Ask SIB AI</span>
-                </div>
-              </div>
-
-              <div className="pt-6 mt-4 border-t border-slate-100">
-                <button
-                  id="btn-portal-select-sib"
-                  onClick={handleSibPortalClick}
-                  className="w-full py-3.5 bg-indigo-950 hover:bg-slate-900 active:scale-[0.98] text-white rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-md transition cursor-pointer group-hover:shadow-lg"
-                >
-                  <Activity className="w-4 h-4 text-indigo-300" />
-                  <span>Enter SIB Portal</span>
-                  <ArrowRight className="w-4 h-4 text-white group-hover:translate-x-1 transition-transform" />
-                </button>
-              </div>
-            </div>
-
-            {/* 5. Evangelism & Follow-Up Portal */}
-            <div className="bg-white border border-slate-200/90 rounded-3xl p-6 flex flex-col justify-between shadow-lg hover:shadow-2xl hover:-translate-y-1.5 transition-all duration-300 relative group overflow-hidden border-t-8 border-t-rose-600">
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="w-13 h-13 rounded-2xl bg-gradient-to-br from-rose-500 to-rose-700 flex items-center justify-center text-white shadow-md group-hover:scale-105 transition-transform">
-                    <HeartHandshake className="w-6 h-6 text-white" />
+                  <div className="pt-2 flex flex-wrap gap-1.5">
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Health Scores</span>
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Absence Alerts</span>
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Evidence Audit</span>
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Ask SIB AI</span>
                   </div>
-                  <span className="px-2.5 py-1 bg-rose-50 text-rose-900 text-[10px] font-black uppercase tracking-wider rounded-full border border-rose-300">
-                    Oversight
-                  </span>
                 </div>
 
-                <div>
-                  <h3 className="text-lg font-black text-slate-900 font-['Cinzel',serif] group-hover:text-rose-800 transition-colors">
-                    5. Follow-Up Portal
-                  </h3>
-                  <span className="text-[11px] font-bold text-rose-700 block mt-0.5">
-                    Evangelism & Visitation
-                  </span>
-                  <p className="text-xs text-slate-600 mt-2 leading-relaxed">
-                    Centralized follow-up reporting, 4-week cooldown visitation queue, class follow-up metrics, and mission intelligence.
-                  </p>
-                </div>
-
-                <div className="pt-2 flex flex-wrap gap-1.5">
-                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Dashboard</span>
-                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Visitation</span>
-                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Class Collation</span>
-                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Intelligence</span>
+                <div className="pt-6 mt-4 border-t border-slate-100">
+                  <button
+                    id="btn-portal-select-sib"
+                    onClick={handleSibPortalClick}
+                    className="w-full py-3.5 bg-indigo-950 hover:bg-slate-900 active:scale-[0.98] text-white rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-md transition cursor-pointer group-hover:shadow-lg"
+                  >
+                    <Activity className="w-4 h-4 text-indigo-300" />
+                    <span>Enter SIB Portal</span>
+                    <ArrowRight className="w-4 h-4 text-white group-hover:translate-x-1 transition-transform" />
+                  </button>
                 </div>
               </div>
 
-              <div className="pt-6 mt-4 border-t border-slate-100">
-                <button
-                  id="btn-portal-select-follow-up"
-                  onClick={handleFollowUpPortalClick}
-                  className="w-full py-3.5 bg-rose-700 hover:bg-rose-600 active:scale-[0.98] text-white rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-md transition cursor-pointer group-hover:shadow-lg"
-                >
-                  <HeartHandshake className="w-4 h-4 text-rose-200" />
-                  <span>Enter Follow-Up Portal</span>
-                  <ArrowRight className="w-4 h-4 text-white group-hover:translate-x-1 transition-transform" />
-                </button>
+              {/* 5. Evangelism & Follow-Up Portal */}
+              <div className="bg-white border border-slate-200/90 rounded-3xl p-6 flex flex-col justify-between shadow-lg hover:shadow-2xl hover:-translate-y-1.5 transition-all duration-300 relative group overflow-hidden border-t-8 border-t-rose-600">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="w-13 h-13 rounded-2xl bg-gradient-to-br from-rose-500 to-rose-700 flex items-center justify-center text-white shadow-md group-hover:scale-105 transition-transform">
+                      <HeartHandshake className="w-6 h-6 text-white" />
+                    </div>
+                    <span className="px-2.5 py-1 bg-rose-50 text-rose-900 text-[10px] font-black uppercase tracking-wider rounded-full border border-rose-300">
+                      Oversight
+                    </span>
+                  </div>
+
+                  <div>
+                    <h3 className="text-lg font-black text-slate-900 font-['Cinzel',serif] group-hover:text-rose-800 transition-colors">
+                      5. Follow-Up Portal
+                    </h3>
+                    <span className="text-[11px] font-bold text-rose-700 block mt-0.5">
+                      Evangelism & Visitation
+                    </span>
+                    <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+                      Centralized follow-up reporting, 4-week cooldown visitation queue, class follow-up metrics, and mission intelligence.
+                    </p>
+                  </div>
+
+                  <div className="pt-2 flex flex-wrap gap-1.5">
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Dashboard</span>
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Visitation</span>
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Class Collation</span>
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-700 text-[10px] font-bold rounded-md">Intelligence</span>
+                  </div>
+                </div>
+
+                <div className="pt-6 mt-4 border-t border-slate-100">
+                  <button
+                    id="btn-portal-select-follow-up"
+                    onClick={handleFollowUpPortalClick}
+                    className="w-full py-3.5 bg-rose-700 hover:bg-rose-600 active:scale-[0.98] text-white rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-md transition cursor-pointer group-hover:shadow-lg"
+                  >
+                    <HeartHandshake className="w-4 h-4 text-rose-200" />
+                    <span>Enter Follow-Up Portal</span>
+                    <ArrowRight className="w-4 h-4 text-white group-hover:translate-x-1 transition-transform" />
+                  </button>
+                </div>
               </div>
+
             </div>
-
           </div>
 
           <div className="text-center text-xs text-slate-500 pt-4 font-semibold">

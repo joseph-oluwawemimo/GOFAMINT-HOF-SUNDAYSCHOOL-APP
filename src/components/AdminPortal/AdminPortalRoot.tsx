@@ -43,7 +43,8 @@ import {
   ArrowUpRight,
   UserX,
   FileCheck,
-  Award
+  Award,
+  BarChart3
 } from 'lucide-react';
 import { GofamintLogo } from '../GofamintLogo';
 import {
@@ -74,7 +75,7 @@ import { TreasurerView } from './TreasurerView';
 import { RecordOfficerView } from './RecordOfficerView';
 import { EnrollmentOfficerView, EnrollmentOfficerTab } from './EnrollmentOfficerView';
 import { AsstGeneralSecretaryView } from './AsstGeneralSecretaryView';
-import { DepartmentSuperintendentView } from './DepartmentSuperintendentView';
+import { DepartmentSuperintendentView, type DepartmentSuperintendentTab } from './DepartmentSuperintendentView';
 import { DatabaseBackupModal } from '../DatabaseBackupModal';
 import { approveStaffUser, logOversightAccess } from '../../services/adminUserApi';
 import type { ApplicationProfile } from '../../services/profileService';
@@ -149,6 +150,9 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
 
   // Assistant General Secretary Sub-tab Navigation state (Jobie active tab)
   const [asstGsecActiveTab, setAsstGsecActiveTab] = usePersistedState<'OVERVIEW' | 'CREATE_CLASSES' | 'CLASS_DIRECTORY' | 'TEACHER_ROSTER'>(`gofamint_admin_${stateScope}_asst_tab`, 'OVERVIEW');
+
+  // Departmental Superintendent Sub-tab Navigation state (Jobie active tab)
+  const [deptSuperActiveTab, setDeptSuperActiveTab] = usePersistedState<DepartmentSuperintendentTab>(`gofamint_admin_${stateScope}_dept_super_tab`, 'OVERSIGHT');
 
   // Data Backup / Restore Modal State
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
@@ -446,6 +450,15 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
     { id: 'TEACHER_ROSTER', label: 'Teacher Rosters', icon: Users },
   ];
 
+  // Navigation Items for Departmental Superintendent (3 Supervisory Perspectives)
+  const isDepartmentSuperintendent = activePortalAdmin?.roleType === 'DEPARTMENT_SUPERINTENDENT';
+
+  const deptSuperNavItems = [
+    { id: 'OVERSIGHT', label: 'Superintendent Oversight', sublabel: 'Multi-class comparison', icon: BarChart3 },
+    { id: 'RECORD_OFFICER_LENS', label: 'Record Officer Lens', sublabel: 'Register collation', icon: ClipboardList },
+    { id: 'ENROLLMENT_OFFICER_LENS', label: 'Enrollment Lens', sublabel: 'Visitor pipeline', icon: FileCheck },
+  ];
+
   return (
     <div className="jobie-admin-canvas flex min-h-screen font-sans selection:bg-[#320b86] selection:text-white relative">
       
@@ -646,6 +659,61 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
                   </button>
                 );
               })}
+            </>
+          )}
+
+          {isDepartmentSuperintendent && (
+            <>
+              <div className="px-6 pb-2 text-[10px] font-black uppercase tracking-wider text-purple-300/70 flex items-center justify-between">
+                <span>Supervisory Lenses</span>
+                {activePortalAdmin?.department && (
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-white/20 text-amber-300">
+                    {activePortalAdmin.department}
+                  </span>
+                )}
+              </div>
+              {deptSuperNavItems.map((item) => {
+                const isActive = deptSuperActiveTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    id={`btn-dept-super-nav-${item.id.toLowerCase()}`}
+                    onClick={() => setDeptSuperActiveTab(item.id as any)}
+                    className={`w-full flex items-center gap-3 pl-6 pr-4 py-3.5 text-xs font-black transition-all cursor-pointer text-left ${
+                      isActive
+                        ? 'jobie-notch-item active'
+                        : 'text-purple-200/80 hover:text-white hover:bg-white/10 rounded-2xl mx-3 my-0.5 px-4 py-3'
+                    }`}
+                  >
+                    <item.icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-[#320b86]' : 'text-purple-300'}`} />
+                    <div className="min-w-0">
+                      <span className="block truncate">{item.label}</span>
+                      <span className={`block text-[9px] font-normal truncate ${isActive ? 'text-purple-900/80' : 'text-purple-300/60'}`}>
+                        {item.sublabel}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+
+              {/* Department Snapshot in Sidebar */}
+              <div className="mx-4 mt-6 p-4 rounded-2xl bg-white/10 border border-white/10 text-white space-y-2">
+                <div className="text-[10px] font-black uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                  <span>Department Snapshot</span>
+                </div>
+                <div className="space-y-1.5 text-xs">
+                  <div className="flex justify-between text-purple-200 text-[11px]">
+                    <span>Department:</span>
+                    <span className="font-bold text-white">{activePortalAdmin?.department || 'Departmental'}</span>
+                  </div>
+                  <div className="flex justify-between text-purple-200 text-[11px]">
+                    <span>Superintendent:</span>
+                    <span className="font-bold text-amber-300 truncate max-w-[110px]">{activePortalAdmin?.profileName || activePortalAdmin?.name || 'Assigned'}</span>
+                  </div>
+                </div>
+              </div>
             </>
           )}
         </div>
@@ -960,6 +1028,8 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
                       currentAdmin={activePortalAdmin}
                       allClasses={allClasses}
                       sundaySchoolYear={effectiveYear}
+                      activeTab={deptSuperActiveTab}
+                      onTabChange={setDeptSuperActiveTab}
                     />
                   )}
 
@@ -1346,6 +1416,57 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
           </div>
         </nav>
       )}
+
+      {/* Departmental Superintendent Mobile Sticky Bottom Nav */}
+      {isDepartmentSuperintendent && (
+        <nav className="lg:hidden jobie-mobile-bottom-nav">
+          <div className="flex items-center justify-around px-2 py-1.5">
+            <button
+              onClick={() => setDeptSuperActiveTab('OVERSIGHT')}
+              className={`flex flex-col items-center gap-1 py-1 px-2.5 rounded-2xl transition cursor-pointer ${
+                deptSuperActiveTab === 'OVERSIGHT'
+                  ? 'bg-purple-100 text-[#320b86] font-black'
+                  : 'text-slate-500 font-medium'
+              }`}
+            >
+              <BarChart3 className="w-4 h-4" />
+              <span className="text-[10px]">Oversight</span>
+            </button>
+
+            <button
+              onClick={() => setDeptSuperActiveTab('RECORD_OFFICER_LENS')}
+              className={`flex flex-col items-center gap-1 py-1 px-2.5 rounded-2xl transition cursor-pointer ${
+                deptSuperActiveTab === 'RECORD_OFFICER_LENS'
+                  ? 'bg-purple-100 text-[#320b86] font-black'
+                  : 'text-slate-500 font-medium'
+              }`}
+            >
+              <ClipboardList className="w-4 h-4" />
+              <span className="text-[10px]">Records</span>
+            </button>
+
+            <button
+              onClick={() => setDeptSuperActiveTab('ENROLLMENT_OFFICER_LENS')}
+              className={`flex flex-col items-center gap-1 py-1 px-2.5 rounded-2xl transition cursor-pointer ${
+                deptSuperActiveTab === 'ENROLLMENT_OFFICER_LENS'
+                  ? 'bg-purple-100 text-[#320b86] font-black'
+                  : 'text-slate-500 font-medium'
+              }`}
+            >
+              <FileCheck className="w-4 h-4" />
+              <span className="text-[10px]">Enrollment</span>
+            </button>
+
+            <button
+              onClick={() => setIsMobileMoreOpen(true)}
+              className="flex flex-col items-center gap-1 py-1 px-2.5 rounded-2xl text-slate-500 font-medium transition cursor-pointer"
+            >
+              <MoreHorizontal className="w-4 h-4" />
+              <span className="text-[10px]">More</span>
+            </button>
+          </div>
+        </nav>
+      )}
       {isMobileMenuOpen && (
         <div className="fixed inset-0 z-50 lg:hidden flex">
           <div
@@ -1465,6 +1586,25 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
                   }}
                   className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-bold transition text-left cursor-pointer ${
                     enrollmentOfficerActiveTab === item.id
+                      ? 'bg-white text-[#320b86] shadow-sm'
+                      : 'text-purple-100 hover:bg-white/10'
+                  }`}
+                >
+                  <item.icon className="w-4 h-4 shrink-0" />
+                  <span className="truncate">{item.label}</span>
+                </button>
+              ))}
+
+              {isDepartmentSuperintendent && deptSuperNavItems.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => {
+                    setDeptSuperActiveTab(item.id as any);
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-bold transition text-left cursor-pointer ${
+                    deptSuperActiveTab === item.id
                       ? 'bg-white text-[#320b86] shadow-sm'
                       : 'text-purple-100 hover:bg-white/10'
                   }`}
