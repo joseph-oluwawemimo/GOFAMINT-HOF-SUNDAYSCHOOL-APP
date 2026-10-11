@@ -82,8 +82,14 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'STUDENT' | 'VISITOR'>('ALL');
   const [awardEligibilityFilter, setAwardEligibilityFilter] = useState<'ALL' | 'ELIGIBLE' | 'NOT_ELIGIBLE'>('ALL');
   const [sortBy, setSortBy] = useState<'ADJUSTED_RATE' | 'RAW_RATE' | 'ATTENDANCE_RATE' | 'TOTAL_POINTS' | 'NAME'>('ADJUSTED_RATE');
+  const [rateMode, setRateMode] = useState<'FAIR' | 'RAW'>('FAIR');
   const [showQuarterReviewModal, setShowQuarterReviewModal] = useState(false);
   const [reviewSuccessFeedback, setReviewSuccessFeedback] = useState<string | null>(null);
+
+  const handleSwitchRateMode = (mode: 'FAIR' | 'RAW') => {
+    setRateMode(mode);
+    setSortBy(mode === 'RAW' ? 'RAW_RATE' : 'ADJUSTED_RATE');
+  };
 
   // Lesson 12 completion guard (Phase 21)
   const currentCalendarWeek = useMemo(() => {
@@ -164,6 +170,8 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
 
   const sortedPodium = useMemo(() => {
     const list = [...eligibleContenders];
+    const isRawMode = rateMode === 'RAW' || sortBy === 'RAW_RATE';
+
     list.sort((a, b) => {
       let aVal = 0;
       let bVal = 0;
@@ -202,12 +210,17 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
         }
       }
 
-      if (Math.abs(bVal - aVal) > 0.0001) return bVal - aVal;
-      if (Math.abs(bRaw - aRaw) > 0.0001) return bRaw - aRaw;
+      if (isRawMode) {
+        if (Math.abs(bRaw - aRaw) > 0.0001) return bRaw - aRaw;
+        if (Math.abs(bVal - aVal) > 0.0001) return bVal - aVal;
+      } else {
+        if (Math.abs(bVal - aVal) > 0.0001) return bVal - aVal;
+        if (Math.abs(bRaw - aRaw) > 0.0001) return bRaw - aRaw;
+      }
       return b.eligibleLessons - a.eligibleLessons;
     });
     return list;
-  }, [eligibleContenders, selectedAwardCategory, members]);
+  }, [eligibleContenders, selectedAwardCategory, members, rateMode, sortBy]);
 
   // Filtered and sorted members for the full Leaderboard table (Students & Visitors)
   const filteredAndSortedMembers = useMemo(() => {
@@ -238,7 +251,7 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
       if (sortBy === 'TOTAL_POINTS') {
         return b.totalPointsEarned - a.totalPointsEarned;
       }
-      if (sortBy === 'RAW_RATE') {
+      if (sortBy === 'RAW_RATE' || (rateMode === 'RAW' && sortBy === 'ADJUSTED_RATE')) {
         let aRaw = a.overall.rawRate;
         let bRaw = b.overall.rawRate;
         if (selectedAwardCategory === 'PUNCTUALITY') { aRaw = a.punctuality.rawRate; bRaw = b.punctuality.rawRate; }
@@ -278,7 +291,61 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
     });
 
     return list;
-  }, [classFairness.memberMetrics, statusFilter, awardEligibilityFilter, sortBy, selectedAwardCategory, members]);
+  }, [classFairness.memberMetrics, statusFilter, awardEligibilityFilter, sortBy, rateMode, selectedAwardCategory, members]);
+
+  // Dynamic score renderer for podium based on active rateMode (Fair Rate vs Raw Rate)
+  const renderPodiumRate = (item: typeof sortedPodium[0], isChampion = false) => {
+    if (selectedAwardCategory === 'EVANGELISM') {
+      const count = members.find(m => m.id === item.memberId)?.evangelismReferralCount || 0;
+      return (
+        <div className={`text-base font-black ${isChampion ? 'text-purple-800 text-lg' : 'text-purple-700'}`}>
+          {count} souls invited
+        </div>
+      );
+    }
+
+    let fairRate = item.overall.adjustedRate;
+    let rawRate = item.overall.rawRate;
+    let pointsStr = `${item.totalPointsEarned}/${item.maxAvailablePoints} pts`;
+
+    if (selectedAwardCategory === 'PUNCTUALITY') {
+      fairRate = item.punctuality.adjustedRate;
+      rawRate = item.punctuality.rawRate;
+      pointsStr = `${item.punctuality.scoreObtained}/${item.punctuality.maxObtainable} marks`;
+    } else if (selectedAwardCategory === 'MEMORY_VERSE') {
+      fairRate = item.memoryVerse.adjustedRate;
+      rawRate = item.memoryVerse.rawRate;
+      pointsStr = `${item.memoryVerse.scoreObtained}/${item.memoryVerse.maxObtainable} marks`;
+    } else if (selectedAwardCategory === 'PARTICIPATION') {
+      fairRate = item.participation.adjustedRate;
+      rawRate = item.participation.rawRate;
+      pointsStr = `${item.participation.scoreObtained}/${item.participation.maxObtainable} marks`;
+    }
+
+    if (rateMode === 'RAW') {
+      return (
+        <>
+          <div className={`${isChampion ? 'text-lg font-black text-amber-950' : 'text-base font-black text-slate-900'}`}>
+            {rawRate}% <span className={`text-xs font-bold ${isChampion ? 'text-amber-800' : 'text-slate-600'}`}>Raw Rate</span>
+          </div>
+          <div className={`text-xs font-medium ${isChampion ? 'text-amber-900/80 font-semibold' : 'text-slate-600'}`}>
+            {fairRate}% Fair Rate ({pointsStr})
+          </div>
+        </>
+      );
+    }
+
+    return (
+      <>
+        <div className={`${isChampion ? 'text-lg font-black text-amber-950' : 'text-base font-black text-slate-900'}`}>
+          {fairRate}% <span className={`text-xs font-bold ${isChampion ? 'text-amber-700' : 'text-slate-500'}`}>Fair Rate</span>
+        </div>
+        <div className={`text-xs font-medium ${isChampion ? 'text-amber-900/80 font-semibold' : 'text-slate-600'}`}>
+          {rawRate}% Raw ({pointsStr})
+        </div>
+      </>
+    );
+  };
 
   // Member statistics calculated for the legacy report card / printable form
   const allMemberStatsList: HardWorkStats[] = members.map(m =>
@@ -435,7 +502,9 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
             <span className="text-xs text-slate-500">Students / {totalVisitorsCount} Visitors</span>
           </div>
           <p className="text-[11px] text-purple-700 font-semibold mt-1">
-            {totalConvertedVisitors} converted this year
+            {totalStudentsCount > 0
+              ? `All ${totalStudentsCount} students enrolled this year (${totalConvertedVisitors} converted)`
+              : `${totalConvertedVisitors} converted this year`}
           </p>
         </div>
 
@@ -677,13 +746,48 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
             </button>
           </div>
 
-          {/* Sort By Dropdown */}
-          <div className="flex items-center gap-1.5 ml-auto">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Sort By:</span>
+          {/* Rate Mode Switch: Fair Rate vs Raw Rate */}
+          <div className="flex items-center gap-2 ml-auto flex-wrap">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Evaluation:</span>
+            <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-xs">
+              <button
+                type="button"
+                id="btn-switch-fair-rate"
+                onClick={() => handleSwitchRateMode('FAIR')}
+                className={`px-3 py-1 rounded-lg text-xs font-black transition cursor-pointer ${
+                  rateMode === 'FAIR'
+                    ? 'bg-blue-900 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="Evaluate using Fair/Adjusted Attendance Rate"
+              >
+                ⚖️ Fair Rate
+              </button>
+              <button
+                type="button"
+                id="btn-switch-raw-rate"
+                onClick={() => handleSwitchRateMode('RAW')}
+                className={`px-3 py-1 rounded-lg text-xs font-black transition cursor-pointer ${
+                  rateMode === 'RAW'
+                    ? 'bg-amber-400 text-slate-950 shadow-xs font-black'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="Evaluate using Direct Raw Rate"
+              >
+                📊 Raw Rate
+              </button>
+            </div>
+
+            {/* Sort By Dropdown */}
             <select
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
-              className="bg-white border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-800 shadow-xs focus:ring-1 focus:ring-blue-500"
+              onChange={(e) => {
+                const val = e.target.value as any;
+                setSortBy(val);
+                if (val === 'RAW_RATE') setRateMode('RAW');
+                if (val === 'ADJUSTED_RATE') setRateMode('FAIR');
+              }}
+              className="bg-white border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-800 shadow-xs focus:ring-1 focus:ring-blue-500 cursor-pointer"
             >
               <option value="ADJUSTED_RATE">Fair / Adjusted Rate</option>
               <option value="RAW_RATE">Raw Rate</option>
@@ -705,51 +809,7 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
                 </div>
                 <h4 className="font-bold text-slate-900 text-sm">{sortedPodium[1].fullName}</h4>
                 <div className="mt-1.5">
-                  {selectedAwardCategory === 'OVERALL' && (
-                    <>
-                      <div className="text-base font-black text-slate-900">
-                        {sortedPodium[1].overall.adjustedRate}% <span className="text-[11px] font-semibold text-slate-500">Fair</span>
-                      </div>
-                      <div className="text-xs text-slate-600 font-medium">
-                        {sortedPodium[1].overall.rawRate}% Raw ({sortedPodium[1].totalPointsEarned}/{sortedPodium[1].maxAvailablePoints} pts)
-                      </div>
-                    </>
-                  )}
-                  {selectedAwardCategory === 'PUNCTUALITY' && (
-                    <>
-                      <div className="text-base font-black text-slate-900">
-                        {sortedPodium[1].punctuality.adjustedRate}% <span className="text-[11px] font-semibold text-slate-500">Fair</span>
-                      </div>
-                      <div className="text-xs text-slate-600 font-medium">
-                        {sortedPodium[1].punctuality.rawRate}% Raw ({sortedPodium[1].punctuality.scoreObtained}/{sortedPodium[1].punctuality.maxObtainable} marks)
-                      </div>
-                    </>
-                  )}
-                  {selectedAwardCategory === 'MEMORY_VERSE' && (
-                    <>
-                      <div className="text-base font-black text-slate-900">
-                        {sortedPodium[1].memoryVerse.adjustedRate}% <span className="text-[11px] font-semibold text-slate-500">Fair</span>
-                      </div>
-                      <div className="text-xs text-slate-600 font-medium">
-                        {sortedPodium[1].memoryVerse.rawRate}% Raw ({sortedPodium[1].memoryVerse.scoreObtained}/{sortedPodium[1].memoryVerse.maxObtainable} marks)
-                      </div>
-                    </>
-                  )}
-                  {selectedAwardCategory === 'PARTICIPATION' && (
-                    <>
-                      <div className="text-base font-black text-slate-900">
-                        {sortedPodium[1].participation.adjustedRate}% <span className="text-[11px] font-semibold text-slate-500">Fair</span>
-                      </div>
-                      <div className="text-xs text-slate-600 font-medium">
-                        {sortedPodium[1].participation.rawRate}% Raw ({sortedPodium[1].participation.scoreObtained}/{sortedPodium[1].participation.maxObtainable} marks)
-                      </div>
-                    </>
-                  )}
-                  {selectedAwardCategory === 'EVANGELISM' && (
-                    <div className="text-base font-black text-purple-700">
-                      {members.find(m => m.id === sortedPodium[1].memberId)?.evangelismReferralCount || 0} souls invited
-                    </div>
-                  )}
+                  {renderPodiumRate(sortedPodium[1], false)}
                 </div>
                 <p className="text-[10px] text-slate-500 mt-1">
                   {sortedPodium[1].attendedWeeks}/{sortedPodium[1].eligibleLessons} attended • {sortedPodium[1].eligibleLessons} eligible (joined W{sortedPodium[1].joinLesson})
@@ -767,51 +827,7 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
               </span>
               <h4 className="font-black text-slate-950 text-base mt-0.5">{sortedPodium[0].fullName}</h4>
               <div className="mt-1.5">
-                {selectedAwardCategory === 'OVERALL' && (
-                  <>
-                    <div className="text-lg font-black text-amber-950">
-                      {sortedPodium[0].overall.adjustedRate}% <span className="text-xs font-bold text-amber-700">Fair Rate</span>
-                    </div>
-                    <div className="text-xs text-amber-900/80 font-semibold">
-                      {sortedPodium[0].overall.rawRate}% Raw ({sortedPodium[0].totalPointsEarned}/{sortedPodium[0].maxAvailablePoints} pts)
-                    </div>
-                  </>
-                )}
-                {selectedAwardCategory === 'PUNCTUALITY' && (
-                  <>
-                    <div className="text-lg font-black text-amber-950">
-                      {sortedPodium[0].punctuality.adjustedRate}% <span className="text-xs font-bold text-amber-700">Fair Rate</span>
-                    </div>
-                    <div className="text-xs text-amber-900/80 font-semibold">
-                      {sortedPodium[0].punctuality.rawRate}% Raw ({sortedPodium[0].punctuality.scoreObtained}/{sortedPodium[0].punctuality.maxObtainable} marks)
-                    </div>
-                  </>
-                )}
-                {selectedAwardCategory === 'MEMORY_VERSE' && (
-                  <>
-                    <div className="text-lg font-black text-amber-950">
-                      {sortedPodium[0].memoryVerse.adjustedRate}% <span className="text-xs font-bold text-amber-700">Fair Rate</span>
-                    </div>
-                    <div className="text-xs text-amber-900/80 font-semibold">
-                      {sortedPodium[0].memoryVerse.rawRate}% Raw ({sortedPodium[0].memoryVerse.scoreObtained}/{sortedPodium[0].memoryVerse.maxObtainable} marks)
-                    </div>
-                  </>
-                )}
-                {selectedAwardCategory === 'PARTICIPATION' && (
-                  <>
-                    <div className="text-lg font-black text-amber-950">
-                      {sortedPodium[0].participation.adjustedRate}% <span className="text-xs font-bold text-amber-700">Fair Rate</span>
-                    </div>
-                    <div className="text-xs text-amber-900/80 font-semibold">
-                      {sortedPodium[0].participation.rawRate}% Raw ({sortedPodium[0].participation.scoreObtained}/{sortedPodium[0].participation.maxObtainable} marks)
-                    </div>
-                  </>
-                )}
-                {selectedAwardCategory === 'EVANGELISM' && (
-                  <div className="text-lg font-black text-purple-800">
-                    {members.find(m => m.id === sortedPodium[0].memberId)?.evangelismReferralCount || 0} souls invited
-                  </div>
-                )}
+                {renderPodiumRate(sortedPodium[0], true)}
               </div>
               <p className="text-[11px] text-amber-900/80 font-semibold mt-1">
                 {sortedPodium[0].attendedWeeks}/{sortedPodium[0].eligibleLessons} attended • {sortedPodium[0].eligibleLessons} eligible (joined W{sortedPodium[0].joinLesson})
@@ -826,51 +842,7 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
                 </div>
                 <h4 className="font-bold text-slate-900 text-sm">{sortedPodium[2].fullName}</h4>
                 <div className="mt-1.5">
-                  {selectedAwardCategory === 'OVERALL' && (
-                    <>
-                      <div className="text-base font-black text-slate-900">
-                        {sortedPodium[2].overall.adjustedRate}% <span className="text-[11px] font-semibold text-slate-500">Fair</span>
-                      </div>
-                      <div className="text-xs text-slate-600 font-medium">
-                        {sortedPodium[2].overall.rawRate}% Raw ({sortedPodium[2].totalPointsEarned}/{sortedPodium[2].maxAvailablePoints} pts)
-                      </div>
-                    </>
-                  )}
-                  {selectedAwardCategory === 'PUNCTUALITY' && (
-                    <>
-                      <div className="text-base font-black text-slate-900">
-                        {sortedPodium[2].punctuality.adjustedRate}% <span className="text-[11px] font-semibold text-slate-500">Fair</span>
-                      </div>
-                      <div className="text-xs text-slate-600 font-medium">
-                        {sortedPodium[2].punctuality.rawRate}% Raw ({sortedPodium[2].punctuality.scoreObtained}/{sortedPodium[2].punctuality.maxObtainable} marks)
-                      </div>
-                    </>
-                  )}
-                  {selectedAwardCategory === 'MEMORY_VERSE' && (
-                    <>
-                      <div className="text-base font-black text-slate-900">
-                        {sortedPodium[2].memoryVerse.adjustedRate}% <span className="text-[11px] font-semibold text-slate-500">Fair</span>
-                      </div>
-                      <div className="text-xs text-slate-600 font-medium">
-                        {sortedPodium[2].memoryVerse.rawRate}% Raw ({sortedPodium[2].memoryVerse.scoreObtained}/{sortedPodium[2].memoryVerse.maxObtainable} marks)
-                      </div>
-                    </>
-                  )}
-                  {selectedAwardCategory === 'PARTICIPATION' && (
-                    <>
-                      <div className="text-base font-black text-slate-900">
-                        {sortedPodium[2].participation.adjustedRate}% <span className="text-[11px] font-semibold text-slate-500">Fair</span>
-                      </div>
-                      <div className="text-xs text-slate-600 font-medium">
-                        {sortedPodium[2].participation.rawRate}% Raw ({sortedPodium[2].participation.scoreObtained}/{sortedPodium[2].participation.maxObtainable} marks)
-                      </div>
-                    </>
-                  )}
-                  {selectedAwardCategory === 'EVANGELISM' && (
-                    <div className="text-base font-black text-purple-700">
-                      {members.find(m => m.id === sortedPodium[2].memberId)?.evangelismReferralCount || 0} souls invited
-                    </div>
-                  )}
+                  {renderPodiumRate(sortedPodium[2], false)}
                 </div>
                 <p className="text-[10px] text-slate-500 mt-1">
                   {sortedPodium[2].attendedWeeks}/{sortedPodium[2].eligibleLessons} attended • {sortedPodium[2].eligibleLessons} eligible (joined W{sortedPodium[2].joinLesson})
@@ -896,7 +868,9 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
                 <th className="py-3 px-3">Punctuality (15/ea)</th>
                 <th className="py-3 px-3">Verse (15/ea)</th>
                 <th className="py-3 px-3">Participation (20/ea)</th>
-                <th className="py-3 px-3 text-amber-900 font-black">Diligence Rate</th>
+                <th className="py-3 px-3 text-amber-900 font-black">
+                  {rateMode === 'RAW' ? 'Raw Diligence Rate' : 'Fair Diligence Rate'}
+                </th>
                 <th className="py-3 px-3">Soul Winning</th>
               </tr>
             </thead>
@@ -943,36 +917,88 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
                       <div className="text-[10px] text-slate-500">{item.attendanceRate}%</div>
                     </td>
                     <td className="py-2.5 px-3">
-                      <div className="font-bold text-slate-900">
-                        {item.punctuality.adjustedRate}% <span className="text-[9px] font-semibold text-slate-500">fair</span>
-                      </div>
-                      <div className="text-[10px] text-slate-500">
-                        {item.punctuality.scoreObtained} / {item.punctuality.maxObtainable} ({item.punctuality.rawRate}%)
-                      </div>
+                      {rateMode === 'RAW' ? (
+                        <>
+                          <div className="font-bold text-slate-900">
+                            {item.punctuality.rawRate}% <span className="text-[9px] font-semibold text-slate-500">raw</span>
+                          </div>
+                          <div className="text-[10px] text-slate-500">
+                            {item.punctuality.scoreObtained} / {item.punctuality.maxObtainable} ({item.punctuality.adjustedRate}% fair)
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="font-bold text-slate-900">
+                            {item.punctuality.adjustedRate}% <span className="text-[9px] font-semibold text-slate-500">fair</span>
+                          </div>
+                          <div className="text-[10px] text-slate-500">
+                            {item.punctuality.scoreObtained} / {item.punctuality.maxObtainable} ({item.punctuality.rawRate}% raw)
+                          </div>
+                        </>
+                      )}
                     </td>
                     <td className="py-2.5 px-3">
-                      <div className="font-bold text-amber-800">
-                        {item.memoryVerse.adjustedRate}% <span className="text-[9px] font-semibold text-slate-500">fair</span>
-                      </div>
-                      <div className="text-[10px] text-slate-500">
-                        {item.memoryVerse.scoreObtained} / {item.memoryVerse.maxObtainable} ({item.memoryVerse.rawRate}%)
-                      </div>
+                      {rateMode === 'RAW' ? (
+                        <>
+                          <div className="font-bold text-amber-800">
+                            {item.memoryVerse.rawRate}% <span className="text-[9px] font-semibold text-slate-500">raw</span>
+                          </div>
+                          <div className="text-[10px] text-slate-500">
+                            {item.memoryVerse.scoreObtained} / {item.memoryVerse.maxObtainable} ({item.memoryVerse.adjustedRate}% fair)
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="font-bold text-amber-800">
+                            {item.memoryVerse.adjustedRate}% <span className="text-[9px] font-semibold text-slate-500">fair</span>
+                          </div>
+                          <div className="text-[10px] text-slate-500">
+                            {item.memoryVerse.scoreObtained} / {item.memoryVerse.maxObtainable} ({item.memoryVerse.rawRate}% raw)
+                          </div>
+                        </>
+                      )}
                     </td>
                     <td className="py-2.5 px-3">
-                      <div className="font-bold text-indigo-800">
-                        {item.participation.adjustedRate}% <span className="text-[9px] font-semibold text-slate-500">fair</span>
-                      </div>
-                      <div className="text-[10px] text-slate-500">
-                        {item.participation.scoreObtained} / {item.participation.maxObtainable} ({item.participation.rawRate}%)
-                      </div>
+                      {rateMode === 'RAW' ? (
+                        <>
+                          <div className="font-bold text-indigo-800">
+                            {item.participation.rawRate}% <span className="text-[9px] font-semibold text-slate-500">raw</span>
+                          </div>
+                          <div className="text-[10px] text-slate-500">
+                            {item.participation.scoreObtained} / {item.participation.maxObtainable} ({item.participation.adjustedRate}% fair)
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="font-bold text-indigo-800">
+                            {item.participation.adjustedRate}% <span className="text-[9px] font-semibold text-slate-500">fair</span>
+                          </div>
+                          <div className="text-[10px] text-slate-500">
+                            {item.participation.scoreObtained} / {item.participation.maxObtainable} ({item.participation.rawRate}% raw)
+                          </div>
+                        </>
+                      )}
                     </td>
                     <td className="py-2.5 px-3">
-                      <div className="font-extrabold text-amber-950 text-sm">
-                        {item.overall.adjustedRate}% <span className="text-[10px] font-bold text-amber-700">Fair</span>
-                      </div>
-                      <div className="text-[10px] text-slate-500 font-medium">
-                        {item.totalPointsEarned} / {item.maxAvailablePoints} pts ({item.overall.rawRate}%)
-                      </div>
+                      {rateMode === 'RAW' ? (
+                        <>
+                          <div className="font-extrabold text-amber-950 text-sm">
+                            {item.overall.rawRate}% <span className="text-[10px] font-bold text-amber-700">Raw</span>
+                          </div>
+                          <div className="text-[10px] text-slate-500 font-medium">
+                            {item.totalPointsEarned} / {item.maxAvailablePoints} pts ({item.overall.adjustedRate}% fair)
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="font-extrabold text-amber-950 text-sm">
+                            {item.overall.adjustedRate}% <span className="text-[10px] font-bold text-amber-700">Fair</span>
+                          </div>
+                          <div className="text-[10px] text-slate-500 font-medium">
+                            {item.totalPointsEarned} / {item.maxAvailablePoints} pts ({item.overall.rawRate}% raw)
+                          </div>
+                        </>
+                      )}
                     </td>
                     <td className="py-2.5 px-3 font-semibold text-purple-700">
                       {members.find(m => m.id === item.memberId)?.evangelismReferralCount || 0}

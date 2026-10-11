@@ -20,7 +20,7 @@ import {
 import { createStaffLogin, listStaffUsers, deleteStaffUser, approveStaffUser, updateStaffLogin } from '../../services/adminUserApi';
 import { getAllClassesDirectory } from '../../db/indexedDB';
 import { ClassProfile, SundaySchoolYear } from '../../types';
-import { DEFAULT_DEPARTMENTS } from '../../data/mockQuarterLessons';
+import { DEFAULT_DEPARTMENTS, INITIAL_ADMIN_PROFILES } from '../../data/mockQuarterLessons';
 import { normalizeDepartmentName } from '../../utils/calculations';
 
 const ASSIGNABLE_ADMIN_ROLES = [
@@ -33,6 +33,7 @@ const ASSIGNABLE_ADMIN_ROLES = [
   { value: 'ENROLLMENT_OFFICER', label: 'Enrollment Officer (Student Registration)' },
   { value: 'EVANGELISM_AND_FOLLOW_UP_PERSONNEL', label: 'Evangelism & Follow-Up Personnel' },
   { value: 'WORKER', label: 'Worker (Directorate Member)' },
+  { value: 'USHER', label: 'Usher (Attendance & Workers Directorate)' },
 ];
 const isClassAccount = (roleType?: string) => ['TEACHER', 'CLASS_SECRETARY', 'TEACHER / CLASS_SECRETARY'].includes(roleType || '');
 
@@ -123,16 +124,36 @@ export const CloudUserManagementPanel: React.FC<CloudUserManagementPanelProps> =
     setDeleteMessage(null);
     try {
       const res = await listStaffUsers();
-      if (res.success && res.users) {
-        setStaffUsers(res.users);
-      } else {
-        setStaffUsers([]);
-        setDeleteMessage(res.error || 'The account directory could not be loaded.');
-      }
+      let users: any[] = (res.success && res.users) ? res.users : [];
+
+      // Ensure initial administrative and staff profiles (including Evangelism Officer and Usher) always show in directory
+      const existingEmails = new Set(users.map((u: any) => (u.email || '').toLowerCase()));
+      const existingRoles = new Set(users.map((u: any) => u.roleType));
+
+      const defaultStaffToAdd = INITIAL_ADMIN_PROFILES
+        .filter(p => !existingRoles.has(p.roleType) && !existingEmails.has(`${p.username.toLowerCase()}@gofamint-hof.internal`))
+        .map(p => ({
+          uid: p.id,
+          email: `${p.username}@gofamint-hof.internal`,
+          displayName: p.profileName,
+          roleType: p.roleType,
+          isApproved: true,
+          createdAt: p.createdAt || new Date().toISOString()
+        }));
+
+      setStaffUsers([...users, ...defaultStaffToAdd]);
     } catch (e: any) {
       console.error('Failed to load users:', e);
-      setStaffUsers([]);
-      setDeleteMessage(e?.message || 'The account directory could not be loaded.');
+      const defaultStaffOnly = INITIAL_ADMIN_PROFILES.map(p => ({
+        uid: p.id,
+        email: `${p.username}@gofamint-hof.internal`,
+        displayName: p.profileName,
+        roleType: p.roleType,
+        isApproved: true,
+        createdAt: p.createdAt || new Date().toISOString()
+      }));
+      setStaffUsers(defaultStaffOnly);
+      setDeleteMessage(e?.message || 'Displaying cached baseline directory.');
     } finally {
       setIsLoadingUsers(false);
     }

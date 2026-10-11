@@ -724,6 +724,20 @@ export const PERMITTED_ADMIN_IDS: AdminIdDefinition[] = [
     defaultUsername: 'asst_gsec_admin',
     description: 'Administrative & secretarial records: Sunday School secretarial duties, collation assistance, and departmental correspondence.',
     iconName: 'BookCheck'
+  },
+  {
+    roleType: 'EVANGELISM_AND_FOLLOW_UP_PERSONNEL',
+    title: 'Evangelism & Follow-Up Officer ID',
+    defaultUsername: 'followup_admin',
+    description: 'Evangelism & follow-up oversight: Central Follow-Up Radar, weekly absentees monitoring, visitation queue allocation, welfare reach tracking, and follow-up report & intelligence.',
+    iconName: 'HeartHandshake'
+  },
+  {
+    roleType: 'USHER',
+    title: 'Sunday School Usher ID',
+    defaultUsername: 'usher_admin',
+    description: 'Workers Directorate Attendance: Clock-in terminals and workers attendance check-in for Thursday preview and Sunday School workers service.',
+    iconName: 'UserCheck'
   }
 ];
 
@@ -878,6 +892,30 @@ export const INITIAL_ADMIN_PROFILES: AdminProfile[] = [
     profileName: 'Pastor T.A. Olaniyan',
     username: 'asst_gsec_admin',
     
+    isApproved: true,
+    approvedBy: 'GENERAL_SUPERINTENDENT',
+    approvedAt: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'EVANGELISM_AND_FOLLOW_UP_PERSONNEL',
+    roleType: 'EVANGELISM_AND_FOLLOW_UP_PERSONNEL',
+    title: 'Evangelism & Follow-Up Officer ID',
+    profileName: 'Evangelist F.O. Samuel',
+    username: 'followup_admin',
+    isApproved: true,
+    approvedBy: 'GENERAL_SUPERINTENDENT',
+    approvedAt: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'USHER',
+    roleType: 'USHER',
+    title: 'Sunday School Usher ID',
+    profileName: 'Sister Grace Adegoke',
+    username: 'usher_admin',
     isApproved: true,
     approvedBy: 'GENERAL_SUPERINTENDENT',
     approvedAt: new Date().toISOString(),

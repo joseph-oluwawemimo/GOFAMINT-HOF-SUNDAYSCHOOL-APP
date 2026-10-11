@@ -37,7 +37,9 @@ import {
   GripVertical,
   Search,
   ClipboardCheck,
-  AlertTriangle
+  AlertTriangle,
+  Send,
+  Copy
 } from 'lucide-react';
 import { backgroundStateManager } from '../utils/backgroundStateManager';
 import {
@@ -48,11 +50,13 @@ import {
   AttendanceStatus,
   ClassProfile,
   AdminComment,
-  SundaySchoolYear
+  SundaySchoolYear,
+  SSSRDeliveryRecord
 } from '../types';
 import { getCurrentCalendarWeek, isSundayRegisterOpenForWeek, getActiveSundayRegisterWeek } from '../utils/quarterScheduleUtils';
 import { GOFAMINT_HOF_12_LESSONS } from '../data/mockQuarterLessons';
 import { getLessonByWeek } from '../utils/whatsappMessages';
+import { generateSSSRReport } from '../utils/sssrReportGenerator';
 import { OfficialReturnPrintModal } from './OfficialReturnPrintModal';
 import { saveAdminComment } from '../db/indexedDB';
 import {
@@ -90,6 +94,8 @@ interface GradingMatrixViewProps {
   onSaveBulkMembers?: (members: Member[]) => Promise<void> | void;
   currencySymbol?: string;
   sundaySchoolYear?: SundaySchoolYear;
+  onUpdateClassProfile?: (updated: ClassProfile) => Promise<void>;
+  onNavigateToSSSR?: () => void;
 }
 
 interface ScoreInputProps {
@@ -191,7 +197,9 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
   onUpdateMember,
   onSaveBulkMembers,
   currencySymbol = '₦',
-  sundaySchoolYear
+  sundaySchoolYear,
+  onUpdateClassProfile,
+  onNavigateToSSSR
 }) => {
   const isReadOnly = quarterStatus === 'ARCHIVED' || quarterStatus === 'UPCOMING';
   const isUpcoming = quarterStatus === 'UPCOMING';
@@ -331,6 +339,76 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
     }
   };
 
+  // Class Batch Dispatch Modal State & Handlers
+  const [showBatchDispatchModal, setShowBatchDispatchModal] = useState(false);
+  const [copiedBatchMemberId, setCopiedBatchMemberId] = useState<string | null>(null);
+  const [batchAttendeeFilter, setBatchAttendeeFilter] = useState<'PRESENT_ONLY' | 'ALL'>('PRESENT_ONLY');
+
+  const selectedQuarterNumber = selectedQuarter || activeQuarterObj?.quarterNumber || 1;
+  const sssrStorageKey = `gofamint_sssr_deliveries_${classProfile?.id || 'default'}_q${selectedQuarterNumber}`;
+
+  const [savedDeliveries, setSavedDeliveries] = useState<Record<string, SSSRDeliveryRecord>>(() => {
+    try {
+      const fromLocal = localStorage.getItem(sssrStorageKey);
+      const parsedLocal = fromLocal ? JSON.parse(fromLocal) : {};
+      return { ...(classProfile?.sssrDeliveries || {}), ...parsedLocal };
+    } catch {
+      return classProfile?.sssrDeliveries || {};
+    }
+  });
+
+  useEffect(() => {
+    try {
+      const fromLocal = localStorage.getItem(sssrStorageKey);
+      const parsedLocal = fromLocal ? JSON.parse(fromLocal) : {};
+      setSavedDeliveries({ ...(classProfile?.sssrDeliveries || {}), ...parsedLocal });
+    } catch {
+      setSavedDeliveries(classProfile?.sssrDeliveries || {});
+    }
+  }, [classProfile?.id, classProfile?.sssrDeliveries, selectedQuarterNumber, sssrStorageKey]);
+
+  const handleToggleDeliveryStatus = async (member: Member) => {
+    const recId = `${classProfile?.id || 'default'}_q${selectedQuarterNumber}_w${selectedWeek}_m${member.id}`;
+    const existing = savedDeliveries[recId];
+    const nextStatus = existing?.status === 'DONE' ? 'PENDING' : 'DONE';
+    const nowIso = new Date().toISOString();
+    const memGrade = grades.find(g => g.memberId === member.id && g.weekNumber === selectedWeek);
+
+    const record: SSSRDeliveryRecord = {
+      id: recId,
+      classId: classProfile?.id || '',
+      quarterNumber: selectedQuarterNumber,
+      weekNumber: selectedWeek,
+      memberId: member.id,
+      memberName: member.fullName,
+      attendance: memGrade?.attendance || 'ABSENT',
+      status: nextStatus,
+      sentAt: nextStatus === 'DONE' ? nowIso : undefined,
+      sentBy: classProfile?.secretaryName || classProfile?.teacherName || 'Class Teacher',
+      method: 'WHATSAPP',
+      updatedAt: nowIso
+    };
+
+    const nextSaved = { ...savedDeliveries, [recId]: record };
+    setSavedDeliveries(nextSaved);
+
+    try {
+      localStorage.setItem(sssrStorageKey, JSON.stringify(nextSaved));
+    } catch (err) {
+      console.error('Failed to save SSSR delivery locally:', err);
+    }
+
+    if (classProfile && onUpdateClassProfile) {
+      await onUpdateClassProfile({
+        ...classProfile,
+        sssrDeliveries: {
+          ...(classProfile.sssrDeliveries || {}),
+          [recId]: record
+        }
+      });
+    }
+  };
+
   const getMemberGrade = (memberId: string): WeeklyGradeRecord => {
     const existing = grades.find(g => g.memberId === memberId && g.weekNumber === selectedWeek);
     const drafts = backgroundStateManager.getScoreDrafts(classProfile?.id || 'default_class', selectedWeek);
@@ -401,6 +479,51 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
       return true;
     });
   }, [members, selectedWeek, grades]);
+
+  const presentAttendees = useMemo(() => {
+    return eligibleMembers.filter(m => {
+      const grade = getMemberGrade(m.id);
+      return grade.attendance === 'PRESENT';
+    });
+  }, [eligibleMembers, grades, members, selectedWeek]);
+
+  const handleMarkAllPresentDelivered = async () => {
+    const nowIso = new Date().toISOString();
+    const updatedMap: Record<string, SSSRDeliveryRecord> = { ...savedDeliveries };
+
+    presentAttendees.forEach(member => {
+      const recId = `${classProfile?.id || 'default'}_q${selectedQuarterNumber}_w${selectedWeek}_m${member.id}`;
+      const memGrade = grades.find(g => g.memberId === member.id && g.weekNumber === selectedWeek);
+      updatedMap[recId] = {
+        id: recId,
+        classId: classProfile?.id || '',
+        quarterNumber: selectedQuarterNumber,
+        weekNumber: selectedWeek,
+        memberId: member.id,
+        memberName: member.fullName,
+        attendance: memGrade?.attendance || 'PRESENT',
+        status: 'DONE',
+        sentAt: nowIso,
+        sentBy: classProfile?.secretaryName || classProfile?.teacherName || 'Class Teacher',
+        method: 'WHATSAPP',
+        updatedAt: nowIso
+      };
+    });
+
+    setSavedDeliveries(updatedMap);
+    try {
+      localStorage.setItem(sssrStorageKey, JSON.stringify(updatedMap));
+    } catch (err) {
+      console.error('Failed to save batch deliveries locally:', err);
+    }
+
+    if (classProfile && onUpdateClassProfile) {
+      await onUpdateClassProfile({
+        ...classProfile,
+        sssrDeliveries: updatedMap
+      });
+    }
+  };
 
   const eligibleCount = eligibleMembers.length;
   const exemptCount = members.length - eligibleCount;
@@ -1112,6 +1235,17 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
 
             <button
               type="button"
+              id="btn-batch-dispatch-sssr"
+              onClick={() => setShowBatchDispatchModal(true)}
+              className="min-h-[44px] px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-md transition cursor-pointer"
+              title="Dispatch Sunday School Summary Reports (SSS Report) to attendees who came to class"
+            >
+              <Send className="w-4 h-4 text-emerald-200" />
+              <span>Dispatch SSS Report</span>
+            </button>
+
+            <button
+              type="button"
               id="btn-toggle-no-record"
               onClick={handleToggleNoRecord}
               disabled={isWeekLocked}
@@ -1137,40 +1271,6 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
             <p className="text-xs text-amber-800">
               This week is designated as a No Record Week. All members are excused from attendance denominators, average calculations, and awards penalties for this session.
             </p>
-          </div>
-        </div>
-      )}
-
-      {/* Admin Feedback / Comments Panel */}
-      {adminComments && adminComments.length > 0 && (
-        <div className="bg-blue-50 border-2 border-blue-300 rounded-xl p-4 shadow-xs animate-fade-in space-y-2.5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <MessageCircle className="w-4 h-4 text-blue-900" />
-              <h4 className="font-bold text-xs uppercase tracking-wider text-blue-900">
-                Official Directorate Feedback & Admin Notes ({adminComments.length})
-              </h4>
-            </div>
-            <span className="text-[10px] bg-blue-200 text-blue-900 px-2 py-0.5 rounded font-bold">Admin Directorate</span>
-          </div>
-
-          <div className="space-y-2">
-            {adminComments.slice(0, 3).map((cmt) => (
-              <div key={cmt.id} className="bg-white p-3 rounded-lg border border-blue-200 text-xs shadow-xs">
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-black text-slate-900">{cmt.authorName}</span>
-                    <span className="px-1.5 py-0.2 bg-amber-100 text-amber-900 border border-amber-300 rounded text-[9px] font-bold">
-                      {cmt.authorRole}
-                    </span>
-                  </div>
-                  <span className="text-[10px] text-slate-400">
-                    {new Date(cmt.createdAt).toLocaleDateString()}
-                  </span>
-                </div>
-                <p className="text-slate-700 font-medium">{cmt.comment || (cmt as any).commentText}</p>
-              </div>
-            ))}
           </div>
         </div>
       )}
@@ -2227,6 +2327,245 @@ export const GradingMatrixView: React.FC<GradingMatrixViewProps> = ({
                 className="flex-1 py-2.5 bg-blue-900 hover:bg-blue-800 text-white font-black text-xs rounded-xl shadow-md transition cursor-pointer"
               >
                 Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Class Batch Dispatch Modal for Attendees */}
+      {showBatchDispatchModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-3xl w-full p-5 sm:p-7 shadow-2xl border border-slate-200 my-auto space-y-5 animate-in fade-in zoom-in duration-200 max-h-[92vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-full">
+                    Week {selectedWeek} · Attendance Batch Dispatch
+                  </span>
+                  <span className="text-xs font-bold text-slate-500">
+                    {currentLesson.topic}
+                  </span>
+                </div>
+                <h3 className="text-xl sm:text-2xl font-black text-slate-900 mt-1">
+                  Dispatch SSS Reports
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Send personalized 2-paragraph Sunday School Summary Reports directly via WhatsApp to class attendees.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowBatchDispatchModal(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-800 transition cursor-pointer"
+                title="Close modal"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Filter & Progress Card */}
+            <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200/80 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                {/* Mode Filter: Present Attendees vs All */}
+                <div className="inline-flex rounded-xl bg-slate-200/80 p-1 text-xs font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setBatchAttendeeFilter('PRESENT_ONLY')}
+                    className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
+                      batchAttendeeFilter === 'PRESENT_ONLY'
+                        ? 'bg-white text-emerald-800 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Attendees Came to Class ({presentAttendees.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBatchAttendeeFilter('ALL')}
+                    className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
+                      batchAttendeeFilter === 'ALL'
+                        ? 'bg-white text-emerald-800 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    All on Register ({eligibleMembers.length})
+                  </button>
+                </div>
+
+                {/* Mark All Present Sent Helper */}
+                {presentAttendees.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleMarkAllPresentDelivered}
+                    className="text-xs font-bold px-3 py-1.5 rounded-xl bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 transition cursor-pointer flex items-center gap-1.5"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Mark All Present as Sent</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Progress */}
+              {(() => {
+                const targetList = batchAttendeeFilter === 'PRESENT_ONLY' ? presentAttendees : eligibleMembers;
+                const doneCount = targetList.filter(m => {
+                  const recId = `${classProfile?.id || 'default'}_q${selectedQuarterNumber}_w${selectedWeek}_m${m.id}`;
+                  return savedDeliveries[recId]?.status === 'DONE';
+                }).length;
+                const percent = targetList.length > 0 ? Math.round((doneCount / targetList.length) * 100) : 0;
+
+                return (
+                  <div>
+                    <div className="flex justify-between text-xs font-bold text-slate-700 mb-1">
+                      <span>Dispatch Progress: {doneCount} of {targetList.length} Dispatched</span>
+                      <span className="text-emerald-700">{percent}%</span>
+                    </div>
+                    <div className="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
+                      <div
+                        className="bg-emerald-500 h-full rounded-full transition-all duration-300"
+                        style={{ width: `${percent}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* List of Attendees */}
+            <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 divide-y divide-slate-100">
+              {(() => {
+                const list = batchAttendeeFilter === 'PRESENT_ONLY' ? presentAttendees : eligibleMembers;
+
+                if (list.length === 0) {
+                  return (
+                    <div className="text-center py-10 text-slate-400">
+                      <Users className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                      <p className="text-sm font-bold">No {batchAttendeeFilter === 'PRESENT_ONLY' ? 'attendees recorded as Present' : 'members'} for Week {selectedWeek}.</p>
+                      <p className="text-xs mt-1">Mark attendance in the register above to prepare SSSR dispatch.</p>
+                    </div>
+                  );
+                }
+
+                return list.map(member => {
+                  const memGrade = getMemberGrade(member.id);
+                  const isPresent = memGrade.attendance === 'PRESENT';
+                  const recId = `${classProfile?.id || 'default'}_q${selectedQuarterNumber}_w${selectedWeek}_m${member.id}`;
+                  const isDone = savedDeliveries[recId]?.status === 'DONE';
+
+                  const rpt = generateSSSRReport({
+                    member,
+                    weekNumber: selectedWeek,
+                    classProfile,
+                    lesson: currentLesson,
+                    grade: memGrade,
+                    customKeyPoints: classProfile?.weeklyLessonKeyPoints?.[`w${selectedWeek}`]
+                  });
+
+                  return (
+                    <div
+                      key={member.id}
+                      className="pt-2.5 first:pt-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-2xl hover:bg-slate-50 transition border border-transparent hover:border-slate-200"
+                    >
+                      <div className="space-y-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-sm text-slate-900">{member.fullName}</span>
+                          <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-slate-100 text-slate-600">
+                            {member.memberType}
+                          </span>
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                            isPresent ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                          }`}>
+                            {isPresent ? 'Present' : 'Absent'}
+                          </span>
+                          {isPresent && (
+                            <span className="text-[11px] font-bold text-slate-500">
+                              {memGrade.lessonTotal}/50 pts
+                            </span>
+                          )}
+                        </div>
+                        {member.phone ? (
+                          <span className="text-xs text-slate-500 font-mono block">{member.phone}</span>
+                        ) : (
+                          <span className="text-xs text-rose-500 italic block">No phone number recorded</span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                        {member.phone ? (
+                          <a
+                            href={rpt.whatsAppDirectLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+                            title="Send via WhatsApp"
+                          >
+                            <Send className="w-3.5 h-3.5" />
+                            <span>WhatsApp</span>
+                          </a>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled
+                            className="px-3 py-1.5 bg-slate-100 text-slate-400 rounded-xl text-xs font-bold cursor-not-allowed"
+                          >
+                            No Phone
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(rpt.formattedMessage);
+                            setCopiedBatchMemberId(member.id);
+                            setTimeout(() => setCopiedBatchMemberId(null), 2000);
+                          }}
+                          className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1 transition cursor-pointer"
+                          title="Copy message to clipboard"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>{copiedBatchMemberId === member.id ? 'Copied!' : 'Copy'}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleToggleDeliveryStatus(member)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                            isDone
+                              ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                              : 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
+                          }`}
+                        >
+                          {isDone ? 'Sent ✓' : 'Mark Done'}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between border-t border-slate-100 pt-3">
+              {onNavigateToSSSR && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowBatchDispatchModal(false);
+                    onNavigateToSSSR();
+                  }}
+                  className="text-xs font-bold text-blue-700 hover:underline cursor-pointer"
+                >
+                  Open Full SSS Report Hub →
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowBatchDispatchModal(false)}
+                className="ml-auto px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold cursor-pointer transition"
+              >
+                Done
               </button>
             </div>
           </div>

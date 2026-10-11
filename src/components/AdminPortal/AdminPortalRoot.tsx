@@ -81,6 +81,7 @@ import { approveStaffUser, logOversightAccess } from '../../services/adminUserAp
 import type { ApplicationProfile } from '../../services/profileService';
 import { cloudGetSundaySchoolYear, cloudGetAllAdminProfiles } from '../../services/supabaseDatabase';
 import { usePersistedState } from '../../hooks/usePersistedState';
+import { INITIAL_ADMIN_PROFILES } from '../../data/mockQuarterLessons';
 
 function buildAdminProfile(authProfile: ApplicationProfile, matchedExisting?: AdminProfile): AdminProfile {
   const role = authProfile.role as AdminRoleType;
@@ -187,6 +188,14 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
         }
       }
 
+      // Ensure all standard initial admin profiles are present so they display in directory
+      const existingRoles = new Set(profiles.map(p => p.roleType || p.id));
+      const missingProfiles = INITIAL_ADMIN_PROFILES.filter(ip => !existingRoles.has(ip.roleType) && !existingRoles.has(ip.id));
+      if (missingProfiles.length > 0) {
+        profiles = [...profiles, ...missingProfiles];
+        await replaceStoreContents('adminProfiles', profiles);
+      }
+
       const supportedRoles: AdminRoleType[] = [
         'SUPER_ADMIN',
         'GENERAL_SUPERINTENDENT',
@@ -197,6 +206,8 @@ export const AdminPortalRoot: React.FC<AdminPortalRootProps> = ({
         'ENROLLMENT_OFFICER',
         'ASST_GENERAL_SECRETARY',
         'ASSISTANT_GENERAL_SECRETARY',
+        'EVANGELISM_AND_FOLLOW_UP_PERSONNEL',
+        'USHER',
       ];
 
       if (!authProfile) {

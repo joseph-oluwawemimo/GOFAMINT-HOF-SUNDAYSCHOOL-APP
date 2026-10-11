@@ -20,7 +20,8 @@ import {
   Filter,
   Check,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Home
 } from 'lucide-react';
 import {
   Member,
@@ -36,9 +37,14 @@ import {
   ExitReviewOutcome
 } from '../types';
 import { getConsecutiveAbsences, getAbsenceUrgency } from '../utils/calculations';
+import { getMemberVisitationCooldown } from '../utils/visitationEngine';
 import { normalizePhoneNumber, buildWhatsAppDirectLink } from '../utils/phoneUtils';
 import { GOFAMINT_HOF_12_LESSONS } from '../data/mockQuarterLessons';
 import { generateAbsenceFollowUpMessage } from '../utils/whatsappMessages';
+import { FollowUpWeekSyncBar } from './FollowUpPortal/FollowUpWeekSyncBar';
+import { QuarterData } from '../types';
+import { getFollowUpWindowForWeek } from '../utils/quarterScheduleUtils';
+import { ApplicationProfile } from '../services/profileService';
 
 interface WelfareFollowUpViewProps {
   members: Member[];
@@ -48,10 +54,13 @@ interface WelfareFollowUpViewProps {
   classProfile: ClassProfile | null;
   activeLessons?: LessonInfo[];
   selectedQuarterNumber?: number;
+  quarterData?: QuarterData | null;
+  onSelectWeek?: (week: number) => void;
   onSaveAbsenceLog: (log: AbsenceLogRecord) => Promise<void>;
   onCompleteExitReview: (memberId: string, outcome: ExitReviewOutcome, reason: string) => Promise<void>;
   onRelegateToVisitor: (memberId: string) => void;
   onRestoreToStudent?: (memberId: string) => void;
+  authProfile?: ApplicationProfile | null;
 }
 
 const EXIT_REASONS = [
@@ -73,12 +82,47 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
   classProfile,
   activeLessons = GOFAMINT_HOF_12_LESSONS,
   selectedQuarterNumber = 1,
+  quarterData,
+  onSelectWeek,
   onSaveAbsenceLog,
   onCompleteExitReview,
   onRelegateToVisitor,
-  onRestoreToStudent
+  onRestoreToStudent,
+  authProfile = null
 }) => {
   useScrollRestoration('welfare_follow_up');
+  const [selectedWeek, setSelectedWeek] = useState<number>(currentWeek || 1);
+
+  React.useEffect(() => {
+    setSelectedWeek(currentWeek || 1);
+  }, [currentWeek]);
+
+  const handleSelectWeek = (wk: number) => {
+    setSelectedWeek(wk);
+    if (onSelectWeek) {
+      onSelectWeek(wk);
+    }
+  };
+
+  const windowInfo = React.useMemo(() => {
+    return getFollowUpWindowForWeek(selectedWeek, quarterData, new Date());
+  }, [selectedWeek, quarterData]);
+
+  const isCoordinator = React.useMemo(() => {
+    const role = authProfile?.role || '';
+    return [
+      'EVANGELISM_AND_FOLLOW_UP_PERSONNEL',
+      'GENERAL_SUPERINTENDENT',
+      'GENERAL_SECRETARY',
+      'ASST_GENERAL_SECRETARY',
+      'ASSISTANT_GENERAL_SECRETARY',
+      'SUPER_ADMIN',
+      'DEPARTMENT_SUPERINTENDENT'
+    ].includes(role);
+  }, [authProfile]);
+
+  const isLockedForClass = windowInfo.status === 'EXPIRED' && !isCoordinator;
+
   const [activeTab, setActiveTab] = usePersistedState<'PENDING' | 'EXECUTED'>('gofamint_welfare_tab', 'PENDING');
   const [selectedUrgencyFilter, setSelectedUrgencyFilter] = usePersistedState<'ALL' | '1_WEEK' | '2_WEEKS' | '3_WEEKS' | '4_PLUS_WEEKS' | '6_WEEK_EXIT_REVIEW'>('gofamint_welfare_urgency', 'ALL');
   
@@ -93,42 +137,61 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
   const [isSavingAction, setIsSavingAction] = useState(false);
 
   // Derive absent members and follow-up status
-  const currentLesson = activeLessons.find(l => l.weekNumber === currentWeek) || activeLessons[0] || GOFAMINT_HOF_12_LESSONS[0];
+  const currentLesson = activeLessons.find(l => l.weekNumber === selectedWeek) || activeLessons[0] || GOFAMINT_HOF_12_LESSONS[0];
 
   const absenteesList = members
-    .filter(m => m.status !== 'LEFT_CLASS')
+    .filter(m => m.status !== 'LEFT_CLASS' && !m.isOneTimeVisitor)
     .map(member => {
-      const weeksAbsent = getConsecutiveAbsences(member.id, currentWeek, grades, member.firstLessonWeek || 1);
+      const weeksAbsent = getConsecutiveAbsences(member.id, selectedWeek, grades, member.firstLessonWeek || 1);
       const urgency = getAbsenceUrgency(weeksAbsent);
       const memberLogs = absenceLogs.filter(l => l.memberId === member.id);
       const latestLog = memberLogs.sort((a, b) => new Date(b.loggedAt).getTime() - new Date(a.loggedAt).getTime())[0];
 
       // Check if this week's follow-up was executed
       const isExecutedThisCycle = memberLogs.some(
-        l => l.weekNumber === currentWeek || (l.consecutiveWeeksAbsent === weeksAbsent && new Date(l.loggedAt).getTime() > Date.now() - 6 * 24 * 60 * 60 * 1000)
+        l => l.weekNumber === selectedWeek || (l.consecutiveWeeksAbsent === weeksAbsent && new Date(l.loggedAt).getTime() > Date.now() - 6 * 24 * 60 * 60 * 1000)
       );
 
-      // Determine follow up action
+      // Check 4-week visitation cooldown from shared history
+      const cooldown = getMemberVisitationCooldown(
+        member.id,
+        selectedWeek,
+        absenceLogs,
+        classProfile?.visitationAssignments || {}
+      );
+
+      // Determine staged follow up action:
+      // 1 week: WhatsApp contact
+      // 2 weeks: Phone call
+      // 3 or more weeks: Visitation, subject to visitation eligibility and cooldown
       let actionType: FollowUpActionType = 'WHATSAPP';
-      let actionLabel = 'WhatsApp Message (Check-in)';
-      if (weeksAbsent === 2 || weeksAbsent === 5) {
-        actionType = 'PHONE_CALL';
-        actionLabel = 'Phone Call Check-in (Log Required)';
-      } else if (weeksAbsent === 3) {
-        actionType = 'PASTORAL_VISITATION';
-        actionLabel = 'Pastoral Visitation / Care Team';
-      } else if (weeksAbsent === 4) {
+      let actionLabel = 'WhatsApp Message (1-Wk Check-in)';
+
+      if (weeksAbsent === 1) {
         actionType = 'WHATSAPP';
-        actionLabel = 'WhatsApp Care Message';
-      } else if (weeksAbsent >= 6) {
-        actionType = 'PROLONGED_EXIT_REVIEW';
-        actionLabel = '6-Week Exemption / Exit Review Required';
+        actionLabel = 'WhatsApp Message (1-Wk Check-in)';
+      } else if (weeksAbsent === 2) {
+        actionType = 'PHONE_CALL';
+        actionLabel = 'Phone Call Check-in (2-Wk Outreach)';
+      } else if (weeksAbsent >= 3) {
+        if (cooldown.isInCooldown) {
+          // If in 4-week cooldown, do NOT create another visitation requirement!
+          actionType = 'PHONE_CALL';
+          actionLabel = `Phone Call Check-in (In 4-Wk Cooldown - ${cooldown.cooldownWeeksRemaining} wks left)`;
+        } else if (weeksAbsent >= 6) {
+          actionType = 'PROLONGED_EXIT_REVIEW';
+          actionLabel = '6-Week Exemption / Exit Review Required';
+        } else {
+          actionType = 'PASTORAL_VISITATION';
+          actionLabel = 'Visitation Follow-Up (3+ Weeks Absent)';
+        }
       }
 
       return {
         member,
         weeksAbsent,
         urgency,
+        cooldown,
         latestLog,
         totalLogs: memberLogs.length,
         isExecutedThisCycle,
@@ -174,11 +237,11 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
     else if (actionType === 'PROLONGED_EXIT_REVIEW') contactMethod = 'IN_PERSON';
 
     const newLog: AbsenceLogRecord = {
-      id: `welfare_log_${member.id}_w${currentWeek}_${Date.now()}`,
+      id: `welfare_log_${member.id}_w${selectedWeek}_${Date.now()}`,
       memberId: member.id,
       classId: classProfile?.id,
       quarterNumber: selectedQuarterNumber,
-      weekNumber: currentWeek,
+      weekNumber: selectedWeek,
       consecutiveWeeksAbsent: weeksAbsent,
       urgencyLevel: weeksAbsent >= 6 ? 'CRITICAL' : weeksAbsent >= 3 ? 'RED' : weeksAbsent === 2 ? 'ORANGE' : 'YELLOW',
       contactMethod,
@@ -226,6 +289,35 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
   return (
     <div className="space-y-4 sm:space-y-5 animate-fade-in max-w-7xl mx-auto">
       
+      {/* Synchronized Follow-Up Week Switcher & Live Deadline Timer */}
+      <FollowUpWeekSyncBar
+        selectedWeek={selectedWeek}
+        onSelectWeek={handleSelectWeek}
+        totalWeeks={12}
+        quarter={quarterData}
+        quarterNumber={selectedQuarterNumber}
+        label="Welfare & follow-up week"
+        isClassPortal={true}
+        isCoordinator={isCoordinator}
+      />
+
+      {/* Closed / Read-Only Notice when past week window is closed */}
+      {isLockedForClass && (
+        <div className="bg-amber-50 border-2 border-amber-300 rounded-3xl p-5 flex items-start gap-3.5 text-amber-950 shadow-sm animate-fade-in">
+          <div className="w-10 h-10 rounded-2xl bg-amber-200/80 flex items-center justify-center shrink-0 text-amber-900 mt-0.5">
+            <Lock className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-sm font-black text-amber-950 uppercase tracking-tight">
+              Week {selectedWeek} Follow-Up Window Is Closed (Read-Only Mode)
+            </h3>
+            <p className="text-xs text-amber-900/90 mt-1 leading-relaxed font-medium">
+              In accordance with Sunday School regulations, class teachers and secretaries cannot alter or record welfare outreach for closed past weeks. Records are displayed in Read-Only mode. Only the Follow-Up Directorate Coordinator can review.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Top Banner */}
       <section aria-labelledby="welfare-heading" className="bg-gradient-to-br from-[#201005] via-[#6d2f0b] to-[#171b3d] border border-amber-600/40 rounded-2xl p-4 sm:p-6 shadow-xl shadow-amber-950/10 flex flex-col lg:flex-row lg:items-center justify-between gap-5">
         <div className="min-w-0">
@@ -234,7 +326,7 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
               Care
             </span>
             <span className="text-[10px] font-black text-amber-100 bg-white/10 border border-white/15 px-2 py-1 rounded-lg">
-              Week {currentWeek}
+              Week {selectedWeek} Follow-Up
             </span>
           </div>
           <h2 id="welfare-heading" className="text-xl sm:text-3xl font-black text-white mt-2 tracking-tight">
@@ -459,13 +551,52 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
                         </div>
                       </div>
 
-                      {/* Quick Communication & Action Buttons (Phase 6) */}
-                      <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 shrink-0 w-full lg:w-auto lg:self-center">
-                        {member.phone && (
+                      {/* Action Buttons: Staged strictly by week absent */}
+                      <div className="flex flex-wrap items-center gap-2 shrink-0 w-full lg:w-auto lg:self-center">
+                        {/* Week 1: ONLY WhatsApp */}
+                        {weeksAbsent === 1 && member.phone && (
+                          <a
+                            href={buildWhatsAppDirectLink(member.phone, generateWhatsAppMessage(member))}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="min-h-[42px] px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
+                            title="Personalized Welfare WhatsApp message"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5" />
+                            <span>WhatsApp</span>
+                          </a>
+                        )}
+
+                        {/* Week 2: ONLY Call */}
+                        {weeksAbsent === 2 && member.phone && (
+                          <a
+                            href={`tel:${normalizePhoneNumber(member.phone)}`}
+                            className="min-h-[42px] px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
+                            title="Direct Phone Call"
+                          >
+                            <PhoneCall className="w-3.5 h-3.5" />
+                            <span>Call</span>
+                          </a>
+                        )}
+
+                        {/* Week 3: ONLY Visitation */}
+                        {weeksAbsent === 3 && (
+                          <button
+                            onClick={() => handleOpenActionModal(member, weeksAbsent, 'PASTORAL_VISITATION')}
+                            className="min-h-[42px] px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
+                            title="Pastoral Visitation"
+                          >
+                            <Home className="w-3.5 h-3.5 text-amber-300" />
+                            <span>Visitation</span>
+                          </button>
+                        )}
+
+                        {/* Week 4+: Call AND WhatsApp together */}
+                        {weeksAbsent >= 4 && member.phone && (
                           <>
                             <a
                               href={`tel:${normalizePhoneNumber(member.phone)}`}
-                              className="min-h-[42px] px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
+                              className="min-h-[42px] px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
                               title="Direct Phone Call"
                             >
                               <PhoneCall className="w-3.5 h-3.5" />
@@ -476,8 +607,8 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
                               href={buildWhatsAppDirectLink(member.phone, generateWhatsAppMessage(member))}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="min-h-[42px] px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
-                              title="Personalized WhatsApp message"
+                              className="min-h-[42px] px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
+                              title="Personalized Welfare WhatsApp message"
                             >
                               <MessageCircle className="w-3.5 h-3.5" />
                               <span>WhatsApp</span>
@@ -485,17 +616,20 @@ export const WelfareFollowUpView: React.FC<WelfareFollowUpViewProps> = ({
                           </>
                         )}
 
-                        <button
-                          onClick={() => handleOpenActionModal(member, weeksAbsent, actionType)}
-                          className={`col-span-2 sm:col-span-1 min-h-[42px] px-3.5 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer ${
-                            isRedAlert
-                              ? 'bg-red-700 hover:bg-red-800 text-white'
-                              : 'bg-slate-900 hover:bg-slate-800 text-white'
-                          }`}
-                        >
-                          <Check className="w-3.5 h-3.5 text-amber-300" />
-                          <span>{isRedAlert ? 'Perform Exit Review' : 'Mark Activity Done'}</span>
-                        </button>
+                        {/* Mark Activity Done / Exit Review button */}
+                        {weeksAbsent !== 3 && (
+                          <button
+                            onClick={() => handleOpenActionModal(member, weeksAbsent, actionType)}
+                            className={`min-h-[42px] px-3.5 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer ${
+                              isRedAlert
+                                ? 'bg-red-700 hover:bg-red-800 text-white'
+                                : 'bg-slate-900 hover:bg-slate-800 text-white'
+                            }`}
+                          >
+                            <Check className="w-3.5 h-3.5 text-amber-300" />
+                            <span>{isRedAlert ? 'Perform Exit Review' : 'Mark Done'}</span>
+                          </button>
+                        )}
                       </div>
 
                     </div>

@@ -46,6 +46,17 @@ const ROLE_ALIASES: Record<string, string> = {
   cds: 'cds@gofamint-hof.internal',
   childrensuperintendent: 'cds@gofamint-hof.internal',
   childrendeptsuperintendent: 'cds@gofamint-hof.internal',
+  // Evangelism and Follow-Up Officer
+  followup: 'followup_admin@gofamint-hof.internal',
+  followupadmin: 'followup_admin@gofamint-hof.internal',
+  evangelism: 'followup_admin@gofamint-hof.internal',
+  evangelismofficer: 'followup_admin@gofamint-hof.internal',
+  efup: 'followup_admin@gofamint-hof.internal',
+  samuel: 'followup_admin@gofamint-hof.internal',
+  // Sunday School Usher
+  usher: 'usher_admin@gofamint-hof.internal',
+  usheradmin: 'usher_admin@gofamint-hof.internal',
+  grace: 'usher_admin@gofamint-hof.internal',
 };
 
 const LEGACY_CLASS_ALIASES: Record<string, string> = {

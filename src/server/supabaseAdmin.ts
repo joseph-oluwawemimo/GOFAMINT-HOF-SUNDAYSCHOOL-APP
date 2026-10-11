@@ -37,6 +37,7 @@ export const GOFAMINT_ROLES = [
   'CLASS_SECRETARY',
   'TEACHER / CLASS_SECRETARY',
   'WORKER',
+  'USHER',
 ] as const;
 
 export type GofamintRole = (typeof GOFAMINT_ROLES)[number];

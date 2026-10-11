@@ -206,8 +206,8 @@ describe('Evangelism & Follow-Up — Visitation Engine', () => {
     // m-f: 2 weeks absent (Priority Rank 2)
     // m-a: 1 week absent (Priority Rank 3)
 
-    // With target/default cap of 3
-    const top3 = getClassWeeklyVisitationCandidates(members, 5, grades, [], {}, { maxCap: 3 });
+    // With target/default cap of 3 (using purePrioritySort for deterministic absentee ranking)
+    const top3 = getClassWeeklyVisitationCandidates(members, 5, grades, [], {}, { maxCap: 3, purePrioritySort: true });
     assert.strictEqual(top3.candidates.length, 3);
     assert.strictEqual(top3.candidates[0].memberId, 'm-c'); // 4 weeks absent
     // m-b and m-e both 3 weeks; deterministic ordering by name: 'Barnabas' comes before 'Elijah'
@@ -215,9 +215,67 @@ describe('Evangelism & Follow-Up — Visitation Engine', () => {
     assert.strictEqual(top3.candidates[2].memberId, 'm-e');
 
     // With max cap of 4
-    const top4 = getClassWeeklyVisitationCandidates(members, 5, grades, [], {}, { maxCap: 4 });
+    const top4 = getClassWeeklyVisitationCandidates(members, 5, grades, [], {}, { maxCap: 4, purePrioritySort: true });
     assert.strictEqual(top4.candidates.length, 4);
     assert.strictEqual(top4.candidates[3].priority, 'MEDIUM');
+  });
+
+  it('enforces the 4-slot operational rule: 2 Priority Need, 1 Consistent Student, 1 Newly Onboarded Student', () => {
+    // Current week: 5
+    // 3 members absent for 3+ weeks (m-abs1, m-abs2, m-abs3) -> only top 2 get Priority Need spots
+    // 1 member consistent and present (m-consistent) -> gets Consistent Student spot
+    // 1 member newly onboarded who joined in Week 4 (m-new) -> gets Newly Onboarded spot
+    // 1 one-time visitor (m-otv) -> excluded from visitation
+    const mAbs1 = createMockMember('m-abs1', 'Alice (3 weeks absent)');
+    const mAbs2 = createMockMember('m-abs2', 'Bob (3 weeks absent)');
+    const mAbs3 = createMockMember('m-abs3', 'Charles (3 weeks absent)');
+    const mConsistent = createMockMember('m-const', 'Daniel (Consistent Student)');
+    const mNew = {
+      ...createMockMember('m-new', 'Esther (Joined last week)'),
+      firstLessonWeek: 4, // Joined last week (Week 4, current is Week 5)
+    };
+    const mOtv = {
+      ...createMockMember('m-otv', 'Visitor Frank (One-Time Visitor)'),
+      isOneTimeVisitor: true,
+    };
+
+    const grades = createWeeklyGrades({
+      1: ['m-abs1', 'm-abs2', 'm-abs3', 'm-const'],
+      2: ['m-const'], // abs1, abs2, abs3 absent
+      3: ['m-const'], // abs1, abs2, abs3 absent
+      4: ['m-const', 'm-new'], // new joined, abs1, abs2, abs3 absent
+      5: ['m-const', 'm-new'], // abs1, abs2, abs3 absent
+    });
+
+    const result = getClassWeeklyVisitationCandidates(
+      [mAbs1, mAbs2, mAbs3, mConsistent, mNew, mOtv],
+      5,
+      grades,
+      [],
+      {},
+      { maxCap: 4 }
+    );
+
+    // Candidates count = 4: 2 Priority Need, 1 Consistent, 1 Newly Onboarded
+    assert.strictEqual(result.candidates.length, 4);
+
+    // Top 2 are Priority Need (Alice and Bob alphabetically since both 4 consecutive absences)
+    assert.strictEqual(result.candidates[0].slotType, 'PRIORITY_NEED');
+    assert.strictEqual(result.candidates[0].memberId, 'm-abs1');
+    assert.strictEqual(result.candidates[1].slotType, 'PRIORITY_NEED');
+    assert.strictEqual(result.candidates[1].memberId, 'm-abs2');
+
+    // Slot 3 is Consistent Student
+    assert.strictEqual(result.candidates[2].slotType, 'CONSISTENT_STUDENT');
+    assert.strictEqual(result.candidates[2].memberId, 'm-const');
+
+    // Slot 4 is Newly Onboarded Student
+    assert.strictEqual(result.candidates[3].slotType, 'NEWLY_ONBOARDED');
+    assert.strictEqual(result.candidates[3].memberId, 'm-new');
+
+    // One-time visitor Frank and 3rd absentee Charles are excluded from the capped queue
+    assert.ok(!result.candidates.some(c => c.memberId === 'm-otv'));
+    assert.ok(!result.candidates.some(c => c.memberId === 'm-abs3'));
   });
 
   it('computes class follow up summary accurately without inventing data', () => {

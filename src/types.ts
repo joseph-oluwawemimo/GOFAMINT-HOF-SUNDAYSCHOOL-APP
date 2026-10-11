@@ -20,6 +20,7 @@ export type AdminRoleType =
   | 'RECORD_OFFICER'
   | 'ENROLLMENT_OFFICER'
   | 'EVANGELISM_AND_FOLLOW_UP_PERSONNEL'
+  | 'USHER'
   | 'ASST_GENERAL_SECRETARY'
   | 'ASSISTANT_GENERAL_SECRETARY';
 
@@ -165,9 +166,56 @@ export interface ClassProfile {
   followUpAssignments?: Record<string, FollowUpAssignmentRecord>;
   visitationAssignments?: Record<string, VisitationAssignmentRecord>;
   followUpReports?: Record<string, ClassFollowUpReportRecord>;
+  weeklyLessonKeyPoints?: Record<string, string[]>;
+  sssrDeliveries?: Record<string, SSSRDeliveryRecord>;
+  weeklyReminders?: Record<string, WeeklyReminderRecord>;
   createdAt: string;
   updatedAt: string;
 }
+
+export interface SSSRDeliveryRecord {
+  id: string; // `${classId}_q${quarterNumber}_w${weekNumber}_m${memberId}`
+  classId: string;
+  quarterNumber: number;
+  weekNumber: number;
+  memberId: string;
+  memberName: string;
+  attendance: AttendanceStatus;
+  status: 'DONE' | 'PENDING';
+  sentAt?: string;
+  sentBy?: string;
+  method?: 'WHATSAPP' | 'MANUAL' | 'COPY';
+  updatedAt: string;
+}
+
+export interface WeeklyReminderRecord {
+  id: string; // `${classId}_q${quarterNumber}_w${weekNumber}_m${memberId}`
+  classId: string;
+  quarterNumber: number;
+  weekNumber: number;
+  memberId: string;
+  memberName?: string;
+  phone?: string;
+  upcomingLessonTopic?: string;
+  upcomingMemoryVerse?: string;
+  serviceTime?: string;
+  discussionQuestion?: string;
+  timing?: string;
+  status: 'DONE' | 'PENDING';
+  preparedAt?: string;
+  sentAt?: string;
+  sentBy?: string;
+  reminderType?: 'FRIDAY' | 'SATURDAY' | 'STANDARD';
+  updatedAt?: string;
+}
+
+export type StudentReminderResponse =
+  | 'ATTENDING_EARLY' // Will attend early (8:00 AM Prompt)
+  | 'ATTENDING'       // Will attend
+  | 'CANNOT_ATTEND'   // Cannot make it / absent with apologies
+  | 'TRAVELED'        // Traveled / out of town
+  | 'SICK_NEED_PRAYER'// Indisposed / needs prayer
+  | 'NO_RESPONSE';    // No response yet / unreachable
 
 export interface FollowUpAssignmentRecord {
   id: string; // `${classId}_q${quarter}_w${week}_m${memberId}`
@@ -175,16 +223,29 @@ export interface FollowUpAssignmentRecord {
   quarterNumber: number;
   weekNumber: number;
   memberId: string;
+  memberName?: string;
+  phone?: string;
   assignedStaffId: string;
   assignedStaffName: string;
-  assignedStaffRole: string;
+  staffName?: string;
+  assignedAt?: string;
+  assignedStaffRole?: string;
+  assignedRole?: string;
   status: 'PENDING' | 'REACHED_OUT';
+  followUpType?: string;
   reachedOutAt?: string;
-  updatedAt: string;
+  isSecretaryOverride?: boolean;
+  completedBy?: string;
+  completedAt?: string;
+  studentResponse?: StudentReminderResponse;
+  studentResponseNote?: string;
+  notes?: string;
+  updatedAt?: string;
 }
 
 export type VisitationStatus = 'PENDING' | 'ASSIGNED' | 'SCHEDULED' | 'COMPLETED' | 'UNABLE_TO_MEET' | 'RESCHEDULED';
 export type VisitationPriority = 'HIGH' | 'MEDIUM' | 'LOW';
+export type VisitationSlotType = 'PRIORITY_NEED' | 'CONSISTENT_STUDENT' | 'NEWLY_ONBOARDED';
 
 export interface VisitationCandidate {
   memberId: string;
@@ -196,6 +257,7 @@ export interface VisitationCandidate {
   consecutiveWeeksAbsent: number;
   priority: VisitationPriority;
   priorityRank: 1 | 2 | 3;
+  slotType?: VisitationSlotType;
   eligibilityReason: string;
   lastVisitedDate?: string;
   lastVisitedWeek?: number;
@@ -222,6 +284,7 @@ export interface VisitationAssignmentRecord {
   assignedStaffPhone?: string;
   assignedDate?: string;
   priority?: VisitationPriority;
+  slotType?: VisitationSlotType;
   status: VisitationStatus;
   scheduledDate?: string;
   completedAt?: string;
@@ -682,16 +745,23 @@ export interface AbsenceLogRecord {
   quarterNumber?: number;
   memberId: string;
   weekNumber: number;
-  consecutiveWeeksAbsent: number;
-  urgencyLevel: AbsenceUrgency;
+  consecutiveWeeksAbsent?: number;
+  urgencyLevel?: AbsenceUrgency;
   contactMethod: 'WHATSAPP' | 'PHONE_CALL' | 'PASTORAL_VISIT' | 'IN_PERSON';
+  callerStaffId?: string;
+  callerStaffName?: string;
+  date?: string;
+  resolved?: boolean;
+  escalatedToAdmin?: boolean;
   reasonCategory?: AbsenceReasonCategory;
   escalationDecision?: EscalationDecision;
   decisionMade?: boolean;
   decisionDate?: string;
   exitNote?: string;
   notes: string;
-  loggedAt: string;
+  loggedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export type ActiveTab = 
@@ -704,6 +774,7 @@ export type ActiveTab =
   | 'QR_PORTAL'
   | 'CLASS_DISCUSSION'
   | 'REPORT_CARD'
+  | 'FOLLOW_UP_REPORT'
   | 'AI_ASSISTANT'
   | 'DATABASE_SETTINGS';
 

@@ -15,8 +15,9 @@ const CLASS_ADMINS: GofamintRole[] = ['SUPER_ADMIN', 'GENERAL_SUPERINTENDENT', '
 const CLASS_CREATORS: GofamintRole[] = ['ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY'];
 const CLASS_PORTAL_ROLES: GofamintRole[] = ['TEACHER', 'CLASS_SECRETARY', 'TEACHER / CLASS_SECRETARY'];
 const WORKER_MANAGERS = new Set<GofamintRole>([...EXEC, 'ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY']);
-const WORKER_EVENT_READERS = new Set<GofamintRole>([...WORKER_MANAGERS, 'RECORD_OFFICER', 'WORKER']);
-const WORKER_DIRECTORY_READERS = new Set<GofamintRole>([...ADMIN_PROFILES, 'WORKER', ...CLASS_PORTAL_ROLES]);
+const WORKER_ATTENDANCE_LOGGERS = new Set<GofamintRole>([...WORKER_MANAGERS, 'USHER']);
+const WORKER_EVENT_READERS = new Set<GofamintRole>([...WORKER_MANAGERS, 'RECORD_OFFICER', 'WORKER', 'USHER']);
+const WORKER_DIRECTORY_READERS = new Set<GofamintRole>([...ADMIN_PROFILES, 'WORKER', 'USHER', ...CLASS_PORTAL_ROLES]);
 type Caller = { id: string; email: string | null; role: GofamintRole; classId: string | null; departmentId: string | null };
 type ServerReadFilter = { column: string; value: unknown };
 
@@ -429,7 +430,7 @@ export function createApp() {
         if (!department) return r.status(400).json({ error: `Department "${departmentId}" does not exist.` });
         if (assignedCount) return r.status(409).json({ error: `A Departmental Superintendent is already assigned to ${departmentId}.` });
       }
-      const pending=['DEPARTMENT_SUPERINTENDENT','ASST_GENERAL_SECRETARY','ASSISTANT_GENERAL_SECRETARY','TREASURER','RECORD_OFFICER','ENROLLMENT_OFFICER','EVANGELISM_AND_FOLLOW_UP_PERSONNEL'].includes(roleType);
+      const pending=['DEPARTMENT_SUPERINTENDENT','ASST_GENERAL_SECRETARY','ASSISTANT_GENERAL_SECRETARY','TREASURER','RECORD_OFFICER','ENROLLMENT_OFFICER','EVANGELISM_AND_FOLLOW_UP_PERSONNEL','USHER'].includes(roleType);
       const provisioned=await provisionSupabaseUserProfile({email:email(raw),password,displayName,role:roleType,isApproved:!pending,classId:classId||null,workerId:workerId||null,departmentId:departmentId||null,createdBy:c.id,approvedBy:pending?null:c.id});userId=provisioned.userId;
       if(classId){
         const {data:existingClass}=await db.from('classes').select('id').eq('id',classId).maybeSingle();
@@ -1738,7 +1739,7 @@ export function createApp() {
   app.post('/api/admin/special-events/attendance', async (req, r) => {
     const db = getSupabaseAdmin();
     try {
-      const c = await caller(req, r, Array.from(WORKER_MANAGERS));
+      const c = await caller(req, r, Array.from(WORKER_ATTENDANCE_LOGGERS));
       if (!c) return;
       const { records } = req.body || {};
       const list = Array.isArray(records) ? records : (req.body?.record ? [req.body.record] : []);

@@ -71,6 +71,8 @@ const QuarterAnalysisView = lazy(() => import('./components/QuarterAnalysisView'
 const ClassDiscussionView = lazy(() => import('./components/ClassDiscussionView').then(module => ({ default: module.ClassDiscussionView })));
 const QRPortalView = lazy(() => import('./components/QRPortalView').then(module => ({ default: module.QRPortalView })));
 const VisitorReportCardView = lazy(() => import('./components/VisitorReportCardView').then(module => ({ default: module.VisitorReportCardView })));
+const SSSRReportView = lazy(() => import('./components/SSSRReportView').then(module => ({ default: module.SSSRReportView })));
+const FollowUpReportView = lazy(() => import('./components/FollowUpReportView').then(module => ({ default: module.FollowUpReportView })));
 const AIAssistantView = lazy(() => import('./components/AIAssistantView').then(module => ({ default: module.AIAssistantView })));
 const SyncSettingsView = lazy(() => import('./components/SyncSettingsView').then(module => ({ default: module.SyncSettingsView })));
 const AdminPortalRoot = lazy(() => import('./components/AdminPortal/AdminPortalRoot').then(module => ({ default: module.AdminPortalRoot })));
@@ -129,7 +131,7 @@ const ADMIN_PORTAL_ROLES = new Set([
   'ENROLLMENT_OFFICER',
   'SUPER_ADMIN',
 ]);
-const WORKERS_MODULE_ROLES = new Set(['ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY', 'WORKER']);
+const WORKERS_MODULE_ROLES = new Set(['ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY', 'WORKER', 'USHER']);
 const CLASS_PORTAL_ROLES = new Set(['TEACHER', 'CLASS_SECRETARY', 'TEACHER / CLASS_SECRETARY']);
 const FOLLOW_UP_PORTAL_ROLES = new Set([
   'EVANGELISM_AND_FOLLOW_UP_PERSONNEL',
@@ -225,10 +227,20 @@ export default function App() {
       }
       setProfileResolution('ready');
 
-      // Supabase profile identity takes priority over every legacy opening-flow state.
       // Retain active portal across hard refreshes and mobile OS backgrounding
       const savedPortal = sessionStorage.getItem('gofamint_active_portal') || localStorage.getItem('gofamint_active_portal');
       const savedOversight = sessionStorage.getItem('gofamint_oversight_target') || localStorage.getItem('gofamint_oversight_target');
+
+      // USHER role strictly accesses Workers Directorate only
+      if (role === 'USHER') {
+        setShowWorkersModule(true);
+        setShowAdminPortal(false);
+        setShowSibPortal(false);
+        setShowFollowUpPortal(false);
+        setShowOpeningPage(false);
+        sessionStorage.setItem('gofamint_active_portal', 'WORKERS');
+        return;
+      }
 
       if (savedPortal === 'WORKERS' && role !== 'DEPARTMENT_SUPERINTENDENT' && (ADMIN_PORTAL_ROLES.has(role) || WORKERS_MODULE_ROLES.has(role))) {
         setShowWorkersModule(true);
@@ -1729,6 +1741,18 @@ export default function App() {
       setShowWorkersModule(false);
       setShowOpeningPage(false);
       setIsUnlocked(true);
+    } else if (targetPortal === 'ADMIN_EVANGELISM_AND_FOLLOW_UP_PERSONNEL' || targetPortal === 'FOLLOW_UP') {
+      const target = {
+        type: 'CLASS' as const,
+        label: 'Evangelism & Follow-Up Directorate Oversight',
+      };
+      setOversightTarget(target);
+      sessionStorage.setItem('gofamint_active_portal', 'FOLLOW_UP');
+      sessionStorage.setItem('gofamint_oversight_target', JSON.stringify(target));
+      setShowAdminPortal(false);
+      setShowWorkersModule(false);
+      setShowOpeningPage(false);
+      setShowFollowUpPortal(true);
     }
   };
 
@@ -2049,6 +2073,7 @@ export default function App() {
           allAbsenceLogs={absenceLogs}
           quarterNumber={selectedQuarter}
           currentWeek={selectedWeek}
+          quarterData={sundaySchoolYear?.quarters?.find(q => q.quarterNumber === selectedQuarter) || null}
           onBackToPortalSelect={() => {
             sessionStorage.removeItem('gofamint_active_portal');
             setShowFollowUpPortal(false);
@@ -2244,6 +2269,8 @@ export default function App() {
             onSaveBulkMembers={handleSaveBulkMembers}
             currencySymbol={currencySymbol}
             sundaySchoolYear={sundaySchoolYear || undefined}
+            onUpdateClassProfile={handleUpdateClassProfile}
+            onNavigateToSSSR={() => setActiveTab('SSSR_REPORT')}
           />
         )}
 
@@ -2271,17 +2298,17 @@ export default function App() {
             members={members}
             grades={grades}
             absenceLogs={absenceLogs}
-            currentWeek={getLatestCompletedSundayWeek(
-              sundaySchoolYear?.quarters?.find(q => q.quarterNumber === selectedQuarter),
-              new Date()
-            )}
+            currentWeek={selectedWeek}
             classProfile={classProfile}
             activeLessons={currentQuarterLessons}
             selectedQuarterNumber={selectedQuarter}
+            quarterData={sundaySchoolYear?.quarters?.find(q => q.quarterNumber === selectedQuarter) || null}
+            onSelectWeek={setSelectedWeek}
             onSaveAbsenceLog={handleSaveAbsenceLog}
             onCompleteExitReview={handleCompleteExitReview}
             onRelegateToVisitor={handleRelegateToVisitor}
             onRestoreToStudent={(id) => handleUpdateMemberStatus(id, 'ACTIVE')}
+            authProfile={currentUserProfile}
           />
         )}
 
@@ -2292,10 +2319,13 @@ export default function App() {
             classProfile={classProfile}
             activeLessons={currentQuarterLessons}
             selectedQuarterNumber={selectedQuarter}
+            quarterData={sundaySchoolYear?.quarters?.find(q => q.quarterNumber === selectedQuarter) || null}
+            onSelectWeek={setSelectedWeek}
             absenceLogs={absenceLogs}
             onSaveAbsenceLog={handleSaveAbsenceLog}
             onDeleteAbsenceLog={handleDeleteAbsenceLog}
             onUpdateClassProfile={handleUpdateClassProfile}
+            authProfile={currentUserProfile}
           />
         )}
 
@@ -2307,8 +2337,11 @@ export default function App() {
             quarterNumber={selectedQuarter}
             classProfile={classProfile}
             absenceLogs={absenceLogs}
+            quarterData={sundaySchoolYear?.quarters?.find(q => q.quarterNumber === selectedQuarter) || null}
+            onSelectWeek={setSelectedWeek}
             onSaveAbsenceLog={handleSaveAbsenceLog}
             onUpdateClassProfile={handleUpdateClassProfile}
+            authProfile={currentUserProfile}
           />
         )}
 
@@ -2333,17 +2366,6 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'CLASS_DISCUSSION' && (
-          <ClassDiscussionView
-            classProfile={classProfile}
-            comments={comments}
-            currentRole="Class Secretary"
-            currentUserName={classProfile?.secretaryName || classProfile?.className || 'Class Secretary'}
-            onSaveComment={handleSaveComment}
-            onDeleteComment={handleDeleteComment}
-          />
-        )}
-
         {activeTab === 'QR_PORTAL' && (
           <QRPortalView
             members={members}
@@ -2352,53 +2374,33 @@ export default function App() {
           />
         )}
 
-        {/* SUNDAY SCHOOL REPORT CARD (Phases 16 & 17) */}
+        {/* ACTIVITY ONE — SSSR REPORT */}
         {activeTab === 'REPORT_CARD' && (
-          <div className="space-y-4 sm:space-y-5 animate-fade-in max-w-5xl mx-auto">
-            <section aria-labelledby="report-card-heading" className="bg-gradient-to-br from-[#071b3d] via-[#173a77] to-[#3b1d59] rounded-2xl border border-blue-700/50 p-4 sm:p-6 shadow-xl shadow-blue-950/10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="min-w-0">
-                <span className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-950 bg-amber-400 px-2.5 py-1 rounded-lg">
-                  Progress
-                </span>
-                <h2 id="report-card-heading" className="text-xl sm:text-3xl font-black text-white mt-2 tracking-tight">
-                  Sunday School report card
-                </h2>
-                <p className="text-xs sm:text-sm text-blue-100/80 mt-1">
-                  View attendance and scores for any class member.
-                </p>
-              </div>
+          <SSSRReportView
+            members={members}
+            grades={grades}
+            currentWeek={selectedWeek}
+            classProfile={classProfile}
+            lessons={currentQuarterLessons}
+            selectedQuarterNumber={selectedQuarter}
+            quarterData={sundaySchoolYear?.quarters?.find(q => q.quarterNumber === selectedQuarter) || null}
+            onSelectWeek={setSelectedWeek}
+            onUpdateClassProfile={handleUpdateClassProfile}
+          />
+        )}
 
-              <label className="w-full sm:w-auto min-w-0">
-                <span className="block text-[10px] font-black uppercase tracking-wider text-blue-100/70 mb-1.5">Member</span>
-                <select
-                  value={selectedReportMemberId || members[0]?.id || ''}
-                  onChange={(e) => setSelectedReportMemberId(e.target.value)}
-                  aria-label="Select report card member"
-                  className="w-full sm:w-64 min-h-[44px] px-3 py-2 bg-white border border-white/30 rounded-xl text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-amber-300 cursor-pointer shadow-sm"
-                >
-                  {members.map(m => (
-                    <option key={m.id} value={m.id}>
-                      {m.fullName} ({m.memberType})
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </section>
-
-            {members.length === 0 ? (
-              <div className="bg-white p-12 rounded-2xl border border-slate-200 text-center text-slate-500">
-                <p className="text-sm font-bold">No registered members in this class yet.</p>
-              </div>
-            ) : (
-              <VisitorReportCardView
-                memberId={selectedReportMemberId || members[0]?.id}
-                members={members}
-                grades={grades}
-                classProfile={classProfile}
-                lessons={currentQuarterLessons}
-              />
-            )}
-          </div>
+        {/* ACTIVITY FIVE — FOLLOW-UP REPORT & INTELLIGENCE */}
+        {activeTab === 'FOLLOW_UP_REPORT' && (
+          <FollowUpReportView
+            classProfile={classProfile}
+            members={members}
+            grades={grades}
+            absenceLogs={absenceLogs}
+            currentWeek={selectedWeek}
+            selectedQuarterNumber={selectedQuarter}
+            quarterData={sundaySchoolYear?.quarters?.find(q => q.quarterNumber === selectedQuarter) || null}
+            onSelectWeek={setSelectedWeek}
+          />
         )}
 
         {activeTab === 'AI_ASSISTANT' && (

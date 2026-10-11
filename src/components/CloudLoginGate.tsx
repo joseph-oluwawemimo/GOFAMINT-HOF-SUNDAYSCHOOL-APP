@@ -77,6 +77,8 @@ export const CloudLoginGate: React.FC<CloudLoginGateProps> = ({ onSignedIn, isSy
     { label: 'EO', tip: 'Enrollment Officer' },
     { label: 'RECORD', tip: 'Record Officer' },
     { label: 'TREASURER', tip: 'Sunday School Treasurer' },
+    { label: 'FOLLOWUP', tip: 'Evangelism & Follow-Up Officer' },
+    { label: 'USHER', tip: 'Sunday School Usher' },
     { label: 'TEACHER', tip: 'Class Teacher' },
     { label: 'YOUTH_A', tip: 'Class ID Example' },
   ];

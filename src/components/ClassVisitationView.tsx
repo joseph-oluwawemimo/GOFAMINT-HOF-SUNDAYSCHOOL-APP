@@ -14,7 +14,8 @@ import {
   Sparkles,
   Phone,
   MapPin,
-  ClipboardList
+  ClipboardList,
+  Lock
 } from 'lucide-react';
 import {
   Member,
@@ -23,7 +24,8 @@ import {
   ClassProfile,
   VisitationAssignmentRecord,
   VisitationCandidate,
-  ClassFollowUpReportRecord
+  ClassFollowUpReportRecord,
+  QuarterData
 } from '../types';
 import {
   VISITATION_TARGET_PER_CLASS_PER_WEEK,
@@ -32,6 +34,9 @@ import {
   getClassWeeklyVisitationCandidates,
   computeClassFollowUpSummary
 } from '../utils/visitationEngine';
+import { FollowUpWeekSyncBar } from './FollowUpPortal/FollowUpWeekSyncBar';
+import { getFollowUpWindowForWeek } from '../utils/quarterScheduleUtils';
+import { ApplicationProfile } from '../services/profileService';
 
 interface ClassVisitationViewProps {
   members: Member[];
@@ -40,8 +45,11 @@ interface ClassVisitationViewProps {
   quarterNumber: number;
   classProfile: ClassProfile | null;
   absenceLogs?: AbsenceLogRecord[];
+  quarterData?: QuarterData | null;
+  onSelectWeek?: (week: number) => void;
   onSaveAbsenceLog?: (log: AbsenceLogRecord) => Promise<void>;
   onUpdateClassProfile?: (updated: ClassProfile) => Promise<void>;
+  authProfile?: ApplicationProfile | null;
 }
 
 export const ClassVisitationView: React.FC<ClassVisitationViewProps> = ({
@@ -51,10 +59,43 @@ export const ClassVisitationView: React.FC<ClassVisitationViewProps> = ({
   quarterNumber,
   classProfile,
   absenceLogs = [],
+  quarterData,
+  onSelectWeek,
   onSaveAbsenceLog,
-  onUpdateClassProfile
+  onUpdateClassProfile,
+  authProfile = null
 }) => {
   const [selectedWeek, setSelectedWeek] = useState<number>(currentWeek || 1);
+
+  useEffect(() => {
+    setSelectedWeek(currentWeek || 1);
+  }, [currentWeek]);
+
+  const handleSelectWeek = (wk: number) => {
+    setSelectedWeek(wk);
+    if (onSelectWeek) {
+      onSelectWeek(wk);
+    }
+  };
+
+  const windowInfo = useMemo(() => {
+    return getFollowUpWindowForWeek(selectedWeek, quarterData, new Date());
+  }, [selectedWeek, quarterData]);
+
+  const isCoordinator = useMemo(() => {
+    const role = authProfile?.role || '';
+    return [
+      'EVANGELISM_AND_FOLLOW_UP_PERSONNEL',
+      'GENERAL_SUPERINTENDENT',
+      'GENERAL_SECRETARY',
+      'ASST_GENERAL_SECRETARY',
+      'ASSISTANT_GENERAL_SECRETARY',
+      'SUPER_ADMIN',
+      'DEPARTMENT_SUPERINTENDENT'
+    ].includes(role);
+  }, [authProfile]);
+
+  const isLockedForClass = windowInfo.status === 'EXPIRED' && !isCoordinator;
   const [showCooldownCandidates, setShowCooldownCandidates] = useState<boolean>(false);
   const [isAssignModalOpen, setIsAssignModalOpen] = useState<boolean>(false);
   const [isRecordVisitModalOpen, setIsRecordVisitModalOpen] = useState<boolean>(false);
@@ -70,8 +111,6 @@ export const ClassVisitationView: React.FC<ClassVisitationViewProps> = ({
   const [visitorName, setVisitorName] = useState<string>('');
   const [visitOutcome, setVisitOutcome] = useState<string>('');
   const [visitNextAction, setVisitNextAction] = useState<string>('');
-  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-  const [submissionFeedback, setSubmissionFeedback] = useState<string | null>(null);
 
   // Class available staff list
   const availableStaff = useMemo(() => {
@@ -157,6 +196,10 @@ export const ClassVisitationView: React.FC<ClassVisitationViewProps> = ({
 
   // Save assignment handler
   const handleAssignWorker = async () => {
+    if (isLockedForClass) {
+      alert(`Week ${selectedWeek} follow-up window is closed. Changes cannot be recorded in class register (Read-Only Mode).`);
+      return;
+    }
     if (!selectedCandidate || !assignedWorkerName.trim()) return;
 
     const assignmentId = `${classProfile?.id || 'cls'}_w${selectedWeek}_m${selectedCandidate.memberId}`;
@@ -202,6 +245,10 @@ export const ClassVisitationView: React.FC<ClassVisitationViewProps> = ({
 
   // Record completed visit handler
   const handleRecordCompletedVisit = async () => {
+    if (isLockedForClass) {
+      alert(`Week ${selectedWeek} follow-up window is closed. Changes cannot be recorded in class register (Read-Only Mode).`);
+      return;
+    }
     if (!selectedCandidate || !visitorName.trim()) return;
 
     const assignmentId = `${classProfile?.id || 'cls'}_w${selectedWeek}_m${selectedCandidate.memberId}`;
@@ -265,42 +312,6 @@ export const ClassVisitationView: React.FC<ClassVisitationViewProps> = ({
     setVisitNextAction('');
   };
 
-  // Submit Follow-Up Report to Evangelism & Follow-Up Portal
-  const handleSubmitReport = async () => {
-    if (!classProfile || !onUpdateClassProfile || !classSummary) return;
-
-    setIsSubmitting(true);
-    setSubmissionFeedback(null);
-
-    try {
-      const reportKey = `${classProfile.id}_q${quarterNumber}_w${selectedWeek}`;
-      const submittedReport: ClassFollowUpReportRecord = {
-        ...classSummary,
-        id: reportKey,
-        submittedAt: new Date().toISOString(),
-        submittedBy: classProfile.secretaryName || classProfile.teacherName || 'Class Secretary',
-        status: 'SUBMITTED'
-      };
-
-      const updatedReports = {
-        ...(classProfile.followUpReports || {}),
-        [reportKey]: submittedReport
-      };
-
-      await onUpdateClassProfile({
-        ...classProfile,
-        followUpReports: updatedReports
-      });
-
-      setSubmissionFeedback('Follow-Up Report successfully pushed to the Evangelism & Follow-Up Portal!');
-      setTimeout(() => setSubmissionFeedback(null), 5000);
-    } catch (err: any) {
-      setSubmissionFeedback(`Failed to submit report: ${err?.message || 'Unknown error'}`);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12 animate-fade-in">
       {/* Top Banner */}
@@ -320,45 +331,46 @@ export const ClassVisitationView: React.FC<ClassVisitationViewProps> = ({
             </p>
           </div>
 
-          {/* Week Selector & Push to Portal Button */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-            <div className="bg-white/10 backdrop-blur-md rounded-2xl p-1.5 flex items-center gap-2 border border-white/20">
-              <Calendar className="w-4 h-4 text-amber-300 ml-2" />
-              <label htmlFor="visitation-week-select" className="text-xs font-bold text-slate-300">
-                Week:
-              </label>
-              <select
-                id="visitation-week-select"
-                value={selectedWeek}
-                onChange={e => setSelectedWeek(Number(e.target.value))}
-                className="bg-slate-800 text-white text-xs font-black rounded-xl px-3 py-1.5 border border-white/20 outline-none focus:ring-2 focus:ring-amber-400 cursor-pointer"
-              >
-                {Array.from({ length: 13 }, (_, i) => i + 1).map(w => (
-                  <option key={w} value={w}>
-                    Week {w}
-                  </option>
-                ))}
-              </select>
+          {/* Dynamic Week Indicator Badge */}
+          <div className="flex items-center gap-3">
+            <div className="bg-white/10 backdrop-blur-md rounded-2xl px-4 py-2 flex items-center gap-2 border border-white/20">
+              <Calendar className="w-4 h-4 text-amber-300" />
+              <span className="text-xs font-black text-amber-300 tracking-wide uppercase">
+                Week {selectedWeek} Follow-Up
+              </span>
             </div>
-
-            <button
-              onClick={handleSubmitReport}
-              disabled={isSubmitting}
-              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg hover:shadow-amber-500/20 active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
-            >
-              <Send className="w-4 h-4" />
-              {isSubmitting ? 'Pushing...' : 'Push to Follow-Up Portal'}
-            </button>
           </div>
         </div>
-
-        {submissionFeedback && (
-          <div className="mt-4 p-3 rounded-xl bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-xs font-bold flex items-center gap-2 animate-fade-in">
-            <CheckCircle className="w-4 h-4 shrink-0" />
-            <span>{submissionFeedback}</span>
-          </div>
-        )}
       </div>
+
+      {/* Synchronized Follow-Up Week Switcher & Live Deadline Timer */}
+      <FollowUpWeekSyncBar
+        selectedWeek={selectedWeek}
+        onSelectWeek={handleSelectWeek}
+        totalWeeks={12}
+        quarter={quarterData}
+        quarterNumber={quarterNumber}
+        label="Visitation week"
+        isClassPortal={true}
+        isCoordinator={isCoordinator}
+      />
+
+      {/* Closed / Read-Only Notice when past week window is closed */}
+      {isLockedForClass && (
+        <div className="bg-amber-50 border-2 border-amber-300 rounded-3xl p-5 flex items-start gap-3.5 text-amber-950 shadow-sm animate-fade-in">
+          <div className="w-10 h-10 rounded-2xl bg-amber-200/80 flex items-center justify-center shrink-0 text-amber-900 mt-0.5">
+            <Lock className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-sm font-black text-amber-950 uppercase tracking-tight">
+              Week {selectedWeek} Follow-Up Window Is Closed (Read-Only Mode)
+            </h3>
+            <p className="text-xs text-amber-900/90 mt-1 leading-relaxed font-medium">
+              In accordance with Sunday School regulations, class teachers and secretaries cannot alter or record visitations for closed past weeks. Records are displayed in Read-Only mode. Only the Follow-Up Directorate Coordinator can review.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Class Follow-Up & Visitation KPI Metrics */}
       {classSummary && (
@@ -429,7 +441,7 @@ export const ClassVisitationView: React.FC<ClassVisitationViewProps> = ({
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
-              Strict deterministic priority: Priority 1 (3+ weeks) → Priority 2 (2 weeks) → Priority 3 (1 week). Excludes members visited within 4 weeks.
+              4-Slot Operational Rule: 2 Priority Need (Urgent Absentees) · 1 Consistent Student (Encouragement) · 1 Newly Onboarded (Joined Last Week). Excludes 4-week cooldown & one-time visitors.
             </p>
           </div>
 
@@ -463,7 +475,7 @@ export const ClassVisitationView: React.FC<ClassVisitationViewProps> = ({
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-black text-slate-500 uppercase tracking-wider">
-                  <th className="py-3 px-4">Priority</th>
+                  <th className="py-3 px-4">Slot & Priority</th>
                   <th className="py-3 px-4">Member</th>
                   <th className="py-3 px-4 text-center">Absence</th>
                   <th className="py-3 px-4">Last Visit</th>
@@ -486,28 +498,51 @@ export const ClassVisitationView: React.FC<ClassVisitationViewProps> = ({
                         candidate.isInCooldown ? 'opacity-60 bg-slate-50/40' : ''
                       }`}
                     >
-                      {/* Priority Badge */}
+                      {/* Priority & Slot Badge */}
                       <td className="py-3.5 px-4">
-                        <span
-                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                            candidate.priority === 'HIGH'
-                              ? 'bg-rose-100 text-rose-800 border border-rose-300'
-                              : candidate.priority === 'MEDIUM'
-                              ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                              : 'bg-blue-100 text-blue-800 border border-blue-300'
-                          }`}
-                        >
+                        <div className="flex flex-col gap-1">
                           <span
-                            className={`w-1.5 h-1.5 rounded-full ${
-                              candidate.priority === 'HIGH'
-                                ? 'bg-rose-600'
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                              candidate.slotType === 'CONSISTENT_STUDENT'
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                : candidate.slotType === 'NEWLY_ONBOARDED'
+                                ? 'bg-purple-100 text-purple-800 border border-purple-300'
+                                : candidate.priority === 'HIGH'
+                                ? 'bg-rose-100 text-rose-800 border border-rose-300'
                                 : candidate.priority === 'MEDIUM'
-                                ? 'bg-amber-600'
-                                : 'bg-blue-600'
+                                ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                : 'bg-blue-100 text-blue-800 border border-blue-300'
                             }`}
-                          />
-                          {candidate.priority === 'HIGH' ? 'Priority 1 (High)' : candidate.priority === 'MEDIUM' ? 'Priority 2 (Med)' : 'Priority 3 (Mon)'}
-                        </span>
+                          >
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full ${
+                                candidate.slotType === 'CONSISTENT_STUDENT'
+                                  ? 'bg-emerald-600'
+                                  : candidate.slotType === 'NEWLY_ONBOARDED'
+                                  ? 'bg-purple-600'
+                                  : candidate.priority === 'HIGH'
+                                  ? 'bg-rose-600'
+                                  : candidate.priority === 'MEDIUM'
+                                  ? 'bg-amber-600'
+                                  : 'bg-blue-600'
+                              }`}
+                            />
+                            {candidate.slotType === 'CONSISTENT_STUDENT'
+                              ? 'Consistent Student'
+                              : candidate.slotType === 'NEWLY_ONBOARDED'
+                              ? 'Newly Onboarded'
+                              : candidate.priority === 'HIGH'
+                              ? 'Priority 1 (High)'
+                              : candidate.priority === 'MEDIUM'
+                              ? 'Priority 2 (Med)'
+                              : 'Priority 3 (Mon)'}
+                          </span>
+                          {candidate.slotType && (
+                            <span className="text-[9px] text-slate-500 font-semibold">
+                              {candidate.slotType === 'PRIORITY_NEED' ? 'Slot 1/2 · Need' : candidate.slotType === 'CONSISTENT_STUDENT' ? 'Slot 3 · Encourage' : 'Slot 4 · New Onboard'}
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Member Info */}
@@ -593,33 +628,40 @@ export const ClassVisitationView: React.FC<ClassVisitationViewProps> = ({
 
                       {/* Actions */}
                       <td className="py-3.5 px-4 text-right">
-                        <div className="inline-flex items-center gap-2">
-                          <button
-                            onClick={() => {
-                              setSelectedCandidate(candidate);
-                              setAssignedWorkerName(assignment?.assignedStaffName || '');
-                              setAssignedWorkerPhone(assignment?.assignedStaffPhone || '');
-                              setIsAssignModalOpen(true);
-                            }}
-                            className="px-3 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs transition-colors cursor-pointer"
-                          >
-                            {assignment ? 'Reassign' : 'Assign'}
-                          </button>
+                        {isLockedForClass ? (
+                          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-xl bg-slate-100 text-slate-500 font-bold text-xs border border-slate-200">
+                            <Lock className="w-3 h-3" />
+                            <span>Locked</span>
+                          </span>
+                        ) : (
+                          <div className="inline-flex items-center gap-2">
+                            <button
+                              onClick={() => {
+                                setSelectedCandidate(candidate);
+                                setAssignedWorkerName(assignment?.assignedStaffName || '');
+                                setAssignedWorkerPhone(assignment?.assignedStaffPhone || '');
+                                setIsAssignModalOpen(true);
+                              }}
+                              className="px-3 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs transition-colors cursor-pointer"
+                            >
+                              {assignment ? 'Reassign' : 'Assign'}
+                            </button>
 
-                          <button
-                            onClick={() => {
-                              setSelectedCandidate(candidate);
-                              setSelectedAssignment(assignment || null);
-                              setVisitorName(assignment?.assignedStaffName || classProfile?.teacherName || '');
-                              setVisitOutcome(assignment?.outcome || '');
-                              setVisitNextAction(assignment?.nextAction || '');
-                              setIsRecordVisitModalOpen(true);
-                            }}
-                            className="px-3 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
-                          >
-                            {isCompleted ? 'Edit Visit' : 'Complete Visit'}
-                          </button>
-                        </div>
+                            <button
+                              onClick={() => {
+                                setSelectedCandidate(candidate);
+                                setSelectedAssignment(assignment || null);
+                                setVisitorName(assignment?.assignedStaffName || classProfile?.teacherName || '');
+                                setVisitOutcome(assignment?.outcome || '');
+                                setVisitNextAction(assignment?.nextAction || '');
+                                setIsRecordVisitModalOpen(true);
+                              }}
+                              className="px-3 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
+                            >
+                              {isCompleted ? 'Edit Visit' : 'Complete Visit'}
+                            </button>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );

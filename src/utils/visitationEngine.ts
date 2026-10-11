@@ -89,6 +89,8 @@ export function evaluateMemberVisitationEligibility(
   visitationAssignments: Record<string, VisitationAssignmentRecord> = {}
 ): VisitationCandidate | null {
   if (member.status === 'LEFT_CLASS') return null;
+  // One-time visitors are excluded from automatic visitation selection
+  if (member.isOneTimeVisitor) return null;
 
   const consecutiveWeeksAbsent = getConsecutiveAbsences(
     member.id,
@@ -123,7 +125,6 @@ export function evaluateMemberVisitationEligibility(
   const cooldown = getMemberVisitationCooldown(member.id, currentWeek, absenceLogs, visitationAssignments);
 
   // Check existing assignment for this week
-  const assignmentKey = `${member.classId || ''}_w${currentWeek}_m${member.id}`;
   const existingAssignment = Object.values(visitationAssignments).find(a =>
     a.memberId === member.id && a.weekNumber === currentWeek
   );
@@ -138,6 +139,7 @@ export function evaluateMemberVisitationEligibility(
     consecutiveWeeksAbsent,
     priority,
     priorityRank,
+    slotType: 'PRIORITY_NEED',
     eligibilityReason,
     lastVisitedDate: cooldown.lastVisitedDate,
     lastVisitedWeek: cooldown.lastVisitedWeek,
@@ -154,7 +156,11 @@ export function evaluateMemberVisitationEligibility(
 
 /**
  * Computes the prioritized visitation candidates for a class for a specific week.
- * Applies the 4-week cooldown filter, deterministic priority sorting, and 3-4 weekly cap.
+ * Follows the 4-slot operational visitation rule:
+ * - Up to 2 spots for Priority Need (urgent absentees: 3+ weeks, 2 weeks, 1 week)
+ * - 1 spot for Consistent Student Encouragement (present for a long time)
+ * - 1 spot for Newly Onboarded Student (joined last week)
+ * Applies the 4-week cooldown filter, one-time visitor exclusion, and 3-4 weekly cap.
  */
 export function getClassWeeklyVisitationCandidates(
   members: Member[],
@@ -165,6 +171,7 @@ export function getClassWeeklyVisitationCandidates(
   options?: {
     includeCooldown?: boolean;
     maxCap?: number;
+    purePrioritySort?: boolean;
   }
 ): {
   candidates: VisitationCandidate[];
@@ -173,11 +180,15 @@ export function getClassWeeklyVisitationCandidates(
 } {
   const includeCooldown = options?.includeCooldown ?? false;
   const maxCap = options?.maxCap ?? VISITATION_MAX_PER_CLASS_PER_WEEK;
+  const purePrioritySort = options?.purePrioritySort ?? false;
 
   const allEvaluated: VisitationCandidate[] = [];
   let excludedByCooldownCount = 0;
 
   for (const member of members) {
+    if (member.isOneTimeVisitor || member.status === 'LEFT_CLASS') {
+      continue;
+    }
     const candidate = evaluateMemberVisitationEligibility(
       member,
       currentWeek,
@@ -195,7 +206,7 @@ export function getClassWeeklyVisitationCandidates(
     }
   }
 
-  // Deterministic sorting:
+  // Deterministic sorting of absentee candidates:
   // 1. Priority Rank (1 = Highest, 2 = Medium, 3 = Low)
   // 2. Longest consecutive absences descending
   // 3. Member full name ascending
@@ -209,11 +220,189 @@ export function getClassWeeklyVisitationCandidates(
     return a.fullName.localeCompare(b.fullName);
   });
 
-  const totalEligibleBeforeCap = allEvaluated.length;
-  const cappedCandidates = allEvaluated.slice(0, maxCap);
+  // If pure priority sort is explicitly requested (e.g. legacy tests)
+  if (purePrioritySort) {
+    const totalEligibleBeforeCap = allEvaluated.length;
+    const cappedCandidates = allEvaluated.slice(0, maxCap);
+    return {
+      candidates: cappedCandidates,
+      totalEligibleBeforeCap,
+      excludedByCooldownCount
+    };
+  }
+
+  // =========================================================================
+  // THE 4-SLOT OPERATIONAL STRUCTURE
+  // 1 & 2: Top 2 Priority Need (Urgent Absentees)
+  // 3: 1 slot for Consistent Student Encouragement
+  // 4: 1 slot for Newly Onboarded Student (joined last week)
+  // =========================================================================
+
+  // Slot 1 & 2: Up to 2 Priority Need Candidates
+  const prioritySlotCandidates = allEvaluated.slice(0, 2).map(c => ({
+    ...c,
+    slotType: 'PRIORITY_NEED' as const
+  }));
+  const selectedMemberIds = new Set(prioritySlotCandidates.map(c => c.memberId));
+
+  // Slot 3: Consistent Student Encouragement (1 slot)
+  let consistentCandidate: VisitationCandidate | null = null;
+  const eligibleConsistentMembers: Array<{ member: Member; streak: number; totalAttended: number }> = [];
+
+  for (const m of members) {
+    if (m.isOneTimeVisitor || m.status === 'LEFT_CLASS' || selectedMemberIds.has(m.id)) {
+      continue;
+    }
+    const cooldown = getMemberVisitationCooldown(m.id, currentWeek, absenceLogs, visitationAssignments);
+    if (cooldown.isInCooldown && !includeCooldown) {
+      continue;
+    }
+
+    // Must be present in current week or have 0 consecutive absences
+    const consecutiveAbsent = getConsecutiveAbsences(m.id, currentWeek, grades, m.firstLessonWeek || 1);
+    if (consecutiveAbsent > 0) {
+      continue;
+    }
+
+    // Calculate presence streak up to currentWeek
+    let streak = 0;
+    for (let w = currentWeek; w >= (m.firstLessonWeek || 1); w--) {
+      const g = grades.find(grade => grade.memberId === m.id && grade.weekNumber === w);
+      if (g && g.attendance === 'PRESENT') {
+        streak++;
+      } else {
+        break;
+      }
+    }
+
+    // Calculate total attended weeks
+    const totalAttended = grades.filter(
+      grade => grade.memberId === m.id && grade.attendance === 'PRESENT' && grade.weekNumber <= currentWeek
+    ).length;
+
+    if (streak >= 1 || totalAttended >= 1) {
+      eligibleConsistentMembers.push({ member: m, streak, totalAttended });
+    }
+  }
+
+  eligibleConsistentMembers.sort((a, b) => {
+    if (b.streak !== a.streak) return b.streak - a.streak;
+    if (b.totalAttended !== a.totalAttended) return b.totalAttended - a.totalAttended;
+    return a.member.fullName.localeCompare(b.member.fullName);
+  });
+
+  if (eligibleConsistentMembers.length > 0) {
+    const top = eligibleConsistentMembers[0];
+    const m = top.member;
+    const cooldown = getMemberVisitationCooldown(m.id, currentWeek, absenceLogs, visitationAssignments);
+    const existingAssignment = Object.values(visitationAssignments).find(
+      a => a.memberId === m.id && a.weekNumber === currentWeek
+    );
+
+    consistentCandidate = {
+      memberId: m.id,
+      fullName: m.fullName,
+      phone: m.phone || '',
+      address: m.address || '',
+      memberType: m.memberType,
+      classId: m.classId || '',
+      consecutiveWeeksAbsent: 0,
+      priority: 'LOW',
+      priorityRank: 3,
+      slotType: 'CONSISTENT_STUDENT',
+      eligibilityReason: `Consistent Student Encouragement (Present for ${top.streak} consecutive week${top.streak > 1 ? 's' : ''})`,
+      lastVisitedDate: cooldown.lastVisitedDate,
+      lastVisitedWeek: cooldown.lastVisitedWeek,
+      isInCooldown: cooldown.isInCooldown,
+      cooldownWeeksRemaining: cooldown.cooldownWeeksRemaining,
+      assignedStaffId: existingAssignment?.assignedStaffId,
+      assignedStaffName: existingAssignment?.assignedStaffName,
+      assignedStaffRole: existingAssignment?.assignedStaffRole,
+      assignedStaffPhone: existingAssignment?.assignedStaffPhone,
+      visitStatus: existingAssignment?.status || 'PENDING',
+      notes: existingAssignment?.outcome || undefined
+    };
+    selectedMemberIds.add(m.id);
+  }
+
+  // Slot 4: Newly Onboarded Student (1 slot)
+  let newlyOnboardedCandidate: VisitationCandidate | null = null;
+  const eligibleNewMembers: Member[] = [];
+
+  for (const m of members) {
+    if (m.isOneTimeVisitor || m.status === 'LEFT_CLASS' || selectedMemberIds.has(m.id)) {
+      continue;
+    }
+    const cooldown = getMemberVisitationCooldown(m.id, currentWeek, absenceLogs, visitationAssignments);
+    if (cooldown.isInCooldown && !includeCooldown) {
+      continue;
+    }
+
+    // Student that just joined last week (currentWeek - 1) or recently (within 1-2 lessons)
+    const joinedWeek = m.firstLessonWeek || 1;
+    const isJoinedLastWeek = joinedWeek === currentWeek - 1;
+    const isJoinedCurrentWeek = joinedWeek === currentWeek;
+
+    if (isJoinedLastWeek || isJoinedCurrentWeek) {
+      eligibleNewMembers.push(m);
+    }
+  }
+
+  eligibleNewMembers.sort((a, b) => {
+    // Prefer joined last week (currentWeek - 1) first
+    const aLastWeek = (a.firstLessonWeek || 1) === currentWeek - 1 ? 1 : 0;
+    const bLastWeek = (b.firstLessonWeek || 1) === currentWeek - 1 ? 1 : 0;
+    if (bLastWeek !== aLastWeek) return bLastWeek - aLastWeek;
+    return a.fullName.localeCompare(b.fullName);
+  });
+
+  if (eligibleNewMembers.length > 0) {
+    const m = eligibleNewMembers[0];
+    const cooldown = getMemberVisitationCooldown(m.id, currentWeek, absenceLogs, visitationAssignments);
+    const existingAssignment = Object.values(visitationAssignments).find(
+      a => a.memberId === m.id && a.weekNumber === currentWeek
+    );
+    const consecutiveAbsent = getConsecutiveAbsences(m.id, currentWeek, grades, m.firstLessonWeek || 1);
+
+    newlyOnboardedCandidate = {
+      memberId: m.id,
+      fullName: m.fullName,
+      phone: m.phone || '',
+      address: m.address || '',
+      memberType: m.memberType,
+      classId: m.classId || '',
+      consecutiveWeeksAbsent: consecutiveAbsent,
+      priority: 'MEDIUM',
+      priorityRank: 2,
+      slotType: 'NEWLY_ONBOARDED',
+      eligibilityReason: `Newly Onboarded Student (Joined in Week ${m.firstLessonWeek || currentWeek - 1})`,
+      lastVisitedDate: cooldown.lastVisitedDate,
+      lastVisitedWeek: cooldown.lastVisitedWeek,
+      isInCooldown: cooldown.isInCooldown,
+      cooldownWeeksRemaining: cooldown.cooldownWeeksRemaining,
+      assignedStaffId: existingAssignment?.assignedStaffId,
+      assignedStaffName: existingAssignment?.assignedStaffName,
+      assignedStaffRole: existingAssignment?.assignedStaffRole,
+      assignedStaffPhone: existingAssignment?.assignedStaffPhone,
+      visitStatus: existingAssignment?.status || 'PENDING',
+      notes: existingAssignment?.outcome || undefined
+    };
+    selectedMemberIds.add(m.id);
+  }
+
+  // Combine into final list (max 4, target 3)
+  const finalCandidates: VisitationCandidate[] = [
+    ...prioritySlotCandidates,
+    ...(consistentCandidate ? [consistentCandidate] : []),
+    ...(newlyOnboardedCandidate ? [newlyOnboardedCandidate] : [])
+  ].slice(0, maxCap);
+
+  const totalEligibleBeforeCap = allEvaluated.length +
+    (consistentCandidate ? 1 : 0) +
+    (newlyOnboardedCandidate ? 1 : 0);
 
   return {
-    candidates: cappedCandidates,
+    candidates: finalCandidates,
     totalEligibleBeforeCap,
     excludedByCooldownCount
   };
@@ -262,7 +451,7 @@ export function computeClassFollowUpSummary(
     grades,
     absenceLogs,
     visitationAssignments,
-    { includeCooldown: false, maxCap: VISITATION_MAX_PER_CLASS_PER_WEEK }
+    { includeCooldown: false, maxCap: VISITATION_MAX_PER_CLASS_PER_WEEK, purePrioritySort: true }
   );
   const membersRequiringVisitation = totalEligibleBeforeCap;
 

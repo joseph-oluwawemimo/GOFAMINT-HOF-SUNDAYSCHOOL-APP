@@ -64,44 +64,42 @@ export const Navigation: React.FC<NavigationProps> = ({
       badgeColor: 'bg-purple-600 text-white'
     },
     {
+      id: 'REPORT_CARD',
+      label: '1. SSS Report',
+      shortLabel: 'SSS Report',
+      icon: GraduationCap
+    },
+    {
+      id: 'ASSIGNMENTS',
+      label: '2. Follow-Up Assignments',
+      shortLabel: 'Assignments',
+      icon: UserCheck
+    },
+    {
+      id: 'VISITATION',
+      label: '3. Class Visitation',
+      shortLabel: 'Visitation',
+      icon: Home
+    },
+    {
       id: 'WELFARE_FOLLOW_UP',
-      label: 'Welfare / Follow-Up',
+      label: '4. Welfare Reach',
       shortLabel: 'Welfare',
       icon: HeartHandshake,
       badge: urgentAbsenceCount > 0 ? urgentAbsenceCount : undefined,
       badgeColor: 'bg-amber-600 text-white font-black'
     },
     {
-      id: 'ASSIGNMENTS',
-      label: 'Follow-Up Assignments',
-      shortLabel: 'Assignments',
-      icon: UserCheck
-    },
-    {
-      id: 'VISITATION',
-      label: 'Class Visitation',
-      shortLabel: 'Visitation',
-      icon: Home
+      id: 'FOLLOW_UP_REPORT',
+      label: '5. Follow-Up Report',
+      shortLabel: 'Intelligence',
+      icon: BarChart3
     },
     {
       id: 'QUARTER_ANALYSIS',
       label: 'Quarter Analysis',
       shortLabel: 'Analysis',
-      icon: BarChart3
-    },
-    {
-      id: 'CLASS_DISCUSSION',
-      label: 'Class Discussion',
-      shortLabel: 'Discuss',
-      icon: MessageSquare,
-      badge: unreadCommentsCount > 0 ? unreadCommentsCount : undefined,
-      badgeColor: 'bg-blue-600 text-white'
-    },
-    {
-      id: 'REPORT_CARD',
-      label: 'Sunday School Report Card',
-      shortLabel: 'Report',
-      icon: GraduationCap
+      icon: Sparkles
     }
   ];
 

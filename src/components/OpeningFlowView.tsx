@@ -75,6 +75,7 @@ const ROLE_FORMATTED_NAMES: Record<string, string> = {
   CLASS_SECRETARY: 'Class Secretary',
   'TEACHER / CLASS_SECRETARY': 'Class Teacher / Secretary',
   WORKER: 'Sunday School Worker',
+  USHER: 'Sunday School Usher',
   SUPER_ADMIN: 'Executive Council Leader'
 };
 
@@ -112,7 +113,7 @@ export const OpeningFlowView: React.FC<OpeningFlowViewProps> = ({
   // Admin and authorization flags
   const userRole = currentUserProfile?.role || '';
   const isAdmin = ADMIN_ROLES.includes(userRole);
-  const isWorker = ['WORKER', 'RECORD_OFFICER', 'ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY', 'GENERAL_SECRETARY', 'GENERAL_SUPERINTENDENT', 'SUPER_ADMIN'].includes(userRole);
+  const isWorker = ['WORKER', 'USHER', 'RECORD_OFFICER', 'ASST_GENERAL_SECRETARY', 'ASSISTANT_GENERAL_SECRETARY', 'GENERAL_SECRETARY', 'GENERAL_SUPERINTENDENT', 'SUPER_ADMIN'].includes(userRole);
 
   // Format user display name and portfolio title
   const userName =
@@ -178,6 +179,10 @@ export const OpeningFlowView: React.FC<OpeningFlowViewProps> = ({
 
   // Handle SIB Portal click
   const handleSibPortalClick = () => {
+    if (userRole === 'USHER') {
+      setAuthErrorModalMessage('Usher accounts only have authorized access to the Workers Directorate.');
+      return;
+    }
     if (onEnterSibPortal) {
       onEnterSibPortal();
     } else {
@@ -187,6 +192,10 @@ export const OpeningFlowView: React.FC<OpeningFlowViewProps> = ({
 
   // Handle Follow-Up Portal click (Portal 5)
   const handleFollowUpPortalClick = () => {
+    if (userRole === 'USHER') {
+      setAuthErrorModalMessage('Usher accounts only have authorized access to the Workers Directorate.');
+      return;
+    }
     if (onEnterFollowUpPortal) {
       onEnterFollowUpPortal();
     } else {
@@ -566,6 +575,10 @@ export const OpeningFlowView: React.FC<OpeningFlowViewProps> = ({
                   <button
                     id="btn-portal-select-teacher"
                     onClick={() => {
+                      if (userRole === 'USHER') {
+                        setAuthErrorModalMessage('Usher accounts only have authorized access to the Workers Directorate.');
+                        return;
+                      }
                       void refreshClassesAndWorkers(true);
                       setCurrentStep('TEACHER_PORTAL_HOME');
                     }}

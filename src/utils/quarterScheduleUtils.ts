@@ -849,6 +849,98 @@ export function getLatestCompletedSundayWeek(
   return info.activeRegisterWeek;
 }
 
+export interface FollowUpWindowInfo {
+  weekNumber: number;
+  sundayDate: string; // YYYY-MM-DD
+  saturdayDeadlineDate: string; // YYYY-MM-DD
+  windowStart: Date;
+  windowEnd: Date;
+  status: 'UPCOMING' | 'ACTIVE' | 'EXPIRED';
+  timeRemainingMs: number;
+  days: number;
+  hours: number;
+  minutes: number;
+  seconds: number;
+  formattedRemaining: string; // e.g. "4d 18h 32m 10s"
+  isWindowOpen: boolean;
+  isExpired: boolean;
+  isUpcoming: boolean;
+}
+
+/**
+ * Calculates the weekly follow-up window for a Sunday School week.
+ * The follow-up window starts on Sunday morning 12:00 AM (Africa/Lagos WAT)
+ * when the register opens, and closes on Saturday at 11:00 PM (23:00 WAT).
+ */
+export function getFollowUpWindowForWeek(
+  weekNumber: number,
+  quarter?: QuarterData | null,
+  now: Date = new Date()
+): FollowUpWindowInfo {
+  const currentYear = now.getFullYear();
+  const schedule = getQuarterWeeklySchedule(quarter || undefined, currentYear);
+  const item = schedule.find(s => s.weekNumber === weekNumber);
+
+  let sundayDateStr = item?.sundayDate;
+  if (!sundayDateStr) {
+    const qStart = quarter?.startDate ? parseDateSafe(quarter.startDate) : new Date(currentYear, 0, 4);
+    const estimatedSun = new Date(qStart);
+    estimatedSun.setDate(estimatedSun.getDate() + (weekNumber - 1) * 7);
+    sundayDateStr = formatDateISO(estimatedSun);
+  }
+
+  const [sY, sM, sD] = sundayDateStr.split('-').map(Number);
+  // Sunday 00:00:00 Nigeria Time (WAT is UTC+1) => UTC: previous day 23:00:00
+  const windowStartUtc = Date.UTC(sY, sM - 1, sD, 0 - 1, 0, 0);
+
+  // Saturday is Sunday + 6 days at 23:00:00 Nigeria Time (WAT is UTC+1) => UTC: Saturday 22:00:00
+  const saturdayDate = new Date(Date.UTC(sY, sM - 1, sD + 6));
+  const satY = saturdayDate.getUTCFullYear();
+  const satM = saturdayDate.getUTCMonth() + 1;
+  const satD = saturdayDate.getUTCDate();
+  const saturdayDateStr = `${satY}-${String(satM).padStart(2, '0')}-${String(satD).padStart(2, '0')}`;
+  const windowEndUtc = Date.UTC(satY, satM - 1, satD, 23 - 1, 0, 0);
+
+  const nowUtc = now.getTime();
+  let status: 'UPCOMING' | 'ACTIVE' | 'EXPIRED' = 'ACTIVE';
+  let diffMs = 0;
+
+  if (nowUtc < windowStartUtc) {
+    status = 'UPCOMING';
+    diffMs = 0;
+  } else if (nowUtc > windowEndUtc) {
+    status = 'EXPIRED';
+    diffMs = 0;
+  } else {
+    status = 'ACTIVE';
+    diffMs = Math.max(0, windowEndUtc - nowUtc);
+  }
+
+  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const hours = Math.floor((diffMs / (1000 * 60 * 60)) % 24);
+  const minutes = Math.floor((diffMs / (1000 * 60)) % 60);
+  const seconds = Math.floor((diffMs / 1000) % 60);
+  const formattedRemaining = `${days}d ${hours}h ${minutes}m ${seconds}s`;
+
+  return {
+    weekNumber,
+    sundayDate: sundayDateStr,
+    saturdayDeadlineDate: saturdayDateStr,
+    windowStart: new Date(windowStartUtc),
+    windowEnd: new Date(windowEndUtc),
+    status,
+    timeRemainingMs: diffMs,
+    days,
+    hours,
+    minutes,
+    seconds,
+    formattedRemaining,
+    isWindowOpen: status === 'ACTIVE',
+    isExpired: status === 'EXPIRED',
+    isUpcoming: status === 'UPCOMING'
+  };
+}
+
 /**
  * PHASE 3 & 3.1 - THURSDAY DATE + TIME SECURITY
  * Checks BOTH DATE and TIME.
