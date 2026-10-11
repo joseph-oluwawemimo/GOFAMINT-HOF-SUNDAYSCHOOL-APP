@@ -78,11 +78,20 @@ export const StandaloneReportCardView: React.FC<StandaloneReportCardViewProps> =
               id: rc.classId || 'my-class',
               className: rc.className || 'Sunday School Class',
               department: rc.department || 'General',
-              teacherName: 'Class Teacher',
-              secretaries: [],
+              secretaryName: rc.secretaryName || '',
+              secretaryPhone: rc.secretaryPhone || '',
+              teachers: rc.teachers || [],
+              teacherName: rc.teacherName || 'Class Teacher',
+              quarterTitle: rc.quarterTitle || 'Quarter 1: Sunday School Curriculum',
+              year: rc.year || new Date().getFullYear(),
+              currencySymbol: '₦',
+              isSetupComplete: true,
+              approvalStatus: 'APPROVED',
+              secretaries: rc.secretaryName ? [{ name: rc.secretaryName, phone: rc.secretaryPhone || '' }] : [],
               assignedWorkers: [],
-              approvalStatus: 'APPROVED'
-            });
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            } as ClassProfile);
             setFairnessMetrics(rc.fairnessMetrics || null);
             setClusterWeeks(rc.clusterWeeks || []);
             setClassSummary(rc.classSummary || null);
@@ -122,8 +131,8 @@ export const StandaloneReportCardView: React.FC<StandaloneReportCardViewProps> =
             approvalStatus: 'APPROVED'
           });
 
-          // Compute fairness and cluster weeks from local grades
-          const classMembers = allMembers.filter(m => m.classId === matched.classId);
+          // Compute fairness and cluster weeks from local grades (filter out LEFT_CLASS)
+          const classMembers = allMembers.filter(m => m.classId === matched.classId && m.status !== 'LEFT_CLASS');
           const classGrades = allGrades.filter(g => g.classId === matched.classId);
           const fairness = computeClassFairnessRankings(
             classMembers.length > 0 ? classMembers : [matched],

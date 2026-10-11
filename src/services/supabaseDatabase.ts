@@ -239,6 +239,80 @@ export async function saveDocument<T extends { id: string }>(collectionName: str
       console.warn(`Could not verify existing class approval before saving ${document.id}:`, approvalLookupError);
     }
   }
+
+  if (collectionName === 'members') {
+    try {
+      const { data: existing } = await getSupabaseClient().from('members').select('data, updated_at').eq('id', document.id).maybeSingle();
+      if (existing?.data) {
+        // Guard student status: never downgrade an approved STUDENT to VISITOR from stale draft sync
+        if (existing.data.memberType === 'STUDENT' && row.data?.memberType !== 'STUDENT') {
+          console.warn(`[SupabaseDatabase] Guarding student status: Preventing downgrade of member ${document.id} from STUDENT to ${row.data?.memberType}`);
+          row.data.memberType = 'STUDENT';
+          row.data.conversionStatus = existing.data.conversionStatus || 'APPROVED';
+          row.data.convertedFromVisitorAtLesson = existing.data.convertedFromVisitorAtLesson;
+          row.data.certifiedAt = existing.data.certifiedAt;
+          row.data.certifiedBy = existing.data.certifiedBy;
+          if (existing.data.enrolledDate) row.data.enrolledDate = existing.data.enrolledDate;
+          if (existing.data.reportCardToken && !row.data.reportCardToken) {
+            row.data.reportCardToken = existing.data.reportCardToken;
+          }
+          if (existing.data.statusHistory && (!row.data.statusHistory || row.data.statusHistory.length < existing.data.statusHistory.length)) {
+            row.data.statusHistory = existing.data.statusHistory;
+          }
+          if (existing.data.quarterEnrollments) {
+            row.data.quarterEnrollments = {
+              ...(row.data.quarterEnrollments || {}),
+              ...existing.data.quarterEnrollments
+            };
+          }
+        }
+        // Guard phone number: never wipe an existing non-empty phone with an empty string or null
+        if (existing.data.phone && (!row.data?.phone || String(row.data.phone).trim() === '')) {
+          console.warn(`[SupabaseDatabase] Guarding member phone: Preserving existing phone ${existing.data.phone} for member ${document.id}`);
+          row.data.phone = existing.data.phone;
+        }
+        // If existing cloud data was updated more recently than incoming payload, preserve non-destructive fields
+        const incomingTime = (document as any).updatedAt ? new Date((document as any).updatedAt).getTime() : 0;
+        const existingTime = existing.updated_at
+          ? new Date(existing.updated_at).getTime()
+          : (existing.data.updatedAt ? new Date(existing.data.updatedAt).getTime() : 0);
+        if (existingTime > incomingTime && incomingTime > 0) {
+          row.data = {
+            ...existing.data,
+            ...row.data,
+            phone: existing.data.phone || row.data.phone,
+            memberType: existing.data.memberType === 'STUDENT' ? 'STUDENT' : (row.data.memberType || existing.data.memberType),
+            status: existing.data.status || row.data.status,
+            quarterEnrollments: { ...(row.data.quarterEnrollments || {}), ...(existing.data.quarterEnrollments || {}) }
+          };
+        }
+      }
+    } catch (memberLookupError) {
+      console.warn(`Could not verify existing member state before saving ${document.id}:`, memberLookupError);
+    }
+  }
+
+  if (collectionName === 'grades') {
+    try {
+      const { data: existing } = await getSupabaseClient().from('grades').select('data, updated_at').eq('id', document.id).maybeSingle();
+      if (existing?.data) {
+        const incomingTime = (document as any).updatedAt ? new Date((document as any).updatedAt).getTime() : 0;
+        const existingTime = existing.data.updatedAt ? new Date(existing.data.updatedAt).getTime() : 0;
+        // If cloud record was updated after incoming draft and cloud has valid equal or higher score, preserve cloud
+        if (existingTime > incomingTime && incomingTime > 0) {
+          const incomingScore = Number((document as any).lessonTotal || 0);
+          const existingScore = Number(existing.data.lessonTotal || 0);
+          if (existingScore >= incomingScore) {
+            console.warn(`[SupabaseDatabase] Guarding grade ${document.id}: cloud record is newer and has score ${existingScore} >= ${incomingScore}. Preserving cloud state.`);
+            return fromRow<T>(collectionName, existing as any);
+          }
+        }
+      }
+    } catch (gradeLookupError) {
+      console.warn(`Could not verify existing grade state before saving ${document.id}:`, gradeLookupError);
+    }
+  }
+
   const { error } = await getSupabaseClient().from(config.table).upsert(row, { onConflict: 'id' });
   if (error) {
     console.error(`Supabase saveDocument error [${collectionName}/${document.id}]:`, error);

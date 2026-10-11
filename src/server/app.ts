@@ -6,7 +6,7 @@ import { GOFAMINT_ROLES, getBearerToken, getSupabaseAdmin, provisionSupabaseUser
 import { hasInitializedSystem } from '../utils/systemInitialization.js';
 import { normalizeClassLoginIdentifier, normalizeLoginIdentifier } from '../utils/loginIdentifier.js';
 import { collectAllPages } from '../utils/paginatedRead.js';
-import { computeClassFairnessRankings } from '../utils/fairnessScoring.js';
+import { computeClassFairnessRankings, generateMemberClusterWeeks } from '../utils/fairnessScoring.js';
 
 const EXEC: GofamintRole[] = ['SUPER_ADMIN', 'GENERAL_SUPERINTENDENT', 'GENERAL_SECRETARY'];
 const APPROVERS: GofamintRole[] = ['SUPER_ADMIN', 'GENERAL_SUPERINTENDENT', 'GENERAL_SECRETARY'];
@@ -1513,8 +1513,32 @@ export function createApp() {
       };
       let memberMetrics: any = null;
 
+      let className = memberData.className || 'Sunday School Class';
+      let department = memberData.department || 'General';
+      let secretaryName = '';
+      let secretaryPhone = '';
+      let teacherName = 'Class Teacher';
+      let quarterTitle = 'Quarter 1: Sunday School Curriculum';
+      let year = new Date().getFullYear();
+      let teachers: any[] = [];
+
       try {
         if (classId) {
+          // Fetch authoritative class profile metadata
+          const { data: clsRows } = await db.from('classes').select('*').eq('id', classId).limit(1);
+          if (clsRows && clsRows.length > 0) {
+            const classRow = clsRows[0];
+            const cData = classRow.data || classRow;
+            className = cData.className || classRow.name || className;
+            department = cData.department || classRow.department_id || department;
+            secretaryName = cData.secretaryName || '';
+            secretaryPhone = cData.secretaryPhone || '';
+            teachers = cData.teachers || [];
+            teacherName = teachers.find((t: any) => t.isHeadTeacher)?.name || teachers[0]?.name || cData.teacherName || teacherName;
+            quarterTitle = cData.quarterTitle || quarterTitle;
+            year = cData.year || year;
+          }
+
           const classMembersRows = await readAllServerRows(db, 'members', {
             filters: [{ column: 'class_id', value: classId }]
           });
@@ -1531,8 +1555,19 @@ export function createApp() {
             classId: r.class_id || classId,
             department: r.data?.department,
             quarterEnrollments: r.data?.quarterEnrollments,
+            convertedFromVisitorAtLesson: r.data?.convertedFromVisitorAtLesson,
+            statusHistory: r.data?.statusHistory,
+            certifiedAt: r.data?.certifiedAt,
+            certifiedBy: r.data?.certifiedBy,
+            enrolledDate: r.data?.enrolledDate,
             ...r.data
           }));
+
+          // Exclude departed/archived members (LEFT_CLASS) to maintain authentic active class roster count (e.g. 20 members)
+          const activeClassMembers = normalizedClassMembers.filter((m: any) => m.status !== 'LEFT_CLASS');
+          const membersForRankings = activeClassMembers.some((m: any) => m.id === memberId)
+            ? activeClassMembers
+            : [...activeClassMembers, normalizedClassMembers.find((m: any) => m.id === memberId) || { id: memberId, ...memberData }];
 
           const normalizedClassGrades = classGradesRows.map((g: any) => {
             const gData = g.data || g;
@@ -1550,9 +1585,9 @@ export function createApp() {
             };
           });
 
-          // Determine current max evaluated week from existing recorded grades in class
-          const maxWk = Math.max(1, Math.min(12, ...normalizedClassGrades.map(g => g.weekNumber)));
-          const classFairness = computeClassFairnessRankings(normalizedClassMembers, normalizedClassGrades, maxWk);
+          // Sunday School Quarter evaluation horizon is standard 12 lessons
+          const maxWk = 12;
+          const classFairness = computeClassFairnessRankings(membersForRankings, normalizedClassGrades, maxWk);
 
           const foundMetrics = classFairness.memberMetrics.find(m => m.memberId === memberId);
           if (foundMetrics) {
@@ -1565,6 +1600,9 @@ export function createApp() {
         console.warn('[Server] Non-fatal class fairness calculation warning:', classCalcErr);
       }
 
+      const isStudentStatus = (memberMetrics?.memberType === 'STUDENT') || (memberData.memberType === 'STUDENT');
+      const resolvedAwardEligible = isStudentStatus && (memberMetrics?.isAwardEligible ?? true);
+
       // Return ONLY student's personal report card info with ranking position (NO other student scores leaked)
       r.json({
         success: true,
@@ -1573,13 +1611,19 @@ export function createApp() {
           fullName: memberData.fullName || memberRow.name,
           phone: memberData.phone,
           gender: memberData.gender,
-          department: memberData.department,
-          className: memberData.className,
+          department: department,
+          className: className,
           classId: classId,
-          memberType: memberMetrics?.memberType || memberData.memberType || 'STUDENT',
-          isAwardEligible: memberMetrics?.isAwardEligible ?? (memberData.memberType === 'STUDENT'),
-          awardEligibilityLabel: memberMetrics?.awardEligibilityLabel ?? (memberData.memberType === 'STUDENT' ? 'Eligible for Awards' : 'Not Eligible for Awards'),
-          status: memberData.status,
+          secretaryName: secretaryName,
+          secretaryPhone: secretaryPhone,
+          teacherName: teacherName,
+          teachers: teachers,
+          quarterTitle: quarterTitle,
+          year: year,
+          memberType: isStudentStatus ? 'STUDENT' : 'VISITOR',
+          isAwardEligible: resolvedAwardEligible,
+          awardEligibilityLabel: resolvedAwardEligible ? 'Eligible for Awards' : 'Not Eligible for Awards',
+          status: memberData.status || 'ACTIVE',
           photoBase64: memberData.photoBase64,
           enrolledDate: memberData.enrolledDate,
           firstLessonWeek: memberMetrics?.joinLesson || memberData.firstLessonWeek || 1,
@@ -1598,7 +1642,7 @@ export function createApp() {
             participation: memberMetrics.participation,
             rankings: memberMetrics.rankings
           } : null,
-          clusterWeeks: memberMetrics?.clusterWeeks || [],
+          clusterWeeks: memberMetrics?.clusterWeeks || generateMemberClusterWeeks({ id: memberId, firstLessonWeek: memberData.firstLessonWeek || 1, memberType: isStudentStatus ? 'STUDENT' : 'VISITOR', ...memberData } as any, grades, 12),
           classSummary: {
             rankings: classRankings,
             classAverages: classAverages

@@ -634,10 +634,10 @@ export default function App() {
         getAbsenceLogsByClassAndQuarter(currentId, currentQ)
       ]);
 
-      setMembers(classMems);
-      setGrades(classGrds);
-      setOfferings(classOffs);
-      setAbsenceLogs(classLogs);
+      setMembers(prev => (JSON.stringify(prev) === JSON.stringify(classMems) ? prev : classMems));
+      setGrades(prev => (JSON.stringify(prev) === JSON.stringify(classGrds) ? prev : classGrds));
+      setOfferings(prev => (JSON.stringify(prev) === JSON.stringify(classOffs) ? prev : classOffs));
+      setAbsenceLogs(prev => (JSON.stringify(prev) === JSON.stringify(classLogs) ? prev : classLogs));
     } catch (e) {
       console.error('Error loading class quarter data:', e);
     }
@@ -656,11 +656,11 @@ export default function App() {
       getSundaySchoolYear(),
     ]);
 
-    setClassProfile(profile);
-    setSyncQueue(loadedQueue);
-    setLessons(loadedLessons);
-    setComments(loadedComments);
-    setSundaySchoolYear(loadedYear);
+    setClassProfile(prev => (JSON.stringify(prev) === JSON.stringify(profile) ? prev : profile));
+    setSyncQueue(prev => (JSON.stringify(prev) === JSON.stringify(loadedQueue) ? prev : loadedQueue));
+    setLessons(prev => (JSON.stringify(prev) === JSON.stringify(loadedLessons) ? prev : loadedLessons));
+    setComments(prev => (JSON.stringify(prev) === JSON.stringify(loadedComments) ? prev : loadedComments));
+    setSundaySchoolYear(prev => (JSON.stringify(prev) === JSON.stringify(loadedYear) ? prev : loadedYear));
 
     const quarterStateKey = `gofamint_nav_${navigationScope}_selected_quarter`;
     const weekStateKey = `gofamint_nav_${navigationScope}_selected_week`;
@@ -671,14 +671,28 @@ export default function App() {
     const activeQ = savedQ ? (JSON.parse(savedQ) as QuarterNumber) : (loadedYear?.activeQuarterNumber || profile?.quarter || 1);
     setSelectedQuarter(activeQ);
 
-    const savedWk = sessionStorage.getItem(weekStateKey)
-      || localStorage.getItem(weekStateKey)
-      || sessionStorage.getItem('gofamint_selected_week')
-      || localStorage.getItem('gofamint_selected_week');
-    if (!savedWk && loadedYear) {
+    const sessionWk = sessionStorage.getItem(weekStateKey) || sessionStorage.getItem('gofamint_selected_week');
+    if (sessionWk) {
+      try {
+        const parsed = Number(JSON.parse(sessionWk));
+        if (Number.isInteger(parsed) && parsed >= 1 && parsed <= 12) {
+          setSelectedWeek(parsed);
+        }
+      } catch {}
+    } else if (loadedYear) {
       const qData = loadedYear.quarters.find(q => q.quarterNumber === activeQ);
       const calWeek = getCurrentCalendarWeek(qData);
       setSelectedWeek(calWeek);
+    } else {
+      const localWk = localStorage.getItem(weekStateKey) || localStorage.getItem('gofamint_selected_week');
+      if (localWk) {
+        try {
+          const parsed = Number(JSON.parse(localWk));
+          if (Number.isInteger(parsed) && parsed >= 1 && parsed <= 12) {
+            setSelectedWeek(parsed);
+          }
+        } catch {}
+      }
     }
 
     if (profile) {
@@ -890,6 +904,8 @@ export default function App() {
     let localRefreshTimer: number | undefined;
     const handleLocalStoreChange = (event: Event) => {
       const detail = (event as CustomEvent).detail;
+      // Skip redundant double-refresh if the update was dispatched from the primary cloud hydration pass
+      if (detail?.source === 'remote-hydration') return;
       const stores = Array.isArray(detail?.stores)
         ? detail.stores
         : detail?.store
@@ -964,19 +980,26 @@ export default function App() {
     const autoSyncTimer = window.setInterval(async () => {
       if (!navigator.onLine || document.visibilityState === 'hidden') return;
       if (!cloudUser || profileResolution !== 'ready') return;
+
+      // Guard: do not run disruptive periodic re-hydration if operator is actively typing in an input
+      const activeEl = document.activeElement;
+      if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT')) {
+        return;
+      }
+
       try {
         const q = await getSyncQueue().catch(() => []);
         if (q.length > 0) {
           await flushSyncQueueToCloud();
           await retryFailedCloudPushes().catch(() => {});
           const freshQ = await getSyncQueue().catch(() => []);
-          setSyncQueue(freshQ);
+          setSyncQueue(prev => (JSON.stringify(prev) === JSON.stringify(freshQ) ? prev : freshQ));
         }
         void syncWithCloud(true);
       } catch (err) {
         console.warn('Auto-sync periodic interval notice:', err);
       }
-    }, 20000);
+    }, 120000);
 
     return () => {
       window.clearInterval(autoSyncTimer);
