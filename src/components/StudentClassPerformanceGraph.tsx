@@ -190,11 +190,11 @@ export const StudentClassPerformanceGraph: React.FC<Props> = ({
           </div>
           <div className="pt-1 border-t border-white/10 flex justify-between text-[11px]">
             <span className="text-indigo-200">Raw Rate:</span>
-            <span className="font-bold text-white">{formatRate(rates.overall.rawRate)}</span>
+            <span className="font-bold text-white">{formatRate(rates.overall.rawRate)}%</span>
           </div>
           <div className="flex justify-between text-[11px]">
             <span className="text-amber-200">Fair Rate:</span>
-            <span className="font-black text-amber-300">{formatRate(rates.overall.adjustedRate)}</span>
+            <span className="font-black text-amber-300">{formatRate(rates.overall.adjustedRate)}%</span>
           </div>
         </div>
 
@@ -214,11 +214,11 @@ export const StudentClassPerformanceGraph: React.FC<Props> = ({
           </div>
           <div className="pt-1 border-t border-slate-200 flex justify-between text-[11px]">
             <span className="text-slate-500">Raw Rate:</span>
-            <span className="font-bold text-slate-800">{formatRate(rates.memoryVerse.rawRate)}</span>
+            <span className="font-bold text-slate-800">{formatRate(rates.memoryVerse.rawRate)}%</span>
           </div>
           <div className="flex justify-between text-[11px]">
             <span className="text-slate-500">Fair Rate:</span>
-            <span className="font-black text-indigo-900">{formatRate(rates.memoryVerse.adjustedRate)}</span>
+            <span className="font-black text-indigo-900">{formatRate(rates.memoryVerse.adjustedRate)}%</span>
           </div>
         </div>
 
@@ -238,11 +238,11 @@ export const StudentClassPerformanceGraph: React.FC<Props> = ({
           </div>
           <div className="pt-1 border-t border-slate-200 flex justify-between text-[11px]">
             <span className="text-slate-500">Raw Rate:</span>
-            <span className="font-bold text-slate-800">{formatRate(rates.punctuality.rawRate)}</span>
+            <span className="font-bold text-slate-800">{formatRate(rates.punctuality.rawRate)}%</span>
           </div>
           <div className="flex justify-between text-[11px]">
             <span className="text-slate-500">Fair Rate:</span>
-            <span className="font-black text-indigo-900">{formatRate(rates.punctuality.adjustedRate)}</span>
+            <span className="font-black text-indigo-900">{formatRate(rates.punctuality.adjustedRate)}%</span>
           </div>
         </div>
 
@@ -262,11 +262,11 @@ export const StudentClassPerformanceGraph: React.FC<Props> = ({
           </div>
           <div className="pt-1 border-t border-slate-200 flex justify-between text-[11px]">
             <span className="text-slate-500">Raw Rate:</span>
-            <span className="font-bold text-slate-800">{formatRate(rates.participation.rawRate)}</span>
+            <span className="font-bold text-slate-800">{formatRate(rates.participation.rawRate)}%</span>
           </div>
           <div className="flex justify-between text-[11px]">
             <span className="text-slate-500">Fair Rate:</span>
-            <span className="font-black text-indigo-900">{formatRate(rates.participation.adjustedRate)}</span>
+            <span className="font-black text-indigo-900">{formatRate(rates.participation.adjustedRate)}%</span>
           </div>
         </div>
       </div>

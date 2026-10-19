@@ -7,8 +7,15 @@ import {
   generateFullYearQuarterPreviews,
   getDefaultQuarterStartDate,
   getQuarterWeeklySchedule,
+  getFollowUpWindowForWeek,
   parseDateSafe,
 } from '../src/utils/quarterScheduleUtils';
+
+test('follow-up week display remains available while quarter metadata loads', () => {
+  const window = getFollowUpWindowForWeek(6, null, new Date('2026-10-18T08:00:00Z'));
+  assert.ok(window.sundayDate);
+  assert.ok(window.saturdayDeadlineDate);
+});
 
 test('strict date parsing rejects calendar overflow', () => {
   const fallback = new Date(2000, 0, 1, 12);

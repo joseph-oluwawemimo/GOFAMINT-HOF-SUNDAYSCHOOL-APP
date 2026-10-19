@@ -7,6 +7,8 @@ import { hasInitializedSystem } from '../utils/systemInitialization.js';
 import { normalizeClassLoginIdentifier, normalizeLoginIdentifier } from '../utils/loginIdentifier.js';
 import { collectAllPages } from '../utils/paginatedRead.js';
 import { computeClassFairnessRankings, generateMemberClusterWeeks } from '../utils/fairnessScoring.js';
+import { createPublicReportToken, publicReportToken, validatePublicProfile } from './publicProfile.js';
+import { prepareSSSRDeliveryBatch } from './sssrPersistence.js';
 
 const EXEC: GofamintRole[] = ['SUPER_ADMIN', 'GENERAL_SUPERINTENDENT', 'GENERAL_SECRETARY'];
 const APPROVERS: GofamintRole[] = ['SUPER_ADMIN', 'GENERAL_SUPERINTENDENT', 'GENERAL_SECRETARY'];
@@ -20,6 +22,31 @@ const WORKER_EVENT_READERS = new Set<GofamintRole>([...WORKER_MANAGERS, 'RECORD_
 const WORKER_DIRECTORY_READERS = new Set<GofamintRole>([...ADMIN_PROFILES, 'WORKER', 'USHER', ...CLASS_PORTAL_ROLES]);
 type Caller = { id: string; email: string | null; role: GofamintRole; classId: string | null; departmentId: string | null };
 type ServerReadFilter = { column: string; value: unknown };
+
+function mergeRowsById(...groups: any[][]): any[] {
+  const rows = new Map<string, any>();
+  for (const group of groups) {
+    for (const row of group || []) {
+      if (row?.id) rows.set(String(row.id), row);
+    }
+  }
+  return Array.from(rows.values());
+}
+
+async function findMemberByPublicToken(db: any, token: string): Promise<any | null> {
+  const tokenFields = [
+    'data->oneTimeProfileToken->>token',
+    'data->reportCardToken->>token',
+    'data->>oneTimeProfileToken',
+    'data->>reportCardToken'
+  ];
+  for (const field of tokenFields) {
+    const { data, error } = await db.from('members').select('*').eq(field, token).limit(1);
+    if (error) throw new Error(`Member token lookup failed at ${field}: ${error.message}`);
+    if (data?.[0]) return data[0];
+  }
+  return null;
+}
 
 async function readAllServerRows(
   db: any,
@@ -191,26 +218,20 @@ export function createApp() {
 
   // --- Continuing Student Profile Public Endpoints ---
   app.get('/api/visitor-profile/:token', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private');
     try {
       const token = String(req.params.token || '').trim();
       if (!token) return res.status(400).json({ error: 'Token is required.' });
 
       const db = getSupabaseAdmin();
-      const { data: rows, error } = await db
-        .from('members')
-        .select('*')
-        .eq('data->oneTimeProfileToken->>token', token)
-        .limit(1);
-      if (error) throw error;
-
-      const member = rows?.[0];
+      const member = await findMemberByPublicToken(db, token);
       if (!member) {
         return res.status(404).json({ error: 'Invalid or expired student profile link.' });
       }
 
       const tokenMeta = member.data.oneTimeProfileToken;
       const isAlreadyCompleted = Boolean(tokenMeta?.isUsed || member.data?.isProfileCompleted);
-      const rcToken = member.data?.reportCardToken?.token || null;
+      const rcToken = publicReportToken(member.data || {}, token);
 
       // Return public editable fields only — do NOT leak internal credentials or notes
       const publicData = {
@@ -235,65 +256,37 @@ export function createApp() {
   });
 
   app.post('/api/visitor-profile/:token', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, private');
     try {
       const token = String(req.params.token || '').trim();
       if (!token) return res.status(400).json({ error: 'Token is required.' });
 
       const db = getSupabaseAdmin();
-      const { data: rows, error } = await db
-        .from('members')
-        .select('*')
-        .eq('data->oneTimeProfileToken->>token', token)
-        .limit(1);
-      if (error) throw error;
-
-      const member = rows?.[0];
+      const member = await findMemberByPublicToken(db, token);
       if (!member) {
         return res.status(404).json({ error: 'Invalid or expired student profile link.' });
       }
 
-      const tokenMeta = member.data.oneTimeProfileToken;
-      let rcToken = member.data?.reportCardToken?.token;
-      if (!rcToken) {
-        rcToken = `rc_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      if (member.data?.isProfileCompleted || member.data?.oneTimeProfileToken?.isUsed) {
+        return res.json({ success: true, memberId: member.id, reportCardToken: publicReportToken(member.data || {}, token) });
       }
-
-      const { fullName, phone, address, occupation, gender, ageGroup, prayerRequests, photoBase64 } = req.body || {};
-
-      const updatedData = {
-        ...member.data,
-        fullName: fullName || member.data.fullName,
-        phone: phone !== undefined ? phone : member.data.phone,
-        address: address !== undefined ? address : member.data.address,
-        occupation: occupation !== undefined ? occupation : member.data.occupation,
-        gender: gender || member.data.gender,
-        ageGroup: ageGroup || member.data.ageGroup,
-        prayerRequests: prayerRequests !== undefined ? prayerRequests : member.data.prayerRequests,
-        photoBase64: photoBase64 !== undefined ? photoBase64 : member.data.photoBase64,
-        isProfileCompleted: true,
-        reportCardToken: member.data?.reportCardToken || {
-          token: rcToken,
-          createdAt: new Date().toISOString()
-        },
-        oneTimeProfileToken: {
-          ...tokenMeta,
-          isUsed: true,
-          usedAt: new Date().toISOString()
-        },
-        updatedAt: new Date().toISOString()
-      };
-
-      const { error: updateErr } = await db
-        .from('members')
-        .update({
-          data: updatedData,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', member.id);
-
-      if (updateErr) throw updateErr;
-
-      res.json({ success: true, memberId: member.id, reportCardToken: rcToken });
+      let publicProfile: Record<string, string>;
+      try {
+        publicProfile = validatePublicProfile(req.body || {});
+      } catch (validationError: any) {
+        return res.status(400).json({ error: validationError.message });
+      }
+      // The database locks the latest member and merges only public fields. A
+      // concurrent administrative edit is never replayed from this earlier read.
+      const { data, error: updateErr } = await db.rpc('complete_member_public_profile', {
+        p_member_id: member.id,
+        p_public_token: token,
+        p_profile: publicProfile,
+        p_report_card_token: createPublicReportToken()
+      });
+      if (updateErr) throw new Error(`Profile completion save failed: ${updateErr.message}`);
+      if (!data?.reportCardToken) throw new Error('Profile completion did not return a report card link.');
+      res.json({ success: true, memberId: member.id, reportCardToken: data.reportCardToken });
     } catch (err: any) {
       console.error('[Server] Error saving visitor profile by token:', err);
       res.status(500).json({ error: 'Internal server error.' });
@@ -1029,6 +1022,68 @@ export function createApp() {
       return r.status(500).json({ error: e.message || 'Failed to submit class registration.' });
     }
   });
+
+  app.patch('/api/classes/:classId/sssr-deliveries', async (req, r) => {
+    const db = getSupabaseAdmin();
+    try {
+      const c = await caller(req, r);
+      if (!c) return;
+      const classId = limitedText(req.params.classId, 120);
+      const canManageAnyClass = CLASS_ADMINS.includes(c.role);
+      const ownsClass = CLASS_PORTAL_ROLES.includes(c.role)
+        && Boolean(c.classId)
+        && canonicalClassId(c.classId) === canonicalClassId(classId);
+      if (!canManageAnyClass && !ownsClass) {
+        return r.status(403).json({ error: 'This account cannot update SSS completion for the requested class.' });
+      }
+
+      let deliveryMap;
+      try { deliveryMap = prepareSSSRDeliveryBatch(classId, req.body?.records, c.id); }
+      catch (validationError: any) { return r.status(400).json({ error: validationError.message }); }
+
+      const { data, error } = await db.rpc('merge_class_sssr_deliveries', {
+        p_class_id: classId,
+        p_deliveries: deliveryMap
+      });
+      if (error) throw new Error(`Atomic SSS completion write failed: ${error.message}`);
+      await audit(c, 'SAVE_SSSR_DELIVERIES', { classId, recordIds: Object.keys(deliveryMap) }, 'classes', classId);
+      if (!data || typeof data !== 'object') throw new Error('SSS completion database function returned no saved records.');
+      r.json({ success: true, deliveries: data });
+    } catch (e: any) {
+      console.error('[Server] SSS completion persistence error:', e);
+      r.status(500).json({ error: e.message || 'Failed to persist SSS completion.' });
+    }
+  });
+  app.post('/api/classes/:classId/member-profile-links', async (req, r) => {
+    try {
+      const c = await caller(req, r);
+      if (!c) return;
+      const classId = limitedText(req.params.classId, 120);
+      const ownsClass = CLASS_PORTAL_ROLES.includes(c.role)
+        && Boolean(c.classId) && canonicalClassId(c.classId) === canonicalClassId(classId);
+      if (!CLASS_ADMINS.includes(c.role) && !ownsClass) {
+        return r.status(403).json({ error: 'This account cannot prepare student profile links for the requested class.' });
+      }
+      const memberIds: unknown = req.body?.memberIds;
+      if (!Array.isArray(memberIds) || memberIds.length < 1 || memberIds.length > 200
+        || memberIds.some(id => typeof id !== 'string' || !id.trim() || id.length > 160)) {
+        return r.status(400).json({ error: 'Provide between 1 and 200 valid member ids.' });
+      }
+      const proposedTokens = Object.fromEntries([...new Set(memberIds as string[])].map(id => [id, createPublicReportToken()]));
+      const { data, error } = await getSupabaseAdmin().rpc('ensure_class_member_public_links', {
+        p_class_id: classId,
+        p_proposed_tokens: proposedTokens
+      });
+      if (error) throw new Error(`Student profile links could not be prepared: ${error.message}`);
+      if (!data || typeof data !== 'object') throw new Error('Student profile link preparation returned no links.');
+      await audit(c, 'ENSURE_MEMBER_PUBLIC_LINKS', { classId, memberIds }, 'classes', classId);
+      r.setHeader('Cache-Control', 'no-store, private');
+      r.json({ success: true, links: data });
+    } catch (error: any) {
+      console.error('[Server] Student profile link preparation failed:', error);
+      r.status(500).json({ error: error.message || 'Student profile links could not be prepared.' });
+    }
+  });
   app.post('/api/admin/classes/approve', async (req, r) => {
     const db = getSupabaseAdmin();
     try {
@@ -1153,7 +1208,8 @@ export function createApp() {
         approvedBy: row.data?.approvedBy || undefined,
         approvedAt: row.data?.approvedAt || undefined,
         createdAt: row.created_at || row.data?.createdAt,
-        updatedAt: row.updated_at || row.data?.updatedAt
+        updatedAt: row.updated_at || row.data?.updatedAt,
+        _baseUpdatedAt: row.updated_at || row.data?.updatedAt || '__missing__'
       }));
 
       r.json({ success: true, classes });
@@ -1420,6 +1476,7 @@ export function createApp() {
   // PUBLIC READ-ONLY VISITOR REPORT CARD (Phase 7)
   // ---------------------------------------------------------------------------
   app.get('/api/report-card/:token', async (req, r) => {
+    r.setHeader('Cache-Control', 'no-store, private');
     const db = getSupabaseAdmin();
     try {
       const token = req.params.token;
@@ -1427,57 +1484,31 @@ export function createApp() {
         return r.status(400).json({ error: 'Report card token is required.' });
       }
 
-      // Fetch member by token across all possible token fields:
-      // 1. data->oneTimeProfileToken->>token (student profile link token)
-      // 2. data->reportCardToken->>token (report card token)
-      // 3. data->>reportCardToken
-      // 4. data->>oneTimeProfileToken
-      // 5. id = token
-      let members: any[] = [];
-
-      const { data: m0 } = await db.from('members')
-        .select('*')
-        .eq('data->oneTimeProfileToken->>token', token)
-        .limit(1);
-      if (m0 && m0.length > 0) members = m0;
-
-      if (members.length === 0) {
-        const { data: m1 } = await db.from('members')
-          .select('*')
-          .eq('data->reportCardToken->>token', token)
-          .limit(1);
-        if (m1 && m1.length > 0) members = m1;
-      }
-
-      if (members.length === 0) {
-        const { data: m2 } = await db.from('members')
-          .select('*')
-          .eq('data->>reportCardToken', token)
-          .limit(1);
-        if (m2 && m2.length > 0) members = m2;
-      }
-
-      if (members.length === 0) {
-        const { data: m4 } = await db.from('members')
-          .select('*')
-          .eq('id', token)
-          .limit(1);
-        if (m4 && m4.length > 0) members = m4;
-      }
-
-      if (!members || members.length === 0) {
+      // Public access requires a secret link token; predictable member ids are
+      // never accepted as credentials for a personal report card.
+      const memberRow = await findMemberByPublicToken(db, token);
+      if (!memberRow) {
         return r.status(404).json({ error: 'Report card not found or link has expired.' });
       }
-
-      const memberRow = members[0];
       const memberData = memberRow.data || {};
       const memberId = memberRow.id;
       const classId = memberData.classId || memberRow.class_id;
+      if (!classId) throw new Error('This student has no class assignment. The class secretary must correct the profile before a live report can be displayed.');
+
+      const { data: yearRows, error: yearReadError } = await db.from('sunday_school_years')
+        .select('data').order('updated_at', { ascending: false }).limit(1);
+      if (yearReadError) throw new Error(`Current Sunday School quarter could not be read: ${yearReadError.message}`);
+      const activeQuarterNumber = Number(yearRows?.[0]?.data?.activeQuarterNumber || 1);
+      if (!Number.isInteger(activeQuarterNumber) || activeQuarterNumber < 1 || activeQuarterNumber > 4) {
+        throw new Error('The current Sunday School quarter is invalid. Ask an administrator to correct the year setup.');
+      }
 
       // 1. Fetch student's own grades
-      const gradesData = await readAllServerRows(db, 'grades', {
-        filters: [{ column: 'member_id', value: memberId }],
-      });
+      const [indexedMemberGrades, legacyMemberGrades] = await Promise.all([
+        readAllServerRows(db, 'grades', { filters: [{ column: 'member_id', value: memberId }] }),
+        readAllServerRows(db, 'grades', { filters: [{ column: 'data->>memberId', value: memberId }] })
+      ]);
+      const gradesData = mergeRowsById(indexedMemberGrades, legacyMemberGrades);
 
       const grades = (gradesData || []).map((g: any) => {
         const gData = g.data || g;
@@ -1494,7 +1525,7 @@ export function createApp() {
           joinedPrayerMeeting: Boolean(gData.joinedPrayerMeeting),
           postedStatusInsight: Boolean(gData.postedStatusInsight)
         };
-      });
+      }).filter((grade: any) => grade.quarterNumber === activeQuarterNumber);
 
       // 2. Fetch class members and class grades to compute rankings & cluster safely (NO personal data of peers leaked)
       let classRankings = {
@@ -1525,7 +1556,8 @@ export function createApp() {
       try {
         if (classId) {
           // Fetch authoritative class profile metadata
-          const { data: clsRows } = await db.from('classes').select('*').eq('id', classId).limit(1);
+          const { data: clsRows, error: classReadError } = await db.from('classes').select('*').eq('id', classId).limit(1);
+          if (classReadError) throw new Error(`Class profile read failed: ${classReadError.message}`);
           if (clsRows && clsRows.length > 0) {
             const classRow = clsRows[0];
             const cData = classRow.data || classRow;
@@ -1539,12 +1571,14 @@ export function createApp() {
             year = cData.year || year;
           }
 
-          const classMembersRows = await readAllServerRows(db, 'members', {
-            filters: [{ column: 'class_id', value: classId }]
-          });
-          const classGradesRows = await readAllServerRows(db, 'grades', {
-            filters: [{ column: 'class_id', value: classId }]
-          });
+          const [indexedClassMembers, legacyClassMembers, indexedClassGrades, legacyClassGrades] = await Promise.all([
+            readAllServerRows(db, 'members', { filters: [{ column: 'class_id', value: classId }] }),
+            readAllServerRows(db, 'members', { filters: [{ column: 'data->>classId', value: classId }] }),
+            readAllServerRows(db, 'grades', { filters: [{ column: 'class_id', value: classId }] }),
+            readAllServerRows(db, 'grades', { filters: [{ column: 'data->>classId', value: classId }] })
+          ]);
+          const classMembersRows = mergeRowsById(indexedClassMembers, legacyClassMembers);
+          const classGradesRows = mergeRowsById(indexedClassGrades, legacyClassGrades);
 
           const normalizedClassMembers = classMembersRows.map((r: any) => ({
             id: r.id,
@@ -1583,7 +1617,7 @@ export function createApp() {
               memoryVerse: Number(gData.memoryVerse ?? 0),
               classParticipation: Number(gData.classParticipation ?? 0)
             };
-          });
+          }).filter((grade: any) => grade.quarterNumber === activeQuarterNumber);
 
           // Sunday School Quarter evaluation horizon is standard 12 lessons
           const maxWk = 12;
@@ -1596,8 +1630,8 @@ export function createApp() {
           }
           classAverages = classFairness.classAverages;
         }
-      } catch (classCalcErr) {
-        console.warn('[Server] Non-fatal class fairness calculation warning:', classCalcErr);
+      } catch (classCalcErr: any) {
+        throw new Error(`Live class report calculation failed: ${classCalcErr.message || String(classCalcErr)}`);
       }
 
       const isStudentStatus = (memberMetrics?.memberType === 'STUDENT') || (memberData.memberType === 'STUDENT');
@@ -1620,6 +1654,7 @@ export function createApp() {
           teachers: teachers,
           quarterTitle: quarterTitle,
           year: year,
+          quarterNumber: activeQuarterNumber,
           memberType: isStudentStatus ? 'STUDENT' : 'VISITOR',
           isAwardEligible: resolvedAwardEligible,
           awardEligibilityLabel: resolvedAwardEligible ? 'Eligible for Awards' : 'Not Eligible for Awards',
@@ -1684,7 +1719,8 @@ export function createApp() {
         designation: row.data?.designation || 'Worker',
         phone: row.data?.phone || '',
         createdAt: row.created_at || row.data?.createdAt,
-        updatedAt: row.updated_at || row.data?.updatedAt
+        updatedAt: row.updated_at || row.data?.updatedAt,
+        _baseUpdatedAt: row.updated_at || row.data?.updatedAt || '__missing__'
       }));
       r.json({ success: true, workers });
     } catch (e: any) {
@@ -1706,7 +1742,8 @@ export function createApp() {
         ...(row.data && typeof row.data === 'object' ? row.data : {}),
         id: row.id,
         createdAt: row.created_at || row.data?.createdAt,
-        updatedAt: row.updated_at || row.data?.updatedAt
+        updatedAt: row.updated_at || row.data?.updatedAt,
+        _baseUpdatedAt: row.updated_at || row.data?.updatedAt || '__missing__'
       }));
 
       const attendance = attendanceRows.map((row: any) => ({
@@ -1715,7 +1752,8 @@ export function createApp() {
         eventId: row.event_id || row.data?.eventId,
         workerId: row.worker_id || row.data?.workerId,
         createdAt: row.created_at || row.data?.createdAt,
-        updatedAt: row.updated_at || row.data?.updatedAt
+        updatedAt: row.updated_at || row.data?.updatedAt,
+        _baseUpdatedAt: row.updated_at || row.data?.updatedAt || '__missing__'
       }));
 
       r.json({ success: true, events, attendance });
@@ -1824,7 +1862,8 @@ export function createApp() {
         id: row.id,
         workerId: row.worker_id || row.data?.workerId,
         prepDate: row.prep_date || row.data?.prepDate,
-        updatedAt: row.updated_at || row.data?.updatedAt
+        updatedAt: row.updated_at || row.data?.updatedAt,
+        _baseUpdatedAt: row.updated_at || row.data?.updatedAt || '__missing__'
       }));
 
       r.json({ success: true, records });

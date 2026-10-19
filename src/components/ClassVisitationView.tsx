@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Home,
   Users,
@@ -32,7 +32,10 @@ import {
   VISITATION_MAX_PER_CLASS_PER_WEEK,
   VISITATION_COOLDOWN_WEEKS,
   getClassWeeklyVisitationCandidates,
-  computeClassFollowUpSummary
+  computeClassFollowUpSummary,
+  mergeVisitationAssignments,
+  freezeWeeklyVisitationSlate,
+  getWeeklyVisitationAssignments
 } from '../utils/visitationEngine';
 import { FollowUpWeekSyncBar } from './FollowUpPortal/FollowUpWeekSyncBar';
 import { getFollowUpWindowForWeek } from '../utils/quarterScheduleUtils';
@@ -138,27 +141,32 @@ export const ClassVisitationView: React.FC<ClassVisitationViewProps> = ({
     return `gofamint_visitation_assignments_${cid}_q${quarterNumber}`;
   }, [classProfile?.id, quarterNumber]);
 
-  // Merge cloud assignments with local storage
-  const [assignments, setAssignments] = useState<Record<string, VisitationAssignmentRecord>>(() => {
-    try {
-      const cloud = classProfile?.visitationAssignments || {};
-      const raw = localStorage.getItem(storageKey);
-      const local = raw ? JSON.parse(raw) : {};
-      return { ...cloud, ...local };
-    } catch {
-      return classProfile?.visitationAssignments || {};
-    }
-  });
+  const [assignments, setAssignments] = useState<Record<string, VisitationAssignmentRecord>>({});
+  const [loadedStorageKey, setLoadedStorageKey] = useState<string | null>(null);
+  const [persistenceError, setPersistenceError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [failedSlateKey, setFailedSlateKey] = useState<string | null>(null);
+  const savingRef = useRef(false);
+  const assignmentsRef = useRef(assignments);
+  const activeStorageKeyRef = useRef(storageKey);
+  assignmentsRef.current = assignments;
+  activeStorageKeyRef.current = storageKey;
 
   useEffect(() => {
     try {
       const cloud = classProfile?.visitationAssignments || {};
       const raw = localStorage.getItem(storageKey);
-      const local = raw ? JSON.parse(raw) : {};
-      setAssignments({ ...cloud, ...local });
-    } catch {
+      const local: Record<string, VisitationAssignmentRecord> = raw ? JSON.parse(raw) : {};
+      if (!local || typeof local !== 'object' || Array.isArray(local) || Object.values(local).some(record => !record || typeof record.memberId !== 'string' || typeof record.weekNumber !== 'number')) {
+        throw new Error('Stored visitation assignments have an invalid format.');
+      }
+      setAssignments(previous => mergeVisitationAssignments(local, loadedStorageKey === storageKey ? previous : {}, cloud));
+    } catch (error) {
+      console.error(`[Visitation] Failed to read candidate cache for ${storageKey}:`, error);
+      setPersistenceError('The saved device copy of visitation records could not be read. Showing database records; please contact your administrator if a visit is missing.');
       setAssignments(classProfile?.visitationAssignments || {});
     }
+    setLoadedStorageKey(storageKey);
   }, [classProfile?.visitationAssignments, storageKey]);
 
   // Compute visitation candidates for selected week
@@ -168,17 +176,59 @@ export const ClassVisitationView: React.FC<ClassVisitationViewProps> = ({
 
   const { candidates, totalEligibleBeforeCap, excludedByCooldownCount } = useMemo(() => {
     return getClassWeeklyVisitationCandidates(
-      classMembers,
+      loadedStorageKey === storageKey ? classMembers : [],
       selectedWeek,
       grades,
       absenceLogs,
-      assignments,
+      loadedStorageKey === storageKey ? assignments : {},
       {
         includeCooldown: showCooldownCandidates,
-        maxCap: VISITATION_MAX_PER_CLASS_PER_WEEK
+        maxCap: VISITATION_MAX_PER_CLASS_PER_WEEK,
+        quarterNumber
       }
     );
-  }, [classMembers, selectedWeek, grades, absenceLogs, assignments, showCooldownCandidates]);
+  }, [classMembers, selectedWeek, grades, absenceLogs, assignments, showCooldownCandidates, quarterNumber, loadedStorageKey, storageKey]);
+
+  const saveAssignmentSnapshot = async (next: Record<string, VisitationAssignmentRecord>) => {
+    if (!classProfile || !onUpdateClassProfile) throw new Error('Visitation database saving is unavailable.');
+    const previous = assignmentsRef.current;
+    assignmentsRef.current = next;
+    setAssignments(next);
+    try {
+      await onUpdateClassProfile({ ...classProfile, visitationAssignments: next });
+    } catch (error) {
+      if (activeStorageKeyRef.current === storageKey) {
+        assignmentsRef.current = previous;
+        setAssignments(previous);
+      }
+      throw error;
+    }
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(next));
+    } catch (error) {
+      console.error(`[Visitation] Database saved but device cache failed for ${storageKey}:`, error);
+      setPersistenceError('Your visitation records were saved to the database, but this device could not save an offline copy.');
+    }
+  };
+
+  // Freeze the first computed 4-slot slate for this week. From this point,
+  // completing slot 1 changes the progress to 1/4; it never generates slot 5.
+  useEffect(() => {
+    const slateKey = `${storageKey}_w${selectedWeek}`;
+    if (!classProfile || !onUpdateClassProfile || loadedStorageKey !== storageKey || candidates.length === 0 || isLockedForClass || savingRef.current || failedSlateKey === slateKey) return;
+    const nextAssignments = freezeWeeklyVisitationSlate(classProfile.id, quarterNumber, selectedWeek, candidates, assignments);
+    if (Object.keys(nextAssignments).every(id => nextAssignments[id] === assignments[id])) return;
+    savingRef.current = true;
+    setIsSaving(true);
+    void saveAssignmentSnapshot(nextAssignments).catch(error => {
+      console.error(`[Visitation] Could not save Week ${selectedWeek} candidate slate:`, error);
+      setFailedSlateKey(slateKey);
+      setPersistenceError(`Week ${selectedWeek} candidates could not be saved. Please retry before recording visits. ${error instanceof Error ? error.message : String(error)}`);
+    }).finally(() => {
+      savingRef.current = false;
+      setIsSaving(false);
+    });
+  }, [assignments, candidates, classProfile, onUpdateClassProfile, quarterNumber, selectedWeek, storageKey, loadedStorageKey, isLockedForClass, failedSlateKey, isSaving]);
 
   // Compute follow-up summary for class
   const classSummary = useMemo(() => {
@@ -200,10 +250,12 @@ export const ClassVisitationView: React.FC<ClassVisitationViewProps> = ({
       alert(`Week ${selectedWeek} follow-up window is closed. Changes cannot be recorded in class register (Read-Only Mode).`);
       return;
     }
-    if (!selectedCandidate || !assignedWorkerName.trim()) return;
+    if (!selectedCandidate || !assignedWorkerName.trim() || savingRef.current) return;
 
-    const assignmentId = `${classProfile?.id || 'cls'}_w${selectedWeek}_m${selectedCandidate.memberId}`;
+    const existing = getWeeklyVisitationAssignments(assignmentsRef.current, selectedWeek, quarterNumber).find(record => record.memberId === selectedCandidate.memberId);
+    const assignmentId = existing?.id || `${classProfile?.id || 'cls'}_q${quarterNumber}_w${selectedWeek}_m${selectedCandidate.memberId}`;
     const newRecord: VisitationAssignmentRecord = {
+      ...existing,
       id: assignmentId,
       classId: classProfile?.id || '',
       memberId: selectedCandidate.memberId,
@@ -212,35 +264,35 @@ export const ClassVisitationView: React.FC<ClassVisitationViewProps> = ({
       assignedStaffPhone: assignedWorkerPhone.trim() || undefined,
       assignedDate: new Date().toISOString().split('T')[0],
       weekNumber: selectedWeek,
+      quarterNumber,
       priority: selectedCandidate.priority,
-      status: 'ASSIGNED',
-      createdAt: new Date().toISOString(),
+      slotType: selectedCandidate.slotType,
+      status: existing?.status === 'COMPLETED' ? 'COMPLETED' : 'ASSIGNED',
+      createdAt: existing?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
 
     const updatedAssignments = {
-      ...assignments,
+      ...assignmentsRef.current,
       [assignmentId]: newRecord
     };
 
-    setAssignments(updatedAssignments);
+    savingRef.current = true;
+    setIsSaving(true);
+    setPersistenceError('');
     try {
-      localStorage.setItem(storageKey, JSON.stringify(updatedAssignments));
-    } catch {
-      // ignore local storage error
+      await saveAssignmentSnapshot(updatedAssignments);
+      setIsAssignModalOpen(false);
+      setSelectedCandidate(null);
+      setAssignedWorkerName('');
+      setAssignedWorkerPhone('');
+    } catch (error) {
+      console.error(`[Visitation] Assignment save failed for ${assignmentId}:`, error);
+      setPersistenceError(`The worker assignment was not saved. Please retry. ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
     }
-
-    if (classProfile && onUpdateClassProfile) {
-      await onUpdateClassProfile({
-        ...classProfile,
-        visitationAssignments: updatedAssignments
-      });
-    }
-
-    setIsAssignModalOpen(false);
-    setSelectedCandidate(null);
-    setAssignedWorkerName('');
-    setAssignedWorkerPhone('');
   };
 
   // Record completed visit handler
@@ -249,19 +301,22 @@ export const ClassVisitationView: React.FC<ClassVisitationViewProps> = ({
       alert(`Week ${selectedWeek} follow-up window is closed. Changes cannot be recorded in class register (Read-Only Mode).`);
       return;
     }
-    if (!selectedCandidate || !visitorName.trim()) return;
+    if (!selectedCandidate || !visitorName.trim() || savingRef.current) return;
 
-    const assignmentId = `${classProfile?.id || 'cls'}_w${selectedWeek}_m${selectedCandidate.memberId}`;
+    const existing = getWeeklyVisitationAssignments(assignmentsRef.current, selectedWeek, quarterNumber).find(record => record.memberId === selectedCandidate.memberId);
+    const assignmentId = existing?.id || `${classProfile?.id || 'cls'}_q${quarterNumber}_w${selectedWeek}_m${selectedCandidate.memberId}`;
     const completedRecord: VisitationAssignmentRecord = {
-      ...(assignments[assignmentId] || {}),
+      ...existing,
       id: assignmentId,
       classId: classProfile?.id || '',
       memberId: selectedCandidate.memberId,
       memberName: selectedCandidate.fullName,
       assignedStaffName: visitorName.trim(),
-      assignedDate: assignments[assignmentId]?.assignedDate || new Date().toISOString().split('T')[0],
+      assignedDate: existing?.assignedDate || new Date().toISOString().split('T')[0],
       weekNumber: selectedWeek,
+      quarterNumber,
       priority: selectedCandidate.priority,
+      slotType: selectedCandidate.slotType,
       status: 'COMPLETED',
       completedAt: visitDate || new Date().toISOString().split('T')[0],
       outcome: visitOutcome.trim(),
@@ -270,21 +325,22 @@ export const ClassVisitationView: React.FC<ClassVisitationViewProps> = ({
     };
 
     const updatedAssignments = {
-      ...assignments,
+      ...assignmentsRef.current,
       [assignmentId]: completedRecord
     };
 
-    setAssignments(updatedAssignments);
+    savingRef.current = true;
+    setIsSaving(true);
+    setPersistenceError('');
+    let visitSaved = false;
     try {
-      localStorage.setItem(storageKey, JSON.stringify(updatedAssignments));
-    } catch {
-      // ignore
-    }
-
-    // Also persist as an AbsenceLogRecord with contactMethod === 'PASTORAL_VISIT'
-    if (onSaveAbsenceLog) {
+      await saveAssignmentSnapshot(updatedAssignments);
+      visitSaved = true;
+      // A stable ID makes retrying a failed log safe and avoids double-counting.
+      if (onSaveAbsenceLog) {
       const absenceLog: AbsenceLogRecord = {
-        id: `visitation_${selectedCandidate.memberId}_w${selectedWeek}_${Date.now()}`,
+        id: `visitation_${classProfile?.id}_q${quarterNumber}_${selectedCandidate.memberId}_w${selectedWeek}`,
+        quarterNumber,
         memberId: selectedCandidate.memberId,
         classId: classProfile?.id || '',
         weekNumber: selectedWeek,
@@ -296,24 +352,33 @@ export const ClassVisitationView: React.FC<ClassVisitationViewProps> = ({
         loggedAt: new Date().toISOString()
       };
       await onSaveAbsenceLog(absenceLog);
+      }
+      setIsRecordVisitModalOpen(false);
+      setSelectedCandidate(null);
+      setVisitorName('');
+      setVisitOutcome('');
+      setVisitNextAction('');
+    } catch (error) {
+      console.error(`[Visitation] ${visitSaved ? 'Follow-up log' : 'Completed visit'} save failed for ${assignmentId}:`, error);
+      setPersistenceError(`${visitSaved ? 'The visit is saved as completed, but its follow-up log could not be saved.' : 'The completed visit was not saved.'} Please retry. ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
     }
-
-    if (classProfile && onUpdateClassProfile) {
-      await onUpdateClassProfile({
-        ...classProfile,
-        visitationAssignments: updatedAssignments
-      });
-    }
-
-    setIsRecordVisitModalOpen(false);
-    setSelectedCandidate(null);
-    setVisitorName('');
-    setVisitOutcome('');
-    setVisitNextAction('');
   };
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12 animate-fade-in">
+      {persistenceError && (
+        <div role="alert" className="rounded-2xl border border-rose-300 bg-rose-50 p-4 text-sm text-rose-900">
+          <p>{persistenceError}</p>
+          {failedSlateKey && (
+            <button type="button" className="mt-2 rounded-lg bg-rose-800 px-3 py-2 font-bold text-white" onClick={() => { setPersistenceError(''); setFailedSlateKey(null); }}>
+              Retry Saving Candidates
+            </button>
+          )}
+        </div>
+      )}
       {/* Top Banner */}
       <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-blue-900 rounded-3xl p-6 sm:p-8 text-white shadow-xl border border-indigo-800/40 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
@@ -432,12 +497,15 @@ export const ClassVisitationView: React.FC<ClassVisitationViewProps> = ({
         {/* Header & Controls */}
         <div className="p-5 sm:p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-50/50">
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-lg font-black text-slate-900 tracking-tight">
                 Weekly Visitation Candidates (Target: {VISITATION_TARGET_PER_CLASS_PER_WEEK}, Max: {VISITATION_MAX_PER_CLASS_PER_WEEK})
               </h2>
               <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-blue-100 text-blue-800">
                 {candidates.length} Selected
+              </span>
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-emerald-100 text-emerald-800">
+                {candidates.filter(candidate => candidate.visitStatus === 'COMPLETED').length}/{candidates.length} Completed
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-0.5">
@@ -448,6 +516,7 @@ export const ClassVisitationView: React.FC<ClassVisitationViewProps> = ({
           <div className="flex items-center gap-3">
             <button
               onClick={() => setShowCooldownCandidates(prev => !prev)}
+              disabled={isSaving || getWeeklyVisitationAssignments(assignments, selectedWeek, quarterNumber).some(record => record.selectedSlotIndex !== undefined)}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
                 showCooldownCandidates
                   ? 'bg-purple-100 border-purple-300 text-purple-800'
@@ -471,9 +540,9 @@ export const ClassVisitationView: React.FC<ClassVisitationViewProps> = ({
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
+          <div className="overflow-hidden">
+            <table className="block w-full text-left border-collapse lg:table">
+              <thead className="hidden lg:table-header-group">
                 <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-black text-slate-500 uppercase tracking-wider">
                   <th className="py-3 px-4">Slot & Priority</th>
                   <th className="py-3 px-4">Member</th>
@@ -485,16 +554,15 @@ export const ClassVisitationView: React.FC<ClassVisitationViewProps> = ({
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-xs">
+              <tbody className="block divide-y divide-slate-100 text-xs lg:table-row-group">
                 {candidates.map(candidate => {
-                  const assignmentKey = `${classProfile?.id || ''}_w${selectedWeek}_m${candidate.memberId}`;
-                  const assignment = assignments[assignmentKey];
+                  const assignment = getWeeklyVisitationAssignments(assignments, selectedWeek, quarterNumber).find(record => record.memberId === candidate.memberId);
                   const isCompleted = assignment?.status === 'COMPLETED';
 
                   return (
                     <tr
                       key={candidate.memberId}
-                      className={`hover:bg-slate-50/80 transition-colors ${
+                      className={`block py-3 lg:table-row lg:py-0 hover:bg-slate-50/80 transition-colors [&>td]:block [&>td]:py-1.5 lg:[&>td]:table-cell lg:[&>td]:py-3.5 ${
                         candidate.isInCooldown ? 'opacity-60 bg-slate-50/40' : ''
                       }`}
                     >
@@ -634,7 +702,7 @@ export const ClassVisitationView: React.FC<ClassVisitationViewProps> = ({
                             <span>Locked</span>
                           </span>
                         ) : (
-                          <div className="inline-flex items-center gap-2">
+                          <div className="inline-flex flex-wrap items-center gap-2">
                             <button
                               onClick={() => {
                                 setSelectedCandidate(candidate);
@@ -642,6 +710,7 @@ export const ClassVisitationView: React.FC<ClassVisitationViewProps> = ({
                                 setAssignedWorkerPhone(assignment?.assignedStaffPhone || '');
                                 setIsAssignModalOpen(true);
                               }}
+                              disabled={isSaving || assignment?.selectedSlotIndex === undefined || failedSlateKey === `${storageKey}_w${selectedWeek}`}
                               className="px-3 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs transition-colors cursor-pointer"
                             >
                               {assignment ? 'Reassign' : 'Assign'}
@@ -656,6 +725,7 @@ export const ClassVisitationView: React.FC<ClassVisitationViewProps> = ({
                                 setVisitNextAction(assignment?.nextAction || '');
                                 setIsRecordVisitModalOpen(true);
                               }}
+                              disabled={isSaving || assignment?.selectedSlotIndex === undefined || failedSlateKey === `${storageKey}_w${selectedWeek}`}
                               className="px-3 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
                             >
                               {isCompleted ? 'Edit Visit' : 'Complete Visit'}
@@ -675,7 +745,8 @@ export const ClassVisitationView: React.FC<ClassVisitationViewProps> = ({
       {/* Assign Worker Modal */}
       {isAssignModalOpen && selectedCandidate && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-scale-in">
+          <div role="dialog" aria-modal="true" aria-label="Assign visitation worker" className="bg-white rounded-3xl max-w-md w-full max-h-[90dvh] overflow-y-auto p-6 shadow-2xl border border-slate-200 animate-scale-in">
+            {persistenceError && <p role="alert" className="mb-3 text-sm text-rose-700">{persistenceError}</p>}
             <div className="flex items-center justify-between pb-4 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <UserCheck className="w-5 h-5 text-indigo-600" />
@@ -762,10 +833,10 @@ export const ClassVisitationView: React.FC<ClassVisitationViewProps> = ({
               </button>
               <button
                 onClick={handleAssignWorker}
-                disabled={!assignedWorkerName.trim()}
+                disabled={isSaving || !assignedWorkerName.trim()}
                 className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black shadow-md disabled:opacity-50 cursor-pointer"
               >
-                Save Assignment
+                {isSaving ? 'Saving…' : 'Save Assignment'}
               </button>
             </div>
           </div>
@@ -775,7 +846,8 @@ export const ClassVisitationView: React.FC<ClassVisitationViewProps> = ({
       {/* Record Completed Visit Modal */}
       {isRecordVisitModalOpen && selectedCandidate && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 animate-scale-in">
+          <div role="dialog" aria-modal="true" aria-label="Record completed visitation" className="bg-white rounded-3xl max-w-lg w-full max-h-[90dvh] overflow-y-auto p-6 shadow-2xl border border-slate-200 animate-scale-in">
+            {persistenceError && <p role="alert" className="mb-3 text-sm text-rose-700">{persistenceError}</p>}
             <div className="flex items-center justify-between pb-4 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <CheckCircle className="w-5 h-5 text-emerald-600" />
@@ -864,10 +936,10 @@ export const ClassVisitationView: React.FC<ClassVisitationViewProps> = ({
               </button>
               <button
                 onClick={handleRecordCompletedVisit}
-                disabled={!visitorName.trim() || !visitDate}
+                disabled={isSaving || !visitorName.trim() || !visitDate}
                 className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-md disabled:opacity-50 cursor-pointer"
               >
-                Confirm & Record Completed Visit
+                {isSaving ? 'Saving…' : 'Confirm & Record Completed Visit'}
               </button>
             </div>
           </div>

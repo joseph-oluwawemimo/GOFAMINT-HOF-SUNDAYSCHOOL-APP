@@ -13,7 +13,9 @@ import {
   computeTop3PunctualityHonors, 
   computeQuarterWeeklyMetrics,
   computeAllWorkersQuarterPerformance,
-  WorkerQuarterPerformance
+  WorkerQuarterPerformance,
+  calculatePenaltyAwarePunctuality,
+  computeWorkerSpecialEventPerformance
 } from '../../utils/quarterScheduleUtils';
 import { AdmonitionCitationPrintModal } from './AdmonitionCitationPrintModal';
 import { 
@@ -23,6 +25,7 @@ import {
   Search, Info, Check, ArrowRight, UserPlus, Filter, X, Star
 } from 'lucide-react';
 import { GofamintLogo } from '../GofamintLogo';
+import { isActiveWorkerProfile } from '../../utils/workerProfileUtils';
 
 interface QuarterPunctualityAdmonitionViewProps {
   workers: WorkerProfile[];
@@ -48,7 +51,7 @@ export const QuarterPunctualityAdmonitionView: React.FC<QuarterPunctualityAdmoni
   specialEvents = [],
   specialAttendance = []
 }) => {
-  const activeWorkers = useMemo(() => workers.filter(w => w.status === 'ACTIVE'), [workers]);
+  const activeWorkers = useMemo(() => workers.filter(isActiveWorkerProfile), [workers]);
 
   const currentQuarter = useMemo(() => {
     return sundaySchoolYear.quarters.find(q => q.quarterNumber === selectedQuarterNumber) || sundaySchoolYear.quarters[0];
@@ -74,18 +77,20 @@ export const QuarterPunctualityAdmonitionView: React.FC<QuarterPunctualityAdmoni
 
   // Overall quarter summary
   const averageSundayPunctuality = useMemo(() => {
-    const valid = weeklyMetrics.filter(m => m.sundayTurnoutCount > 0);
-    if (valid.length === 0) return 0;
-    const sum = valid.reduce((acc, m) => acc + m.sundayPunctualityRate, 0);
-    return Math.round(sum / valid.length);
-  }, [weeklyMetrics]);
+    return calculatePenaltyAwarePunctuality(
+      allPerformances.reduce((sum, p) => sum + p.sunOnTime, 0),
+      allPerformances.reduce((sum, p) => sum + p.sunLate, 0),
+      allPerformances.reduce((sum, p) => sum + p.sunExpected, 0)
+    );
+  }, [allPerformances]);
 
   const averagePrepPunctuality = useMemo(() => {
-    const valid = weeklyMetrics.filter(m => m.prepTurnoutCount > 0);
-    if (valid.length === 0) return 0;
-    const sum = valid.reduce((acc, m) => acc + m.prepPunctualityRate, 0);
-    return Math.round(sum / valid.length);
-  }, [weeklyMetrics]);
+    return calculatePenaltyAwarePunctuality(
+      allPerformances.reduce((sum, p) => sum + p.prepOnTime, 0),
+      allPerformances.reduce((sum, p) => sum + p.prepLate, 0),
+      allPerformances.reduce((sum, p) => sum + p.prepExpected, 0)
+    );
+  }, [allPerformances]);
 
   // State for Honors Sub-Navigation Mode (Complaint 7)
   const [honorsTab, setHonorsTab] = useState<'12_WEEK' | 'SPECIAL_EVENTS' | 'CUMULATIVE'>('12_WEEK');
@@ -114,14 +119,9 @@ export const QuarterPunctualityAdmonitionView: React.FC<QuarterPunctualityAdmoni
 
   // Special Event Performance for each active worker
   const specialEventPerformances = useMemo(() => {
-    const totalEvents = eligibleSpecialEvents.length;
-
     return activeWorkers.map(w => {
-      const records = eligibleSpecialAttendance.filter(a => a.workerId === w.id);
-      const attendedCount = records.filter(a => a.status === 'PRESENT' || a.status === 'LATE').length;
-      const onTimeCount = records.filter(a => a.status === 'PRESENT').length;
-      const punctualityRate = attendedCount > 0 ? Math.round((onTimeCount / attendedCount) * 100) : 0;
-      const attendanceRate = totalEvents > 0 ? Math.round((attendedCount / totalEvents) * 100) : 0;
+      const { attendedCount, onTimeCount, lateCount, totalEvents, punctualityRate, attendanceRate } =
+        computeWorkerSpecialEventPerformance(w, eligibleSpecialEvents, eligibleSpecialAttendance);
       const compositeScore = (onTimeCount * 15) + (attendedCount * 10);
 
       let honorBadge = 'Participant';
@@ -146,6 +146,7 @@ export const QuarterPunctualityAdmonitionView: React.FC<QuarterPunctualityAdmoni
         phone: w.phone,
         attendedCount,
         onTimeCount,
+        lateCount,
         totalEvents,
         punctualityRate,
         attendanceRate,
@@ -190,43 +191,44 @@ export const QuarterPunctualityAdmonitionView: React.FC<QuarterPunctualityAdmoni
 
   // Average Special Event Punctuality across all workers
   const averageSpecialPunctuality = useMemo(() => {
-    const withAtt = specialEventPerformances.filter(p => p.attendedCount > 0);
-    if (withAtt.length === 0) return 0;
-    const totalPunct = withAtt.reduce((sum, p) => sum + p.punctualityRate, 0);
-    return Math.round(totalPunct / withAtt.length);
+    return calculatePenaltyAwarePunctuality(
+      specialEventPerformances.reduce((sum, p) => sum + p.onTimeCount, 0),
+      specialEventPerformances.reduce((sum, p) => sum + p.lateCount, 0),
+      specialEventPerformances.reduce((sum, p) => sum + p.totalEvents, 0)
+    );
   }, [specialEventPerformances]);
 
   // Cumulative Grand Performances combining 12-week + Special Events
   const cumulativeGrandPerformances = useMemo(() => {
-    const regularWeeks = schedule.filter(s => !s.isSharingAdmonitionWeek).length || 12;
-    const totalSpecialEvents = eligibleSpecialEvents.length;
-    const totalPossibleSessions = (regularWeeks * 2) + totalSpecialEvents; // Sundays + Thursdays + Special Events
-
     type SpecialPerfItem = typeof specialEventPerformances[number];
     const specialMap = new Map<string, SpecialPerfItem>();
     specialEventPerformances.forEach(sp => specialMap.set(sp.workerId, sp));
 
     return allPerformances.map(p => {
-      const sp = specialMap.get(p.workerId) || {
+      const sp = specialMap.get(p.worker.id) || {
         attendedCount: 0,
         onTimeCount: 0,
+        lateCount: 0,
+        totalEvents: 0,
         punctualityRate: 0,
         attendanceRate: 0
       };
 
-      const regularAttended = p.sundayAttendedCount + p.prepAttendedCount;
-      const regularOnTime = p.sundayOnTimeCount + p.prepOnTimeCount;
+      const regularAttended = p.sunAttended + p.prepAttended;
+      const regularOnTime = p.sunOnTime + p.prepOnTime;
+      const regularLate = p.sunLate + p.prepLate;
+      const regularExpected = p.sunExpected + p.prepExpected;
 
       const grandAttended = regularAttended + sp.attendedCount;
       const grandOnTime = regularOnTime + sp.onTimeCount;
+      const grandLate = regularLate + sp.lateCount;
+      const totalPossibleSessions = regularExpected + sp.totalEvents;
 
       const grandAttendanceRate = totalPossibleSessions > 0
         ? Math.min(100, Math.round((grandAttended / totalPossibleSessions) * 100))
         : 0;
 
-      const grandPunctualityRate = grandAttended > 0
-        ? Math.round((grandOnTime / grandAttended) * 100)
-        : 0;
+      const grandPunctualityRate = calculatePenaltyAwarePunctuality(grandOnTime, grandLate, totalPossibleSessions);
 
       const grandCompositeScore = (grandOnTime * 20) + (grandAttended * 10);
 
@@ -245,9 +247,11 @@ export const QuarterPunctualityAdmonitionView: React.FC<QuarterPunctualityAdmoni
         ...p,
         specialAttended: sp.attendedCount,
         specialOnTime: sp.onTimeCount,
+        specialExpected: sp.totalEvents,
         specialPunctualityRate: sp.punctualityRate,
         grandAttended,
         grandOnTime,
+        grandLate,
         totalPossibleSessions,
         grandAttendanceRate,
         grandPunctualityRate,
@@ -290,10 +294,11 @@ export const QuarterPunctualityAdmonitionView: React.FC<QuarterPunctualityAdmoni
 
   // Grand Average Punctuality church-wide
   const averageGrandPunctuality = useMemo(() => {
-    const withAtt = cumulativeGrandPerformances.filter(p => p.grandAttended > 0);
-    if (withAtt.length === 0) return 0;
-    const sum = withAtt.reduce((acc, p) => acc + p.grandPunctualityRate, 0);
-    return Math.round(sum / withAtt.length);
+    return calculatePenaltyAwarePunctuality(
+      cumulativeGrandPerformances.reduce((sum, p) => sum + p.grandOnTime, 0),
+      cumulativeGrandPerformances.reduce((sum, p) => sum + p.grandLate, 0),
+      cumulativeGrandPerformances.reduce((sum, p) => sum + p.totalPossibleSessions, 0)
+    );
   }, [cumulativeGrandPerformances]);
 
   // State for Exemption Modal
@@ -606,7 +611,7 @@ export const QuarterPunctualityAdmonitionView: React.FC<QuarterPunctualityAdmoni
                         {worker.department} Department
                       </span>
                       <div className="text-xs text-slate-600 font-mono">
-                        {worker.onTimeCount} of {worker.attendedCount} sessions on-time
+                        {worker.onTimeCount} of {worker.totalQuarterWeeks} expected sessions on-time
                       </div>
                     </div>
                   </div>
@@ -715,7 +720,7 @@ export const QuarterPunctualityAdmonitionView: React.FC<QuarterPunctualityAdmoni
                         {worker.department} Department
                       </span>
                       <div className="text-xs text-slate-600 font-mono">
-                        {worker.onTimeCount} of {worker.attendedCount} Sundays on-time
+                        {worker.onTimeCount} of {worker.totalQuarterWeeks} expected Sundays on-time
                       </div>
                     </div>
                   </div>
@@ -782,7 +787,7 @@ export const QuarterPunctualityAdmonitionView: React.FC<QuarterPunctualityAdmoni
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {exemptedPerformances.map(({ worker, sunPunctualityRate, sunOnTime, sunAttended, prepPunctualityRate, prepOnTime, prepAttended, exemptionReason }) => (
+                {exemptedPerformances.map(({ worker, sunPunctualityRate, sunOnTime, sunExpected, prepPunctualityRate, prepOnTime, prepExpected, exemptionReason }) => (
                   <tr key={worker.id} className="hover:bg-amber-50/40 transition">
                     <td className="py-3 px-3 font-bold text-slate-900">
                       {worker.fullName}
@@ -797,11 +802,11 @@ export const QuarterPunctualityAdmonitionView: React.FC<QuarterPunctualityAdmoni
                     </td>
                     <td className="py-3 px-3 text-center font-mono">
                       <span className="font-bold text-emerald-800">{sunPunctualityRate}%</span>
-                      <span className="text-[10px] text-slate-500 block">({sunOnTime}/{sunAttended})</span>
+                      <span className="text-[10px] text-slate-500 block">({sunOnTime}/{sunExpected} expected)</span>
                     </td>
                     <td className="py-3 px-3 text-center font-mono">
                       <span className="font-bold text-blue-800">{prepPunctualityRate}%</span>
-                      <span className="text-[10px] text-slate-500 block">({prepOnTime}/{prepAttended})</span>
+                      <span className="text-[10px] text-slate-500 block">({prepOnTime}/{prepExpected} expected)</span>
                     </td>
                     <td className="py-3 px-3 text-slate-700 italic">
                       {exemptionReason || 'Ministerial Exemption'}
@@ -832,7 +837,7 @@ export const QuarterPunctualityAdmonitionView: React.FC<QuarterPunctualityAdmoni
               12-Week Active Workers Performance Roster
             </h3>
             <p className="text-xs text-slate-600 mt-0.5">
-              Comprehensive 12-week punctuality evaluation. Administrators can exempt workers (e.g. Pastors) or reassign duties with full record persistence.
+              Expected sessions include absences: on time earns 100%, late earns 50%, and absence earns 0%. Future sessions and dates before a worker joined are excluded.
             </p>
           </div>
 
@@ -877,7 +882,7 @@ export const QuarterPunctualityAdmonitionView: React.FC<QuarterPunctualityAdmoni
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {filteredPerformances.map(({ worker, sunPunctualityRate, sunOnTime, sunAttended, prepPunctualityRate, prepOnTime, prepAttended, overallPunctualityRate, isExempt, exemptionReason }) => (
+              {filteredPerformances.map(({ worker, sunPunctualityRate, sunOnTime, sunLate, sunExpected, sunAbsent, prepPunctualityRate, prepOnTime, prepLate, prepExpected, prepAbsent, overallPunctualityRate, isExempt, exemptionReason }) => (
                 <tr key={worker.id} className="hover:bg-slate-50 transition">
                   <td className="py-3 px-3">
                     <div className="font-bold text-slate-900 text-sm">
@@ -899,12 +904,12 @@ export const QuarterPunctualityAdmonitionView: React.FC<QuarterPunctualityAdmoni
 
                   <td className="py-3 px-3 text-center font-mono">
                     <span className="font-bold text-emerald-800 text-sm">{sunPunctualityRate}%</span>
-                    <span className="text-[10px] text-slate-500 block">({sunOnTime}/{sunAttended} on-time)</span>
+                    <span className="text-[10px] text-slate-500 block">{sunOnTime}/{sunExpected} on-time · {sunLate} late · {sunAbsent} absent</span>
                   </td>
 
                   <td className="py-3 px-3 text-center font-mono">
                     <span className="font-bold text-blue-800 text-sm">{prepPunctualityRate}%</span>
-                    <span className="text-[10px] text-slate-500 block">({prepOnTime}/{prepAttended} on-time)</span>
+                    <span className="text-[10px] text-slate-500 block">{prepOnTime}/{prepExpected} on-time · {prepLate} late · {prepAbsent} absent</span>
                   </td>
 
                   <td className="py-3 px-3 text-center font-mono">
@@ -1194,7 +1199,7 @@ export const QuarterPunctualityAdmonitionView: React.FC<QuarterPunctualityAdmoni
                 </thead>
                 <tbody className="divide-y divide-slate-200">
                   {filteredSpecialPerformances.map((p) => (
-                    <tr key={p.workerId} className="hover:bg-slate-50 transition">
+                    <tr key={p.worker.id} className="hover:bg-slate-50 transition">
                       <td className="py-3 px-3">
                         <div className="font-bold text-slate-900 text-sm">
                           {p.workerName}
@@ -1454,7 +1459,7 @@ export const QuarterPunctualityAdmonitionView: React.FC<QuarterPunctualityAdmoni
                 </thead>
                 <tbody className="divide-y divide-slate-200">
                   {filteredCumulativePerformances.map((p) => (
-                    <tr key={p.workerId} className="hover:bg-slate-50 transition">
+                    <tr key={p.worker.id} className="hover:bg-slate-50 transition">
                       <td className="py-3 px-3">
                         <div className="font-bold text-slate-900 text-sm">
                           {p.worker?.fullName}
@@ -1474,17 +1479,17 @@ export const QuarterPunctualityAdmonitionView: React.FC<QuarterPunctualityAdmoni
                       </td>
 
                       <td className="py-3 px-3 text-center font-mono">
-                        <span className="font-bold text-blue-900">{p.prepOnTimeCount}/{p.prepAttendedCount}</span>
+                        <span className="font-bold text-blue-900">{p.prepOnTime}/{p.prepExpected}</span>
                         <span className="text-[10px] text-slate-500 block">({p.prepPunctualityRate}%)</span>
                       </td>
 
                       <td className="py-3 px-3 text-center font-mono">
-                        <span className="font-bold text-emerald-900">{p.sundayOnTimeCount}/{p.sundayAttendedCount}</span>
-                        <span className="text-[10px] text-slate-500 block">({p.sundayPunctualityRate}%)</span>
+                        <span className="font-bold text-emerald-900">{p.sunOnTime}/{p.sunExpected}</span>
+                        <span className="text-[10px] text-slate-500 block">({p.sunPunctualityRate}%)</span>
                       </td>
 
                       <td className="py-3 px-3 text-center font-mono">
-                        <span className="font-bold text-purple-900">{p.specialOnTime}/{p.specialAttended}</span>
+                        <span className="font-bold text-purple-900">{p.specialOnTime}/{p.specialExpected}</span>
                         <span className="text-[10px] text-slate-500 block">({p.specialPunctualityRate}%)</span>
                       </td>
 

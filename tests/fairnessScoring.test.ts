@@ -57,7 +57,7 @@ test('1. Raw overall calculation — 12 eligible lessons, full marks: 600 / 600 
   assert.equal(raw.totalPointsEarned, 600);
   assert.equal(raw.maxAvailablePoints, 600);
   assert.equal(raw.rawOverallRate, 100);
-  assert.equal(formatRate(raw.rawOverallRate), '100.0%');
+  assert.equal(formatRate(raw.rawOverallRate), '100.00');
 });
 
 test('2. Raw overall calculation — 4 eligible lessons, 170 marks: 170 / 200 = 85%', () => {
@@ -75,7 +75,7 @@ test('2. Raw overall calculation — 4 eligible lessons, 170 marks: 170 / 200 = 
   assert.equal(raw.totalPointsEarned, 170);
   assert.equal(raw.maxAvailablePoints, 200);
   assert.equal(raw.rawOverallRate, 85);
-  assert.equal(formatRate(raw.rawOverallRate), '85.0%');
+  assert.equal(formatRate(raw.rawOverallRate), '85.00');
 });
 
 test('3. Late joiner — Joined at Lesson 9 in a 12-lesson quarter: eligible lessons = 4', () => {
@@ -116,21 +116,21 @@ test('5. Fair rate — Raw = 85, n = 4, reference = 70, k = 6 -> Expected: 76%',
   const adjusted = calculateAdjustedRate(4, 85, 70, 6);
   // (4 * 85 + 6 * 70) / (4 + 6) = (340 + 420) / 10 = 760 / 10 = 76
   assert.equal(adjusted, 76);
-  assert.equal(formatRate(adjusted), '76.0%');
+  assert.equal(formatRate(adjusted), '76.00');
 });
 
 test('6. Fair rate — Raw = 94, n = 2, reference = 70, k = 6 -> Expected: 76%', () => {
   const adjusted = calculateAdjustedRate(2, 94, 70, 6);
   // (2 * 94 + 6 * 70) / (2 + 6) = (188 + 420) / 8 = 608 / 8 = 76
   assert.equal(adjusted, 76);
-  assert.equal(formatRate(adjusted), '76.0%');
+  assert.equal(formatRate(adjusted), '76.00');
 });
 
 test('7. Fair rate — Raw = 90, n = 11, reference = 70, k = 6 -> Expected approx: 82.94%', () => {
   const adjusted = calculateAdjustedRate(11, 90, 70, 6);
   // (11 * 90 + 6 * 70) / (11 + 6) = (990 + 420) / 17 = 1410 / 17 ≈ 82.941176...
   assert.ok(Math.abs(adjusted - 82.941176) < 0.001);
-  assert.equal(formatRate(adjusted), '82.9%');
+  assert.equal(formatRate(adjusted), '82.94');
 });
 
 test('8. Student / Visitor & Award Eligibility Separation', () => {

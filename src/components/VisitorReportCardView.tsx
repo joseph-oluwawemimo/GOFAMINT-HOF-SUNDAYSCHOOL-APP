@@ -62,7 +62,7 @@ interface VisitorReportCardViewProps {
     };
   } | null;
   onBack?: () => void;
-  onRefresh?: () => void;
+  onRefresh?: () => void | Promise<void>;
 }
 
 export const VisitorReportCardView: React.FC<VisitorReportCardViewProps> = ({
@@ -80,6 +80,7 @@ export const VisitorReportCardView: React.FC<VisitorReportCardViewProps> = ({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
   const [refreshSuccess, setRefreshSuccess] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
 
   const member = members.find(m => m.id === memberId) || (members.length === 1 ? members[0] : null);
   const stats = member ? calculateMemberStats(member, grades, 12) : null;
@@ -131,15 +132,20 @@ export const VisitorReportCardView: React.FC<VisitorReportCardViewProps> = ({
     }
   }, [memberId, currentUrl]);
 
-  const handleRefreshClick = () => {
+  const handleRefreshClick = async () => {
     setIsRefreshing(true);
     setRefreshSuccess(false);
-    if (onRefresh) onRefresh();
-    setTimeout(() => {
-      setIsRefreshing(false);
+    setRefreshError(null);
+    try {
+      if (onRefresh) await onRefresh();
       setRefreshSuccess(true);
-      setTimeout(() => setRefreshSuccess(false), 2000);
-    }, 600);
+      window.setTimeout(() => setRefreshSuccess(false), 2000);
+    } catch (error) {
+      console.error('[ReportCard] Refresh failed:', error);
+      setRefreshError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   if (!member || !stats) {
@@ -177,6 +183,7 @@ export const VisitorReportCardView: React.FC<VisitorReportCardViewProps> = ({
   return (
     <div className="text-slate-800 font-sans animate-fade-in">
       <div className="max-w-3xl mx-auto space-y-4 sm:space-y-5">
+        {refreshError && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800">Refresh failed: {refreshError}</div>}
         
         {/* Top Floating Control Bar */}
         <div className="flex items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">

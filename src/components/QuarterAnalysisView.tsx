@@ -326,10 +326,10 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
       return (
         <>
           <div className={`${isChampion ? 'text-lg font-black text-amber-950' : 'text-base font-black text-slate-900'}`}>
-            {rawRate}% <span className={`text-xs font-bold ${isChampion ? 'text-amber-800' : 'text-slate-600'}`}>Raw Rate</span>
+            {formatRate(rawRate)}% <span className={`text-xs font-bold ${isChampion ? 'text-amber-800' : 'text-slate-600'}`}>Raw Rate</span>
           </div>
           <div className={`text-xs font-medium ${isChampion ? 'text-amber-900/80 font-semibold' : 'text-slate-600'}`}>
-            {fairRate}% Fair Rate ({pointsStr})
+            {formatRate(fairRate)}% Fair Rate ({pointsStr})
           </div>
         </>
       );
@@ -338,10 +338,10 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
     return (
       <>
         <div className={`${isChampion ? 'text-lg font-black text-amber-950' : 'text-base font-black text-slate-900'}`}>
-          {fairRate}% <span className={`text-xs font-bold ${isChampion ? 'text-amber-700' : 'text-slate-500'}`}>Fair Rate</span>
+          {formatRate(fairRate)}% <span className={`text-xs font-bold ${isChampion ? 'text-amber-700' : 'text-slate-500'}`}>Fair Rate</span>
         </div>
         <div className={`text-xs font-medium ${isChampion ? 'text-amber-900/80 font-semibold' : 'text-slate-600'}`}>
-          {rawRate}% Raw ({pointsStr})
+          {formatRate(rawRate)}% Raw ({pointsStr})
         </div>
       </>
     );
@@ -515,7 +515,7 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
           </div>
           <div className="flex items-baseline gap-1.5">
             <span className="text-2xl font-black text-amber-800">
-              {sortedPodium[0] ? `${sortedPodium[0].overall.adjustedRate}%` : '0%'}
+              {sortedPodium[0] ? `${formatRate(sortedPodium[0].overall.adjustedRate)}%` : '0.00%'}
             </span>
             <span className="text-xs text-slate-500">Fair Rate</span>
           </div>
@@ -523,7 +523,7 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
             Leader: {sortedPodium[0]?.fullName || 'None'}
             {sortedPodium[0] && (
               <span className="text-slate-500 font-normal ml-1">
-                ({sortedPodium[0].overall.rawRate}% raw)
+                ({formatRate(sortedPodium[0].overall.rawRate)}% raw)
               </span>
             )}
           </p>
@@ -914,25 +914,25 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
                     </td>
                     <td className="py-2.5 px-3">
                       <span className="text-emerald-700 font-bold">{item.attendedWeeks}</span> / {item.eligibleLessons}
-                      <div className="text-[10px] text-slate-500">{item.attendanceRate}%</div>
+                      <div className="text-[10px] text-slate-500">{formatRate(item.attendanceRate)}%</div>
                     </td>
                     <td className="py-2.5 px-3">
                       {rateMode === 'RAW' ? (
                         <>
                           <div className="font-bold text-slate-900">
-                            {item.punctuality.rawRate}% <span className="text-[9px] font-semibold text-slate-500">raw</span>
+                            {formatRate(item.punctuality.rawRate)}% <span className="text-[9px] font-semibold text-slate-500">raw</span>
                           </div>
                           <div className="text-[10px] text-slate-500">
-                            {item.punctuality.scoreObtained} / {item.punctuality.maxObtainable} ({item.punctuality.adjustedRate}% fair)
+                            {item.punctuality.scoreObtained} / {item.punctuality.maxObtainable} ({formatRate(item.punctuality.adjustedRate)}% fair)
                           </div>
                         </>
                       ) : (
                         <>
                           <div className="font-bold text-slate-900">
-                            {item.punctuality.adjustedRate}% <span className="text-[9px] font-semibold text-slate-500">fair</span>
+                            {formatRate(item.punctuality.adjustedRate)}% <span className="text-[9px] font-semibold text-slate-500">fair</span>
                           </div>
                           <div className="text-[10px] text-slate-500">
-                            {item.punctuality.scoreObtained} / {item.punctuality.maxObtainable} ({item.punctuality.rawRate}% raw)
+                            {item.punctuality.scoreObtained} / {item.punctuality.maxObtainable} ({formatRate(item.punctuality.rawRate)}% raw)
                           </div>
                         </>
                       )}
@@ -941,19 +941,19 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
                       {rateMode === 'RAW' ? (
                         <>
                           <div className="font-bold text-amber-800">
-                            {item.memoryVerse.rawRate}% <span className="text-[9px] font-semibold text-slate-500">raw</span>
+                            {formatRate(item.memoryVerse.rawRate)}% <span className="text-[9px] font-semibold text-slate-500">raw</span>
                           </div>
                           <div className="text-[10px] text-slate-500">
-                            {item.memoryVerse.scoreObtained} / {item.memoryVerse.maxObtainable} ({item.memoryVerse.adjustedRate}% fair)
+                            {item.memoryVerse.scoreObtained} / {item.memoryVerse.maxObtainable} ({formatRate(item.memoryVerse.adjustedRate)}% fair)
                           </div>
                         </>
                       ) : (
                         <>
                           <div className="font-bold text-amber-800">
-                            {item.memoryVerse.adjustedRate}% <span className="text-[9px] font-semibold text-slate-500">fair</span>
+                            {formatRate(item.memoryVerse.adjustedRate)}% <span className="text-[9px] font-semibold text-slate-500">fair</span>
                           </div>
                           <div className="text-[10px] text-slate-500">
-                            {item.memoryVerse.scoreObtained} / {item.memoryVerse.maxObtainable} ({item.memoryVerse.rawRate}% raw)
+                            {item.memoryVerse.scoreObtained} / {item.memoryVerse.maxObtainable} ({formatRate(item.memoryVerse.rawRate)}% raw)
                           </div>
                         </>
                       )}
@@ -962,19 +962,19 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
                       {rateMode === 'RAW' ? (
                         <>
                           <div className="font-bold text-indigo-800">
-                            {item.participation.rawRate}% <span className="text-[9px] font-semibold text-slate-500">raw</span>
+                            {formatRate(item.participation.rawRate)}% <span className="text-[9px] font-semibold text-slate-500">raw</span>
                           </div>
                           <div className="text-[10px] text-slate-500">
-                            {item.participation.scoreObtained} / {item.participation.maxObtainable} ({item.participation.adjustedRate}% fair)
+                            {item.participation.scoreObtained} / {item.participation.maxObtainable} ({formatRate(item.participation.adjustedRate)}% fair)
                           </div>
                         </>
                       ) : (
                         <>
                           <div className="font-bold text-indigo-800">
-                            {item.participation.adjustedRate}% <span className="text-[9px] font-semibold text-slate-500">fair</span>
+                            {formatRate(item.participation.adjustedRate)}% <span className="text-[9px] font-semibold text-slate-500">fair</span>
                           </div>
                           <div className="text-[10px] text-slate-500">
-                            {item.participation.scoreObtained} / {item.participation.maxObtainable} ({item.participation.rawRate}% raw)
+                            {item.participation.scoreObtained} / {item.participation.maxObtainable} ({formatRate(item.participation.rawRate)}% raw)
                           </div>
                         </>
                       )}
@@ -983,19 +983,19 @@ export const QuarterAnalysisView: React.FC<QuarterAnalysisViewProps> = ({
                       {rateMode === 'RAW' ? (
                         <>
                           <div className="font-extrabold text-amber-950 text-sm">
-                            {item.overall.rawRate}% <span className="text-[10px] font-bold text-amber-700">Raw</span>
+                            {formatRate(item.overall.rawRate)}% <span className="text-[10px] font-bold text-amber-700">Raw</span>
                           </div>
                           <div className="text-[10px] text-slate-500 font-medium">
-                            {item.totalPointsEarned} / {item.maxAvailablePoints} pts ({item.overall.adjustedRate}% fair)
+                            {item.totalPointsEarned} / {item.maxAvailablePoints} pts ({formatRate(item.overall.adjustedRate)}% fair)
                           </div>
                         </>
                       ) : (
                         <>
                           <div className="font-extrabold text-amber-950 text-sm">
-                            {item.overall.adjustedRate}% <span className="text-[10px] font-bold text-amber-700">Fair</span>
+                            {formatRate(item.overall.adjustedRate)}% <span className="text-[10px] font-bold text-amber-700">Fair</span>
                           </div>
                           <div className="text-[10px] text-slate-500 font-medium">
-                            {item.totalPointsEarned} / {item.maxAvailablePoints} pts ({item.overall.rawRate}% raw)
+                            {item.totalPointsEarned} / {item.maxAvailablePoints} pts ({formatRate(item.overall.rawRate)}% raw)
                           </div>
                         </>
                       )}

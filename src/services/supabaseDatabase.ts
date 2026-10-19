@@ -24,6 +24,7 @@ import { collectAllPages } from '../utils/paginatedRead';
 type Filter = { field: string; op: string; value: unknown };
 
 export const SUPABASE_READ_PAGE_SIZE = 500;
+export const CLIENT_WRITE_PROTOCOL_VERSION = 20261018;
 
 type TableConfig = {
   table: string;
@@ -77,6 +78,18 @@ export function cleanForSupabase<T>(value: T): T {
   ) as T;
 }
 
+export function stampClientWriteMetadata<T extends Record<string, any>>(document: T): T & {
+  _clientWriteVersion: number;
+  _clientWrittenAt: string;
+} {
+  return {
+    ...document,
+    _clientWriteVersion: CLIENT_WRITE_PROTOCOL_VERSION,
+    _clientWrittenAt: new Date().toISOString(),
+    _expectedUpdatedAt: document._baseUpdatedAt
+  };
+}
+
 function toRow(collectionName: string, document: Record<string, any>): Record<string, any> {
   const config = configFor(collectionName);
   if (!document?.id) throw new Error(`Cannot save ${collectionName} without a stable id.`);
@@ -85,8 +98,10 @@ function toRow(collectionName: string, document: Record<string, any>): Record<st
     throw new Error('Administrative profiles are provisioned only through the protected server API.');
   }
 
-  const data = cleanForSupabase({ ...document });
+  const data = cleanForSupabase(stampClientWriteMetadata(document));
   delete data.id;
+  delete data._baseUpdatedAt;
+  if (!data.updatedAt) data.updatedAt = new Date().toISOString();
   const row: Record<string, any> = { id: document.id, data };
   for (const [legacyField, column] of Object.entries(config.columns || {})) {
     if (legacyField in document) row[column] = document[legacyField] ?? null;
@@ -123,6 +138,7 @@ function fromRow<T>(collectionName: string, row: Record<string, any>): T {
   const result: Record<string, any> = {
     ...(parsedData && typeof parsedData === 'object' ? parsedData : {}),
     id: row.id,
+    _baseUpdatedAt: row.updated_at || parsedData?.updatedAt || '__missing__',
   };
   for (const [legacyField, column] of Object.entries(config.columns || {})) {
     if (row[column] !== null && row[column] !== undefined) result[legacyField] = row[column];
@@ -229,20 +245,22 @@ export async function saveDocument<T extends { id: string }>(collectionName: str
   let row = toRow(collectionName, document);
   if (collectionName === 'classes') {
     try {
-      const { data: existing } = await getSupabaseClient().from('classes').select('data').eq('id', document.id).maybeSingle();
+      const { data: existing, error: lookupError } = await getSupabaseClient().from('classes').select('data').eq('id', document.id).maybeSingle();
+      if (lookupError) throw lookupError;
       if (existing?.data?.approvalStatus === 'APPROVED' && row.data?.approvalStatus !== 'APPROVED') {
         row.data.approvalStatus = 'APPROVED';
         if (existing.data.approvedBy) row.data.approvedBy = existing.data.approvedBy;
         if (existing.data.approvedAt) row.data.approvedAt = existing.data.approvedAt;
       }
     } catch (approvalLookupError) {
-      console.warn(`Could not verify existing class approval before saving ${document.id}:`, approvalLookupError);
+      throw new Error(`Could not verify existing class approval before saving ${document.id}: ${String(approvalLookupError)}`);
     }
   }
 
   if (collectionName === 'members') {
     try {
-      const { data: existing } = await getSupabaseClient().from('members').select('data, updated_at').eq('id', document.id).maybeSingle();
+      const { data: existing, error: lookupError } = await getSupabaseClient().from('members').select('data, updated_at').eq('id', document.id).maybeSingle();
+      if (lookupError) throw lookupError;
       if (existing?.data) {
         // Guard student status: never downgrade an approved STUDENT to VISITOR from stale draft sync
         if (existing.data.memberType === 'STUDENT' && row.data?.memberType !== 'STUDENT') {
@@ -288,13 +306,14 @@ export async function saveDocument<T extends { id: string }>(collectionName: str
         }
       }
     } catch (memberLookupError) {
-      console.warn(`Could not verify existing member state before saving ${document.id}:`, memberLookupError);
+      throw new Error(`Could not verify existing member state before saving ${document.id}: ${String(memberLookupError)}`);
     }
   }
 
   if (collectionName === 'grades') {
     try {
-      const { data: existing } = await getSupabaseClient().from('grades').select('data, updated_at').eq('id', document.id).maybeSingle();
+      const { data: existing, error: lookupError } = await getSupabaseClient().from('grades').select('data, updated_at').eq('id', document.id).maybeSingle();
+      if (lookupError) throw lookupError;
       if (existing?.data) {
         const incomingTime = (document as any).updatedAt ? new Date((document as any).updatedAt).getTime() : 0;
         const existingTime = existing.data.updatedAt ? new Date(existing.data.updatedAt).getTime() : 0;
@@ -309,16 +328,21 @@ export async function saveDocument<T extends { id: string }>(collectionName: str
         }
       }
     } catch (gradeLookupError) {
-      console.warn(`Could not verify existing grade state before saving ${document.id}:`, gradeLookupError);
+      throw new Error(`Could not verify existing grade state before saving ${document.id}: ${String(gradeLookupError)}`);
     }
   }
 
-  const { error } = await getSupabaseClient().from(config.table).upsert(row, { onConflict: 'id' });
+  const { data: committed, error } = await getSupabaseClient().from(config.table).upsert(row, { onConflict: 'id' }).select('*').single();
   if (error) {
     console.error(`Supabase saveDocument error [${collectionName}/${document.id}]:`, error);
     throw error;
   }
-  return document;
+  if (!committed) throw new Error(`Database did not confirm ${collectionName}/${document.id}.`);
+  const confirmed = fromRow<T>(collectionName, committed);
+  // Keep the current in-memory record on its newly confirmed revision for a
+  // second edit before the next realtime notification arrives.
+  Object.assign(document, confirmed);
+  return confirmed;
 }
 
 export async function removeDocument(collectionName: string, documentId: string): Promise<void> {
@@ -347,10 +371,17 @@ export async function saveBatchDocuments<T extends { id: string }>(collectionNam
   const config = configFor(collectionName);
   const chunkSize = 450;
   for (let index = 0; index < documents.length; index += chunkSize) {
-    const { error } = await getSupabaseClient()
+    const batch = documents.slice(index, index + chunkSize);
+    const { data, error } = await getSupabaseClient()
       .from(config.table)
-      .upsert(documents.slice(index, index + chunkSize).map(document => toRow(collectionName, document)), { onConflict: 'id' });
+      .upsert(batch.map(document => toRow(collectionName, document)), { onConflict: 'id' }).select('*');
     if (error) throw error;
+    const confirmedById = new Map((data || []).map(row => [row.id, row]));
+    for (const document of batch) {
+      const confirmed = confirmedById.get(document.id);
+      if (!confirmed) throw new Error(`Database did not confirm ${collectionName}/${document.id} in the batch.`);
+      Object.assign(document, fromRow(collectionName, confirmed));
+    }
   }
 }
 

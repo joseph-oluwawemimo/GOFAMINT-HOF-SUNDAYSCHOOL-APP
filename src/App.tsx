@@ -54,7 +54,7 @@ import { GOFAMINT_HOF_12_LESSONS } from './data/mockQuarterLessons';
 import { pushSyncToServer, pullSyncFromServer } from './services/api';
 import { checkVisitorQualification, getConsecutiveAbsences, getConsecutiveVisits } from './utils/calculations';
 import { runFullCloudSyncCycle, getLastHydrationError, startRealtimeCloudSync, stopRealtimeCloudSync, flushSyncQueueToCloud } from './services/cloudSyncManager';
-import { saveDocument, removeDocument } from './services/supabaseDatabase';
+import { saveDocument, removeDocument, getRealtimeHealthStatus } from './services/supabaseDatabase';
 import type { SyncScope } from './services/cloudSyncManager';
 
 // Subcomponents
@@ -72,6 +72,7 @@ const ClassDiscussionView = lazy(() => import('./components/ClassDiscussionView'
 const QRPortalView = lazy(() => import('./components/QRPortalView').then(module => ({ default: module.QRPortalView })));
 const VisitorReportCardView = lazy(() => import('./components/VisitorReportCardView').then(module => ({ default: module.VisitorReportCardView })));
 const SSSRReportView = lazy(() => import('./components/SSSRReportView').then(module => ({ default: module.SSSRReportView })));
+const ClassReportCardHub = lazy(() => import('./components/ClassReportCardHub').then(module => ({ default: module.ClassReportCardHub })));
 const FollowUpReportView = lazy(() => import('./components/FollowUpReportView').then(module => ({ default: module.FollowUpReportView })));
 const AIAssistantView = lazy(() => import('./components/AIAssistantView').then(module => ({ default: module.AIAssistantView })));
 const SyncSettingsView = lazy(() => import('./components/SyncSettingsView').then(module => ({ default: module.SyncSettingsView })));
@@ -86,7 +87,7 @@ import { OversightBanner } from './components/OversightBanner';
 import { watchAuthState, signOutUser, getCurrentUser } from './services/authService';
 import { logOversightAccess } from './services/adminUserApi';
 import { loadCurrentProfile, type ApplicationProfile } from './services/profileService';
-import { initAppUpdateChecker } from './services/appUpdateChecker';
+import { initAppUpdateChecker, purgeCachesAndReload } from './services/appUpdateChecker';
 import type { User } from '@supabase/supabase-js';
 import { isApprovedClassStatus, isExactClassAssignment } from './utils/accessControl';
 import { usePersistedState } from './hooks/usePersistedState';
@@ -95,29 +96,16 @@ import { VisitorProfileCompletionView } from './views/VisitorProfileCompletionVi
 import { StandaloneReportCardView } from './views/StandaloneReportCardView';
 import { backgroundStateManager } from './utils/backgroundStateManager';
 import { shouldResolveProfileForAuthEvent } from './utils/authEventPolicy';
+import { resolvePublicLinkTokens } from './utils/publicLinkRouting';
 
 const getVisitorTokenFromUrl = (): string | null => {
   if (typeof window === 'undefined') return null;
-  const hash = window.location.hash || '';
-  const hashMatch = hash.match(/#\/?(?:visitor-profile|member-profile|profile-link)\/([a-zA-Z0-9_-]+)/);
-  if (hashMatch && hashMatch[1]) return hashMatch[1];
-  const search = window.location.search || '';
-  const params = new URLSearchParams(search);
-  const paramToken = params.get('visitor_token') || params.get('profile_token');
-  if (paramToken) return paramToken;
-  return null;
+  return resolvePublicLinkTokens(window.location.href).visitorToken;
 };
 
 const getReportCardTokenFromUrl = (): string | null => {
   if (typeof window === 'undefined') return null;
-  const hash = window.location.hash || '';
-  const hashMatch = hash.match(/#\/?(?:report-card|student-report|student-profile)\/([a-zA-Z0-9_-]+)/);
-  if (hashMatch && hashMatch[1]) return hashMatch[1];
-  const search = window.location.search || '';
-  const params = new URLSearchParams(search);
-  const paramToken = params.get('report_card_token') || params.get('student_report_token') || params.get('student_token');
-  if (paramToken) return paramToken;
-  return null;
+  return resolvePublicLinkTokens(window.location.href).reportCardToken;
 };
 
 const ADMIN_PORTAL_ROLES = new Set([
@@ -160,6 +148,7 @@ type ProfileResolutionState = 'idle' | 'loading' | 'ready' | 'missing' | 'unappr
 export default function App() {
   const [visitorToken, setVisitorToken] = useState<string | null>(() => getVisitorTokenFromUrl());
   const [reportCardToken, setReportCardToken] = useState<string | null>(() => getReportCardTokenFromUrl());
+  const [updateAvailable, setUpdateAvailable] = useState<{ currentVersion: string; serverVersion: string } | null>(null);
 
   useEffect(() => {
     backgroundStateManager.init();
@@ -314,6 +303,14 @@ export default function App() {
   useEffect(() => {
     let isMounted = true;
     const disposeUpdates = initAppUpdateChecker();
+    const handleUpdateAvailable = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      setUpdateAvailable({
+        currentVersion: String(detail.currentVersion || 'current'),
+        serverVersion: String(detail.serverVersion || 'latest')
+      });
+    };
+    window.addEventListener('gofamint:update-available', handleUpdateAvailable);
 
     // Check existing stored session immediately on mount
     getCurrentUser()
@@ -357,6 +354,7 @@ export default function App() {
       isMounted = false;
       unsubscribe();
       disposeUpdates();
+      window.removeEventListener('gofamint:update-available', handleUpdateAvailable);
     };
   }, []);
 
@@ -640,6 +638,8 @@ export default function App() {
       setAbsenceLogs(prev => (JSON.stringify(prev) === JSON.stringify(classLogs) ? prev : classLogs));
     } catch (e) {
       console.error('Error loading class quarter data:', e);
+      setSyncStatusText(`Class data could not be refreshed: ${e instanceof Error ? e.message : String(e)}`);
+      throw e;
     }
   };
 
@@ -920,13 +920,13 @@ export default function App() {
     };
     window.addEventListener('gofamint:sync-update', handleLocalStoreChange);
 
-    // Revalidate after meaningful background time. This covers suspended mobile
-    // WebSockets and delete events while keeping quick tab switches instant.
+    // Revalidate after meaningful background time or a broken live connection.
+    // Short tab switches keep their current page and do no full hydration.
     let lastFocusSyncTime = Date.now();
     const handleReturnToApp = () => {
       if (document.visibilityState === 'hidden') return;
       const now = Date.now();
-      if (now - lastFocusSyncTime > 4000) {
+      if (now - lastFocusSyncTime > 120000 || getRealtimeHealthStatus() === 'ERROR') {
         lastFocusSyncTime = now;
         void syncWithCloud(true);
       }
@@ -963,8 +963,8 @@ export default function App() {
       autoSyncDebounceRef.current = window.setTimeout(async () => {
         try {
           await flushSyncQueueToCloud();
-          await retryFailedCloudPushes().catch(() => {});
-          const q = await getSyncQueue().catch(() => []);
+          await retryFailedCloudPushes();
+          const q = await getSyncQueue();
           setSyncQueue(q);
           if (q.length === 0) {
             setSyncStatusText('Fully Synced with Cloud');
@@ -988,11 +988,11 @@ export default function App() {
       }
 
       try {
-        const q = await getSyncQueue().catch(() => []);
+        const q = await getSyncQueue();
         if (q.length > 0) {
           await flushSyncQueueToCloud();
-          await retryFailedCloudPushes().catch(() => {});
-          const freshQ = await getSyncQueue().catch(() => []);
+          await retryFailedCloudPushes();
+          const freshQ = await getSyncQueue();
           setSyncQueue(prev => (JSON.stringify(prev) === JSON.stringify(freshQ) ? prev : freshQ));
         }
         void syncWithCloud(true);
@@ -1812,6 +1812,22 @@ export default function App() {
     );
   }
 
+  if (updateAvailable) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-4">
+        <div role="alert" className="w-full max-w-md rounded-3xl border border-amber-400/50 bg-slate-900 p-7 text-center shadow-2xl">
+          <h1 className="text-xl font-black text-amber-300">App update required</h1>
+          <p className="mt-3 text-sm leading-relaxed text-slate-300">
+            A newer protected version is available. Database changes are paused so this older screen cannot overwrite current records.
+          </p>
+          <button type="button" onClick={() => void purgeCachesAndReload()} className="mt-6 min-h-11 w-full rounded-xl bg-amber-400 px-4 text-sm font-black text-slate-950 hover:bg-amber-300">
+            Update safely now
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (isCheckingAuth) {
     return (
       <div className="min-h-screen bg-blue-950 flex flex-col items-center justify-center text-slate-300 p-4 text-center">
@@ -2397,8 +2413,8 @@ export default function App() {
           />
         )}
 
-        {/* ACTIVITY ONE — SSSR REPORT */}
-        {activeTab === 'REPORT_CARD' && (
+        {/* ACTIVITY ONE — SSS REPORT DISPATCH */}
+        {activeTab === 'SSSR_REPORT' && (
           <SSSRReportView
             members={members}
             grades={grades}
@@ -2409,6 +2425,20 @@ export default function App() {
             quarterData={sundaySchoolYear?.quarters?.find(q => q.quarterNumber === selectedQuarter) || null}
             onSelectWeek={setSelectedWeek}
             onUpdateClassProfile={handleUpdateClassProfile}
+            onDeliveriesUpdated={deliveries => {
+              setClassProfile(previous => previous
+                ? { ...previous, sssrDeliveries: { ...previous.sssrDeliveries, ...deliveries } }
+                : previous);
+            }}
+          />
+        )}
+
+        {activeTab === 'REPORT_CARD' && (
+          <ClassReportCardHub
+            members={members}
+            grades={grades}
+            classProfile={classProfile}
+            lessons={currentQuarterLessons}
           />
         )}
 

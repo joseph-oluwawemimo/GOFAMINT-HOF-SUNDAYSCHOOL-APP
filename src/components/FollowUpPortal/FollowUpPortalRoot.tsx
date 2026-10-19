@@ -43,6 +43,7 @@ import {
   VISITATION_MAX_PER_CLASS_PER_WEEK,
   VISITATION_COOLDOWN_WEEKS,
   getClassWeeklyVisitationCandidates,
+  getWeeklyVisitationAssignments,
   computeClassFollowUpSummary,
   computeFollowUpIntelligence
 } from '../../utils/visitationEngine';
@@ -314,7 +315,7 @@ export const FollowUpPortalRoot: React.FC<FollowUpPortalRootProps> = ({
         scopedGrades,
         scopedAbsenceLogs,
         cls?.visitationAssignments || {},
-        { includeCooldown: true, maxCap: 1 }
+        { includeCooldown: true, maxCap: 1, quarterNumber }
       ).candidates[0];
 
       if (cand && cand.consecutiveWeeksAbsent > 0) {
@@ -375,7 +376,7 @@ export const FollowUpPortalRoot: React.FC<FollowUpPortalRootProps> = ({
         scopedGrades,
         scopedAbsenceLogs,
         cls.visitationAssignments || {},
-        { includeCooldown: false, maxCap: VISITATION_MAX_PER_CLASS_PER_WEEK }
+        { includeCooldown: false, maxCap: VISITATION_MAX_PER_CLASS_PER_WEEK, quarterNumber }
       );
 
       for (const cand of candidates) {
@@ -425,7 +426,7 @@ export const FollowUpPortalRoot: React.FC<FollowUpPortalRootProps> = ({
           scopedGrades,
           scopedAbsenceLogs,
           cls.visitationAssignments || {},
-          { includeCooldown: true, maxCap: 1 }
+          { includeCooldown: true, maxCap: 1, quarterNumber }
         ).candidates[0];
 
         if (cand && cand.consecutiveWeeksAbsent > 0) {
@@ -613,8 +614,8 @@ export const FollowUpPortalRoot: React.FC<FollowUpPortalRootProps> = ({
       {/* ========================================================================= */}
       {/* 2. MOBILE BOTTOM NAVIGATION (PRESERVED FOR PHONES & TOUCH SCREENS)         */}
       {/* ========================================================================= */}
-      <nav aria-label="Follow-Up portal sections" className="fixed inset-x-0 bottom-0 z-50 lg:hidden bg-slate-900/95 backdrop-blur-md border-t border-slate-800 px-2 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] overflow-x-auto scrollbar-none shadow-2xl">
-        <div className="max-w-7xl mx-auto flex items-stretch justify-start gap-1.5 min-w-max">
+      <nav aria-label="Follow-Up portal sections" className="fixed inset-x-0 bottom-0 z-50 lg:hidden bg-slate-900/95 backdrop-blur-md border-t border-slate-800 px-2 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-2xl">
+        <div className="max-w-7xl mx-auto grid grid-cols-5 items-stretch gap-1">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
@@ -631,7 +632,7 @@ export const FollowUpPortalRoot: React.FC<FollowUpPortalRootProps> = ({
                     setInspectClassId(null);
                   }
                 }}
-                className={`min-w-[70px] flex flex-col items-center justify-center gap-1 px-2.5 py-1.5 min-h-[50px] rounded-xl text-[10px] font-bold transition-all relative cursor-pointer ${
+                className={`min-w-0 flex flex-col items-center justify-center gap-1 px-1 py-1.5 min-h-[50px] rounded-xl text-[9px] font-bold transition-all relative cursor-pointer ${
                   isActive
                     ? 'bg-rose-600 text-white shadow-md'
                     : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -1037,8 +1038,8 @@ export const FollowUpPortalRoot: React.FC<FollowUpPortalRootProps> = ({
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {allVisitationCandidates.map(({ candidate, classProfile: cls }) => {
-                          const assignmentKey = `${cls.id}_w${selectedWeek}_m${candidate.memberId}`;
-                          const assignment = cls.visitationAssignments?.[assignmentKey];
+                          const assignment = getWeeklyVisitationAssignments(cls.visitationAssignments || {}, selectedWeek, quarterNumber)
+                            .find(record => record.memberId === candidate.memberId);
 
                           return (
                             <tr key={`${cls.id}_${candidate.memberId}`} className="hover:bg-slate-50/80 transition-colors">

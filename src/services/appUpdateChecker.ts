@@ -29,12 +29,20 @@ export function initAppUpdateChecker(): () => void {
     }
   })();
 
-  // Check quietly in the background. Never reload merely because the user
-  // returns to the browser; an operator may be entering attendance or finance data.
-  const intervalId = window.setInterval(() => void checkForAppUpdate(), 5 * 60 * 1000);
+  const handleResume = () => {
+    if (document.visibilityState === 'visible') void checkForAppUpdate();
+  };
+  const handleOnline = () => void checkForAppUpdate();
+  const intervalId = window.setInterval(() => void checkForAppUpdate(), 2 * 60 * 1000);
+  document.addEventListener('visibilitychange', handleResume);
+  window.addEventListener('focus', handleResume);
+  window.addEventListener('online', handleOnline);
 
   disposeUpdateChecker = () => {
     window.clearInterval(intervalId);
+    document.removeEventListener('visibilitychange', handleResume);
+    window.removeEventListener('focus', handleResume);
+    window.removeEventListener('online', handleOnline);
     disposeUpdateChecker = null;
   };
   return disposeUpdateChecker;
@@ -64,7 +72,7 @@ export async function checkForAppUpdate(): Promise<boolean> {
     }
 
     if (currentServerVersion && initialVersion && currentServerVersion !== initialVersion) {
-      console.info(`[AppUpdateChecker] New version detected (current: ${initialVersion}, server: ${currentServerVersion}). It will be applied on the next user-initiated refresh.`);
+      console.info(`[AppUpdateChecker] New version detected (current: ${initialVersion}, server: ${currentServerVersion}). Writes are paused until the operator updates.`);
       updateTriggered = true;
       window.dispatchEvent(new CustomEvent('gofamint:update-available', {
         detail: { currentVersion: initialVersion, serverVersion: currentServerVersion }

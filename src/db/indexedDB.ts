@@ -6,6 +6,7 @@ import {
   cloudDeleteAbsenceLog
 } from '../services/supabaseDatabase';
 import { protectPendingCloudChanges } from '../utils/cloudOutbox';
+import { mergeVisitationAssignments } from '../utils/visitationEngine';
 
 // Fire-and-forget cloud push: local (IndexedDB) writes always succeed first so the
 // app keeps working offline; this mirrors the write to Supabase in the background.
@@ -897,9 +898,13 @@ export async function getClassProfile(): Promise<ClassProfile | null> {
 export async function saveClassProfile(profile: ClassProfile): Promise<ClassProfile> {
   const existingAll = (await getAllFromStore<ClassProfile>('allClasses')) || [];
   const existingInDir = existingAll.find(c => c.id === profile.id);
-  const safeProfile: ClassProfile = (existingInDir?.approvalStatus === 'APPROVED' && profile.approvalStatus !== 'APPROVED')
+  const approvalSafeProfile: ClassProfile = (existingInDir?.approvalStatus === 'APPROVED' && profile.approvalStatus !== 'APPROVED')
     ? { ...profile, approvalStatus: 'APPROVED', approvedBy: existingInDir.approvedBy, approvedAt: existingInDir.approvedAt }
     : profile;
+  const safeProfile: ClassProfile = {
+    ...approvalSafeProfile,
+    visitationAssignments: mergeVisitationAssignments(existingInDir?.visitationAssignments, approvalSafeProfile.visitationAssignments)
+  };
 
   await putInStore<ClassProfile>('allClasses', safeProfile, true);
   const result = await putInStore<ClassProfile>('classProfile', safeProfile, true);
@@ -2927,34 +2932,33 @@ export async function approveClassById(classId: string, approvedBy: string = 'Ge
     try {
       const { getSupabaseClient } = await import('../services/supabase');
       const supabase = getSupabaseClient();
-      const { data: existingRow } = await supabase.from('classes').select('*').eq('id', classId).maybeSingle();
+      const { data: existingRow, error: lookupError } = await supabase.from('classes').select('*').eq('id', classId).maybeSingle();
+      if (lookupError) throw lookupError;
+      if (!existingRow) throw new Error(`Class ${classId} was not found in the live database.`);
       const mergedSupabaseData = {
         ...(existingRow?.data && typeof existingRow.data === 'object' ? existingRow.data : {}),
         ...locallyApproved,
         approvalStatus: 'APPROVED',
-        updatedAt: now
+        updatedAt: now,
+        _clientWriteVersion: 20261018,
+        _clientWrittenAt: now,
+        _expectedUpdatedAt: existingRow?.updated_at || existingRow?.data?.updatedAt || '__missing__'
       };
-      if (existingRow) {
-        await supabase.from('classes').update({
-          data: mergedSupabaseData,
-          department_id: mergedSupabaseData.department || existingRow.department_id || 'Adult',
-          updated_at: now
-        }).eq('id', classId);
-      } else {
-        await supabase.from('classes').insert({
-          id: classId,
-          data: mergedSupabaseData,
-          department_id: mergedSupabaseData.department || 'Adult',
-          created_at: now,
-          updated_at: now
-        });
-      }
-      authoritativeClass = mergedSupabaseData;
+      const { data: committed, error: updateError } = await supabase.from('classes').update({
+        data: mergedSupabaseData,
+        department_id: mergedSupabaseData.department || existingRow.department_id || 'Adult',
+        updated_at: now
+      }).eq('id', classId).select('*').single();
+      if (updateError) throw updateError;
+      if (!committed) throw new Error(`The live database did not confirm approval for class ${classId}.`);
+      authoritativeClass = { ...committed.data, id: committed.id, _baseUpdatedAt: committed.updated_at };
       serverSuccess = true;
     } catch (directErr) {
       console.warn('Direct Supabase client approval fallback failed:', directErr);
     }
   }
+
+  if (!serverSuccess) throw new Error(`Class ${classId} could not be approved in the live database. Local approval was not recorded.`);
 
   // 5. Store authoritative record back into IndexedDB
   await putInStore('allClasses', authoritativeClass, true);

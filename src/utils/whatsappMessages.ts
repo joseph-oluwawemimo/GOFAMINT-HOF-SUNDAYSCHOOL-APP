@@ -124,7 +124,7 @@ export function generateAbsenceFollowUpMessage(options: AbsenceFollowUpOptions):
   const name = options.memberName.trim() || 'beloved';
   const staffSignoff = options.staffName ? `\n\nWarm regards,\n${options.staffName}${options.className ? ` (${options.className})` : ''}` : '';
   
-  return `Hello ${name}, we didn't see you in Sunday School last Sunday and we wanted to check on you. We hope you're doing well. We missed having you with us and would love to know how you're doing.${staffSignoff}`;
+  return `Hello ${name}, how are you doing? We did not see you in Sunday School last Sunday and we want to be sure you are well. Hope there is no problem—what kept you away? Please reply and tell us how you are doing and how we can support or pray with you.${staffSignoff}`;
 }
 
 /**
@@ -149,12 +149,12 @@ export function generateVisitorWeeklyFollowUpMessage(options: VisitorWeeklyFollo
     ? `\n🎯 Spiritual Aim: ${lesson.aim.replace(/^To\s+/i, 'To ')}` 
     : '');
 
-  return `Hello ${name}, we hope you're having a blessed week! We are warmly checking in from GOFAMINT House of Favour Sunday School.
+  return `Hello ${name}, how are you doing, and how has your week been? Please reply—we would genuinely love to hear from you. We are checking in from GOFAMINT House of Favour Sunday School.
 
 This Sunday, our lesson is:
 📌 Topic: "${topic}"${scriptureLine}${verseText}${summary}
 
-We would love to have you fellowship with us again. Sunday School starts promptly at 8:00 a.m. We'll be glad to have you with us!${staffSignoff}`;
+Will you be able to join us this Sunday? Sunday School starts promptly at 8:00 a.m. Please tell us if anything may prevent you from coming or if you have a prayer request.${staffSignoff}`;
 }
 
 /**
@@ -214,7 +214,7 @@ export function generateChildStudentFollowUpMessage(options: ChildStudentFollowU
     : '');
 
   if (options.isAbsence) {
-    return `${parentSalutation}we warmly missed having ${child} with us in ${className} last Sunday. We pray all is well with your family!
+    return `${parentSalutation}we missed having ${child} with us in ${className} last Sunday. Is everything well with your family, and what kept ${child} away? Please reply so we know how to support or pray with you.
 
 We wanted to share the upcoming Sunday School lesson with you so ${child} can prepare ahead:
 📌 Topic: "${topic}"${scriptureLine}${verseText}${summary}
@@ -250,7 +250,7 @@ export function generateStudentCheckInFollowUpMessage(options: StudentCheckInFol
   const verseText = mv ? `\n💎 Memory Verse: "${mv}"${mvRef ? ` (${mvRef})` : ''}` : '';
 
   const absencePrefix = (options.weeksAbsent && options.weeksAbsent > 0)
-    ? `We missed having you with us in Sunday School recently and wanted to check in on you to make sure everything is okay.`
+    ? `We missed having you with us in Sunday School recently. Is everything okay, and what kept you away? Please reply so we know how to support or pray with you.`
     : `We are thinking of you and praying for God's blessings upon your week!`;
 
   return `Hello ${name}, warm Christian greetings from ${className} at GOFAMINT House of Favour.

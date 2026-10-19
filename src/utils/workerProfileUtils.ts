@@ -1,9 +1,27 @@
-import { WorkerProfile } from '../types';
+import { WorkerAttendanceRecord, WorkerProfile } from '../types';
 
 export interface ProfileCompletenessResult {
   percentage: number;
   missingFields: string[];
   isComplete: boolean;
+}
+
+/** Legacy imports sometimes omitted or inconsistently cased status. Unknown
+ * explicit values stay unavailable until their status is corrected. */
+export function isActiveWorkerProfile(worker: WorkerProfile): boolean {
+  if (!worker || worker.archivedAt) return false;
+  const status = String(worker.status ?? '').trim().toUpperCase();
+  return status === '' || status === 'ACTIVE';
+}
+
+export function getClockedInWorkers(records: WorkerAttendanceRecord[], serviceDate: string): WorkerAttendanceRecord[] {
+  const latestByWorker = new Map<string, WorkerAttendanceRecord>();
+  records.filter(record => record.serviceDate === serviceDate).forEach(record => {
+    const previous = latestByWorker.get(record.workerId);
+    const revision = (item: WorkerAttendanceRecord) => Date.parse((item as WorkerAttendanceRecord & { updatedAt?: string }).updatedAt || item.createdAt || '') || item.timestamp || 0;
+    if (!previous || revision(record) >= revision(previous)) latestByWorker.set(record.workerId, record);
+  });
+  return [...latestByWorker.values()].filter(record => record.status === 'PRESENT' || record.status === 'LATE');
 }
 
 /**

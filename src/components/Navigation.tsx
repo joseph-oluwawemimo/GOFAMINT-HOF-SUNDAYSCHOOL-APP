@@ -11,7 +11,10 @@ import {
   ArrowLeft,
   Lock,
   UserCheck,
-  Home
+  Home,
+  FileText,
+  MoreHorizontal,
+  X
 } from 'lucide-react';
 import { ActiveTab, ClassProfile } from '../types';
 import { GofamintLogo } from './GofamintLogo';
@@ -41,6 +44,7 @@ export const Navigation: React.FC<NavigationProps> = ({
   onOpenWelcome,
   onLockClick
 }) => {
+  const [isMoreOpen, setIsMoreOpen] = React.useState(false);
   const navItems: Array<{
     id: ActiveTab;
     label: string;
@@ -64,9 +68,15 @@ export const Navigation: React.FC<NavigationProps> = ({
       badgeColor: 'bg-purple-600 text-white'
     },
     {
-      id: 'REPORT_CARD',
-      label: '1. SSS Report',
+      id: 'SSSR_REPORT',
+      label: 'SSS Report',
       shortLabel: 'SSS Report',
+      icon: FileText
+    },
+    {
+      id: 'REPORT_CARD',
+      label: 'Report Card',
+      shortLabel: 'Report Card',
       icon: GraduationCap
     },
     {
@@ -104,6 +114,8 @@ export const Navigation: React.FC<NavigationProps> = ({
   ];
 
   const activeTabRef = useRef<HTMLButtonElement | null>(null);
+  const mobilePrimaryItems = navItems.slice(0, 4);
+  const mobileMoreItems = navItems.slice(4);
 
   useEffect(() => {
     if (activeTabRef.current) {
@@ -249,9 +261,9 @@ export const Navigation: React.FC<NavigationProps> = ({
       {/* ========================================================================= */}
       {/* 2. MOBILE BOTTOM NAVIGATION (PRESERVED FOR PHONES & SMALL SCREENS)       */}
       {/* ========================================================================= */}
-      <nav aria-label="Class register sections" className="fixed inset-x-0 bottom-0 z-50 lg:hidden bg-white/95 backdrop-blur-md border-t border-slate-200/90 px-2 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] overflow-x-auto scrollbar-none shadow-[0_-8px_24px_rgba(15,23,42,0.14)] scroll-smooth touch-pan-x sm:sticky sm:top-0 sm:bottom-auto">
-        <div className="max-w-7xl mx-auto flex items-stretch justify-start gap-1.5 min-w-max">
-          {navItems.map((item) => {
+      <nav aria-label="Class register sections" className="fixed inset-x-0 bottom-0 z-50 lg:hidden bg-white/95 backdrop-blur-md border-t border-slate-200/90 px-2 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(15,23,42,0.14)] sm:sticky sm:top-0 sm:bottom-auto">
+        <div className="max-w-7xl mx-auto grid grid-cols-5 items-stretch gap-1">
+          {mobilePrimaryItems.map((item) => {
             const Icon = item.icon;
             const isActive =
               activeTab === item.id ||
@@ -261,12 +273,11 @@ export const Navigation: React.FC<NavigationProps> = ({
 
             return (
               <React.Fragment key={item.id}>
-                {isReportCard && <div className="h-7 w-px bg-slate-200 mx-1 shrink-0 self-center" />}
                 <button
                   ref={isActive ? activeTabRef : null}
                   id={`nav-tab-${(item.id || '').toLowerCase()}`}
                   onClick={() => onTabChange(item.id)}
-                  className={`min-w-[72px] flex flex-col items-center justify-center gap-1 px-2.5 py-2 min-h-[52px] rounded-xl text-[10px] font-bold transition-all duration-150 relative whitespace-nowrap touch-manipulation cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${
+                  className={`min-w-0 flex flex-col items-center justify-center gap-1 px-1 py-2 min-h-[52px] rounded-xl text-[9px] font-bold transition-all duration-150 relative touch-manipulation cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 ${
                     isActive
                       ? 'bg-blue-950 text-white shadow-md border border-blue-800'
                       : isReportCard
@@ -290,8 +301,46 @@ export const Navigation: React.FC<NavigationProps> = ({
               </React.Fragment>
             );
           })}
+          <button
+            type="button"
+            onClick={() => setIsMoreOpen(true)}
+            className={`min-w-0 flex min-h-[52px] flex-col items-center justify-center gap-1 rounded-xl px-1 py-2 text-[9px] font-bold ${mobileMoreItems.some(item => item.id === activeTab) ? 'bg-blue-950 text-white' : 'text-slate-600'}`}
+            aria-expanded={isMoreOpen}
+            aria-controls="class-mobile-more-menu"
+          >
+            <MoreHorizontal className="h-4 w-4" />
+            <span>More</span>
+          </button>
         </div>
       </nav>
+
+      {isMoreOpen && (
+        <div className="fixed inset-0 z-[60] flex items-end bg-slate-950/55 p-3 lg:hidden" role="dialog" aria-modal="true" aria-labelledby="class-more-title">
+          <div id="class-mobile-more-menu" className="w-full rounded-3xl bg-white p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-2xl">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 id="class-more-title" className="text-sm font-black text-slate-950">More class sections</h2>
+              <button type="button" onClick={() => setIsMoreOpen(false)} aria-label="Close more sections" className="rounded-full bg-slate-100 p-2"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {mobileMoreItems.map(item => {
+                const Icon = item.icon;
+                const isActive = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => { onTabChange(item.id); setIsMoreOpen(false); }}
+                    className={`flex min-h-14 items-center gap-3 rounded-2xl border p-3 text-left text-xs font-black ${isActive ? 'border-blue-900 bg-blue-950 text-white' : 'border-slate-200 bg-slate-50 text-slate-800'}`}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };

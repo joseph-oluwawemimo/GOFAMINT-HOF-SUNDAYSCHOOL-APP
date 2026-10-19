@@ -66,6 +66,8 @@ test('main header scrolls away while section navigation stays available responsi
   assert.match(navigationSource, /<nav aria-label="Class register sections" className="fixed inset-x-0 bottom-0 z-50/);
   assert.match(navigationSource, /sm:sticky sm:top-0 sm:bottom-auto/);
   assert.match(navigationSource, /safe-area-inset-bottom/);
+  assert.match(navigationSource, /class-mobile-more-menu/);
+  assert.doesNotMatch(navigationSource, /Class register sections" className="[^"]*overflow-x-auto/i);
   assert.match(appSource, /pb-\[calc\(4\.75rem\+env\(safe-area-inset-bottom\)\)\]/);
 });
 

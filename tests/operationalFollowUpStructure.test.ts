@@ -60,6 +60,7 @@ describe('Operational Follow-Up Structure — Comprehensive Verification', () =>
     phone: '08012345678',
     firstLessonWeek: 1,
     status: 'ACTIVE',
+    oneTimeProfileToken: { token: 'private-test-token', expiresAt: '', isUsed: false },
     ...opts,
   } as Member);
 
@@ -99,7 +100,9 @@ describe('Operational Follow-Up Structure — Comprehensive Verification', () =>
       assert.strictEqual(report.isPresent, true);
       assert.strictEqual(report.memberName, 'Brother Abraham Ade');
       assert.ok(report.formattedMessage.includes('Brother Abraham Ade'));
-      assert.ok(report.formattedMessage.includes('thanks for attending this past Sunday School'));
+      assert.match(report.formattedMessage, /Thank you for attending Sunday School last Sunday/i);
+      assert.match(report.formattedMessage, /how are you doing/i);
+      assert.match(report.formattedMessage, /Please reply/i);
 
       // Qualitative feedback without numerical scores in text
       assert.ok(report.formattedMessage.includes('Thank you for arriving on time.'));
@@ -121,8 +124,9 @@ describe('Operational Follow-Up Structure — Comprehensive Verification', () =>
 
       // Registration progress & profile link
       assert.ok(typeof report.registrationPercentage === 'number');
-      assert.ok(report.registrationLink.includes('token='));
-      assert.ok(report.studentProfileLink.includes(student.id));
+      assert.ok(report.registrationLink.includes('#student-profile/'));
+      assert.ok(report.studentProfileLink.includes('private-test-token'));
+      assert.ok(!report.studentProfileLink.includes(student.id));
 
       // Blessing & WhatsApp link
       assert.ok(report.formattedMessage.includes('Your week is blessed!'));
@@ -149,7 +153,8 @@ describe('Operational Follow-Up Structure — Comprehensive Verification', () =>
 
       assert.strictEqual(report.isPresent, false);
       assert.ok(report.formattedMessage.includes('Sister Sarah Ojo'));
-      assert.ok(report.formattedMessage.includes('we missed having you in Sunday School'));
+      assert.match(report.formattedMessage, /did not see you in Sunday School last Sunday/i);
+      assert.match(report.formattedMessage, /what kept you away/i);
 
       // Absent person MUST NOT have performance feedback / fabricated scores
       assert.strictEqual(report.punctualityScore, undefined);

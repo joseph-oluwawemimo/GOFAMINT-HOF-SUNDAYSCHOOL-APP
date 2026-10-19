@@ -15,6 +15,77 @@ export const VISITATION_TARGET_PER_CLASS_PER_WEEK = 3;
 export const VISITATION_MAX_PER_CLASS_PER_WEEK = 4;
 export const VISITATION_COOLDOWN_WEEKS = 4;
 
+/** Merge snapshots without letting an old device undo a completed visit. */
+export function mergeVisitationAssignments(
+  ...snapshots: Array<Record<string, VisitationAssignmentRecord> | undefined>
+): Record<string, VisitationAssignmentRecord> {
+  const merged: Record<string, VisitationAssignmentRecord> = {};
+  for (const snapshot of snapshots) {
+    for (const [id, incoming] of Object.entries(snapshot || {})) {
+      const existing = merged[id];
+      if (!existing) {
+        merged[id] = incoming;
+        continue;
+      }
+      const existingTime = Date.parse(existing.updatedAt || existing.createdAt || '') || 0;
+      const incomingTime = Date.parse(incoming.updatedAt || incoming.createdAt || '') || 0;
+      const newest = incomingTime >= existingTime ? incoming : existing;
+      const older = newest === incoming ? existing : incoming;
+      merged[id] = {
+        ...older,
+        ...newest,
+        selectedSlotIndex: existing.selectedSlotIndex ?? incoming.selectedSlotIndex,
+        status: existing.status === 'COMPLETED' || incoming.status === 'COMPLETED' ? 'COMPLETED' : newest.status,
+        completedAt: newest.completedAt || older.completedAt
+      };
+    }
+  }
+  return merged;
+}
+
+export function getWeeklyVisitationAssignments(
+  assignments: Record<string, VisitationAssignmentRecord>,
+  weekNumber: number,
+  quarterNumber?: number
+): VisitationAssignmentRecord[] {
+  return Object.values(mergeVisitationAssignments(...Object.values(assignments)
+    .filter(record => record.weekNumber === weekNumber &&
+      (quarterNumber === undefined || record.quarterNumber === undefined || record.quarterNumber === quarterNumber))
+    .map(record => ({ [record.memberId]: record }))))
+    .sort((a, b) => (a.selectedSlotIndex || 999) - (b.selectedSlotIndex || 999) || a.id.localeCompare(b.id));
+}
+
+/** Persist all selected people together before any single slot can be completed. */
+export function freezeWeeklyVisitationSlate(
+  classId: string,
+  quarterNumber: number,
+  weekNumber: number,
+  candidates: VisitationCandidate[],
+  assignments: Record<string, VisitationAssignmentRecord>,
+  now = new Date().toISOString()
+): Record<string, VisitationAssignmentRecord> {
+  const next = { ...assignments };
+  for (const [index, candidate] of candidates.slice(0, VISITATION_MAX_PER_CLASS_PER_WEEK).entries()) {
+    const existing = getWeeklyVisitationAssignments(assignments, weekNumber, quarterNumber).find(record => record.classId === classId && record.memberId === candidate.memberId);
+    if (existing?.selectedSlotIndex !== undefined) continue;
+    const id = existing?.id || `${classId}_q${quarterNumber}_w${weekNumber}_m${candidate.memberId}`;
+    next[id] = {
+      id, classId, quarterNumber, weekNumber,
+      memberId: candidate.memberId,
+      memberName: candidate.fullName,
+      assignedStaffName: '',
+      priority: candidate.priority,
+      slotType: candidate.slotType,
+      status: 'PENDING',
+      createdAt: now,
+      ...existing,
+      selectedSlotIndex: index + 1,
+      updatedAt: now
+    };
+  }
+  return next;
+}
+
 /**
  * Checks if a member has a completed visit record within the last 4 weeks.
  * Returns cooldown status and details.
@@ -33,12 +104,13 @@ export function getMemberVisitationCooldown(
   // Check completed visits from absence logs (contactMethod === 'PASTORAL_VISIT')
   const completedLogs = absenceLogs.filter(l => 
     l.memberId === memberId && 
+    l.weekNumber <= currentWeek &&
     (l.contactMethod === 'PASTORAL_VISIT' || (l as any).contactMethod === 'IN_PERSON')
   );
 
   // Also check assignments with status === 'COMPLETED'
   const completedAssignments = Object.values(visitationAssignments).filter(a =>
-    a.memberId === memberId && a.status === 'COMPLETED'
+    a.memberId === memberId && a.status === 'COMPLETED' && a.weekNumber <= currentWeek
   );
 
   let lastWeek: number | undefined;
@@ -172,6 +244,7 @@ export function getClassWeeklyVisitationCandidates(
     includeCooldown?: boolean;
     maxCap?: number;
     purePrioritySort?: boolean;
+    quarterNumber?: number;
   }
 ): {
   candidates: VisitationCandidate[];
@@ -179,8 +252,12 @@ export function getClassWeeklyVisitationCandidates(
   excludedByCooldownCount: number;
 } {
   const includeCooldown = options?.includeCooldown ?? false;
-  const maxCap = options?.maxCap ?? VISITATION_MAX_PER_CLASS_PER_WEEK;
+  const maxCap = Math.max(0, Math.min(VISITATION_MAX_PER_CLASS_PER_WEEK, options?.maxCap ?? VISITATION_MAX_PER_CLASS_PER_WEEK));
   const purePrioritySort = options?.purePrioritySort ?? false;
+  if (options?.quarterNumber !== undefined) {
+    visitationAssignments = Object.fromEntries(Object.entries(visitationAssignments).filter(([, record]) =>
+      record.quarterNumber === undefined || record.quarterNumber === options.quarterNumber));
+  }
 
   const allEvaluated: VisitationCandidate[] = [];
   let excludedByCooldownCount = 0;
@@ -221,7 +298,8 @@ export function getClassWeeklyVisitationCandidates(
   });
 
   // If pure priority sort is explicitly requested (e.g. legacy tests)
-  if (purePrioritySort) {
+  if (purePrioritySort && !Object.values(visitationAssignments).some(assignment => assignment.weekNumber === currentWeek &&
+    (options?.quarterNumber === undefined || assignment.quarterNumber === undefined || assignment.quarterNumber === options.quarterNumber))) {
     const totalEligibleBeforeCap = allEvaluated.length;
     const cappedCandidates = allEvaluated.slice(0, maxCap);
     return {
@@ -390,11 +468,51 @@ export function getClassWeeklyVisitationCandidates(
     selectedMemberIds.add(m.id);
   }
 
-  // Combine into final list (max 4, target 3)
-  const finalCandidates: VisitationCandidate[] = [
+  // Combine the freshly evaluated list (max 4, target 3).
+  const evaluatedCandidates: VisitationCandidate[] = (purePrioritySort ? allEvaluated : [
     ...prioritySlotCandidates,
     ...(consistentCandidate ? [consistentCandidate] : []),
     ...(newlyOnboardedCandidate ? [newlyOnboardedCandidate] : [])
+  ]).slice(0, maxCap);
+
+  // A week's slate is immutable once records exist. Completed visits remain in
+  // their original slots and must never be replaced by newly eligible people.
+  const frozenAssignments = getWeeklyVisitationAssignments(visitationAssignments, currentWeek, options?.quarterNumber);
+  const frozenCandidates: VisitationCandidate[] = frozenAssignments.flatMap(assignment => {
+    const member = members.find(item => item.id === assignment.memberId);
+    const fallback = evaluatedCandidates.find(item => item.memberId === assignment.memberId);
+    const cooldown = getMemberVisitationCooldown(assignment.memberId, currentWeek, absenceLogs, visitationAssignments);
+    return [{
+      memberId: assignment.memberId,
+      fullName: member?.fullName || assignment.memberName || 'Member record unavailable',
+      phone: member?.phone || '',
+      address: member?.address || '',
+      memberType: member?.memberType || 'STUDENT',
+      classId: member?.classId || assignment.classId,
+      consecutiveWeeksAbsent: fallback?.consecutiveWeeksAbsent ?? getConsecutiveAbsences(assignment.memberId, currentWeek, grades, member?.firstLessonWeek || 1),
+      priority: assignment.priority || fallback?.priority || 'LOW',
+      priorityRank: fallback?.priorityRank || (assignment.priority === 'HIGH' ? 1 : assignment.priority === 'MEDIUM' ? 2 : 3),
+      slotType: assignment.slotType || fallback?.slotType || 'PRIORITY_NEED',
+      eligibilityReason: fallback?.eligibilityReason || 'Fixed weekly visitation candidate',
+      lastVisitedDate: cooldown.lastVisitedDate,
+      lastVisitedWeek: cooldown.lastVisitedWeek,
+      isInCooldown: cooldown.isInCooldown,
+      cooldownWeeksRemaining: cooldown.cooldownWeeksRemaining,
+      assignedStaffId: assignment.assignedStaffId,
+      assignedStaffName: assignment.assignedStaffName,
+      assignedStaffRole: assignment.assignedStaffRole,
+      assignedStaffPhone: assignment.assignedStaffPhone,
+      visitStatus: assignment.status,
+      notes: assignment.outcome
+    }];
+  });
+  const frozenIds = new Set(frozenCandidates.map(candidate => candidate.memberId));
+  const finalCandidates = [
+    ...frozenCandidates,
+    // Legacy assignments are upgraded to a complete slate once. A persisted
+    // slate (identified by slot order) never acquires replacement candidates.
+    ...(!frozenAssignments.some(assignment => assignment.selectedSlotIndex !== undefined)
+      ? evaluatedCandidates.filter(candidate => !frozenIds.has(candidate.memberId)) : [])
   ].slice(0, maxCap);
 
   const totalEligibleBeforeCap = allEvaluated.length +
@@ -451,22 +569,27 @@ export function computeClassFollowUpSummary(
     grades,
     absenceLogs,
     visitationAssignments,
-    { includeCooldown: false, maxCap: VISITATION_MAX_PER_CLASS_PER_WEEK, purePrioritySort: true }
+    { includeCooldown: false, maxCap: VISITATION_MAX_PER_CLASS_PER_WEEK, purePrioritySort: true, quarterNumber }
   );
-  const membersRequiringVisitation = totalEligibleBeforeCap;
+  const membersRequiringVisitation = candidates.length;
 
   // Completed follow-ups this week
-  const weekAbsenceLogs = absenceLogs.filter(l => l.classId === classProfile.id && l.weekNumber === currentWeek);
+  const weekAbsenceLogs = absenceLogs.filter(l => l.classId === classProfile.id && l.weekNumber === currentWeek &&
+    (l.quarterNumber === undefined || l.quarterNumber === quarterNumber));
   const followUpCompleted = weekAbsenceLogs.length;
 
   // Completed visits this week
   const completedVisitsLogs = weekAbsenceLogs.filter(l => 
     l.contactMethod === 'PASTORAL_VISIT' || (l as any).contactMethod === 'IN_PERSON'
   );
-  const completedVisitsAssignments = Object.values(visitationAssignments).filter(a =>
-    a.classId === classProfile.id && a.weekNumber === currentWeek && a.status === 'COMPLETED'
+  const completedVisitsAssignments = getWeeklyVisitationAssignments(visitationAssignments, currentWeek, quarterNumber).filter(a =>
+    a.classId === classProfile.id && a.status === 'COMPLETED'
   );
-  const visitationCompleted = Math.max(completedVisitsLogs.length, completedVisitsAssignments.length);
+  const selectedMemberIds = new Set(candidates.map(candidate => candidate.memberId));
+  const visitationCompleted = new Set([
+    ...completedVisitsLogs.map(log => log.memberId),
+    ...completedVisitsAssignments.map(assignment => assignment.memberId)
+  ].filter(memberId => selectedMemberIds.has(memberId))).size;
 
   const pendingFollowUp = Math.max(0, membersRequiringFollowUp - followUpCompleted);
   const pendingVisitation = Math.max(0, candidates.length - visitationCompleted);

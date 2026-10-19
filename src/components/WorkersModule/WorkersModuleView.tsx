@@ -58,12 +58,13 @@ import {
   Users, QrCode, BookOpen, Layers, UserCheck, 
   BarChart3, Plus, Upload, Sparkles, ArrowLeft,
   KeyRound, ShieldAlert, LogOut, Eye, EyeOff, CheckCircle2,
-  Trophy, Calendar, ChevronRight, ShieldCheck, Home, ClipboardList
+  Trophy, Calendar, ChevronRight, ShieldCheck, Home, ClipboardList, MoreHorizontal, X
 } from 'lucide-react';
 import { GofamintLogo } from '../GofamintLogo';
 import { usePersistedState } from '../../hooks/usePersistedState';
 import { useScrollRestoration } from '../../hooks/useScrollRestoration';
 import { getRealtimeHealthStatus, RealtimeHealthStatus } from '../../services/supabaseDatabase';
+import { isActiveWorkerProfile } from '../../utils/workerProfileUtils';
 
 export type WorkersModuleTab = 
   | 'INSPECTION'
@@ -182,6 +183,7 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
   const [editingWorker, setEditingWorker] = useState<WorkerProfile | null>(null);
 
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
+  const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
   
   const [isQrPassModalOpen, setIsQrPassModalOpen] = useState(false);
   const [selectedPassWorker, setSelectedPassWorker] = useState<WorkerProfile | null>(null);
@@ -337,8 +339,10 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
   const visibleNavItems = isPersonalWorker
     ? DIRECTORATE_NAV_ITEMS.filter(item => item.id === 'MY_ATTENDANCE')
     : DIRECTORATE_NAV_ITEMS;
+  const mobilePrimaryNavItems = isPersonalWorker ? visibleNavItems : visibleNavItems.slice(0, 4);
+  const mobileMoreNavItems = isPersonalWorker ? [] : visibleNavItems.slice(4);
   const activeNavItem = visibleNavItems.find(item => item.id === activeTab) || visibleNavItems[0];
-  const activeWorkersCount = workers.filter(worker => worker.status === 'ACTIVE').length;
+  const activeWorkersCount = workers.filter(isActiveWorkerProfile).length;
 
   // Handlers for Worker Profiles
   const handleOpenAddWorker = () => {
@@ -395,6 +399,7 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
       console.error('Failed to record worker attendance:', err);
       setSundayAttendance(previousAttendance);
       alert('Worker attendance was not saved. The previous register has been restored.');
+      throw err;
     }
   };
 
@@ -416,6 +421,7 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
       console.error('Failed to record bulk worker attendance:', err);
       setSundayAttendance(previousAttendance);
       alert('Bulk worker attendance was not saved. The previous register has been restored.');
+      throw err;
     }
   };
 
@@ -761,10 +767,10 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
       </footer>
       </div>
 
-      {/* Mobile taskbar: always within thumb reach, horizontally scrollable for all seven workspaces */}
-      <nav aria-label="Mobile Workers Directorate navigation" className="fixed inset-x-0 bottom-0 z-50 overflow-x-auto border-t border-blue-100 bg-white/96 px-2 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-[0_-12px_35px_rgba(15,42,85,0.16)] backdrop-blur-xl no-scrollbar lg:hidden">
-        <div className={`mx-auto flex min-w-max items-stretch gap-1.5 ${isPersonalWorker ? 'justify-center' : 'justify-start'}`}>
-          {visibleNavItems.map(item => {
+      {/* Mobile taskbar: fixed-width primary actions; remaining sections live under More. */}
+      <nav aria-label="Mobile Workers Directorate navigation" className="fixed inset-x-0 bottom-0 z-50 border-t border-blue-100 bg-white/96 px-2 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] shadow-[0_-12px_35px_rgba(15,42,85,0.16)] backdrop-blur-xl lg:hidden">
+        <div className={`mx-auto grid items-stretch gap-1 ${isPersonalWorker ? 'grid-cols-1 max-w-24' : 'grid-cols-5'}`}>
+          {mobilePrimaryNavItems.map(item => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
             return (
@@ -774,7 +780,7 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
                 type="button"
                 aria-current={isActive ? 'page' : undefined}
                 onClick={() => setActiveTab(item.id)}
-                className={`relative flex min-h-[55px] min-w-[70px] flex-col items-center justify-center gap-1 rounded-2xl px-2 py-1.5 text-[9px] font-black transition-all cursor-pointer ${isActive
+                className={`relative flex min-h-[55px] min-w-0 flex-col items-center justify-center gap-1 rounded-2xl px-1 py-1.5 text-[9px] font-black transition-all cursor-pointer ${isActive
                   ? 'bg-blue-950 text-white shadow-lg shadow-blue-950/20'
                   : 'text-slate-500 hover:bg-blue-50 hover:text-blue-900'
                 }`}
@@ -785,8 +791,41 @@ export const WorkersModuleView: React.FC<WorkersModuleViewProps> = ({
               </button>
             );
           })}
+          {mobileMoreNavItems.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setIsMobileMoreOpen(true)}
+              aria-expanded={isMobileMoreOpen}
+              className={`relative flex min-h-[55px] min-w-0 flex-col items-center justify-center gap-1 rounded-2xl px-1 py-1.5 text-[9px] font-black ${mobileMoreNavItems.some(item => item.id === activeTab) ? 'bg-blue-950 text-white' : 'text-slate-500'}`}
+            >
+              <MoreHorizontal className="h-[18px] w-[18px]" />
+              <span>More</span>
+            </button>
+          )}
         </div>
       </nav>
+
+      {isMobileMoreOpen && (
+        <div className="fixed inset-0 z-[70] flex items-end bg-slate-950/60 p-3 lg:hidden" role="dialog" aria-modal="true" aria-labelledby="workers-more-title">
+          <div className="w-full rounded-3xl bg-white p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-2xl">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 id="workers-more-title" className="text-sm font-black text-blue-950">More Workers sections</h2>
+              <button type="button" onClick={() => setIsMobileMoreOpen(false)} aria-label="Close more sections" className="rounded-full bg-slate-100 p-2"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {mobileMoreNavItems.map(item => {
+                const Icon = item.icon;
+                const isActive = item.id === activeTab;
+                return (
+                  <button key={item.id} type="button" onClick={() => { setActiveTab(item.id as WorkersModuleTab); setIsMobileMoreOpen(false); }} className={`flex min-h-14 items-center gap-3 rounded-2xl border p-3 text-left text-xs font-black ${isActive ? 'border-blue-900 bg-blue-950 text-white' : 'border-slate-200 bg-slate-50 text-slate-800'}`}>
+                    <Icon className="h-4 w-4 shrink-0" /><span>{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Worker Profile Modal (Add/Edit) */}
       <WorkerProfileModal

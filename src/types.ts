@@ -285,6 +285,8 @@ export interface VisitationAssignmentRecord {
   assignedDate?: string;
   priority?: VisitationPriority;
   slotType?: VisitationSlotType;
+  /** Immutable weekly slate order (1–4); prevents completed slots being replaced. */
+  selectedSlotIndex?: number;
   status: VisitationStatus;
   scheduledDate?: string;
   completedAt?: string;
@@ -773,6 +775,7 @@ export type ActiveTab =
   | 'QUARTER_ANALYSIS'
   | 'QR_PORTAL'
   | 'CLASS_DISCUSSION'
+  | 'SSSR_REPORT'
   | 'REPORT_CARD'
   | 'FOLLOW_UP_REPORT'
   | 'AI_ASSISTANT'

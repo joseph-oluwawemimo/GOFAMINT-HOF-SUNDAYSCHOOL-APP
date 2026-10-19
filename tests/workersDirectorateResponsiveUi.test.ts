@@ -41,6 +41,8 @@ test('Workers Directorate uses a desktop sidebar and mobile bottom taskbar', () 
   assert.match(shellSource, /fixed inset-x-0 bottom-0/);
   assert.match(shellSource, /safe-area-inset-bottom/);
   assert.match(shellSource, /aria-current=\{isActive \? 'page' : undefined\}/);
+  assert.match(shellSource, /mobileMoreNavItems/);
+  assert.doesNotMatch(shellSource, /Mobile Workers Directorate navigation" className="[^"]*overflow-x-auto/);
 });
 
 test('all Workers Directorate pages opt into the shared responsive design system', () => {

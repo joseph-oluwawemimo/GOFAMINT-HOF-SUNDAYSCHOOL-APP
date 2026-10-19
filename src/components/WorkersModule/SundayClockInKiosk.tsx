@@ -17,8 +17,8 @@ import {
 import confetti from 'canvas-confetti';
 import jsQR from 'jsqr';
 import { GofamintLogo } from '../GofamintLogo';
-import { calculateWorkerProfileCompleteness } from '../../utils/workerProfileUtils';
-import { getQuarterWeeklySchedule, getCurrentCalendarWeek } from '../../utils/quarterScheduleUtils';
+import { calculateWorkerProfileCompleteness, getClockedInWorkers, isActiveWorkerProfile } from '../../utils/workerProfileUtils';
+import { getQuarterWeeklySchedule, getCurrentCalendarWeek, getNigeriaDateISO, getNigeriaTimeParts } from '../../utils/quarterScheduleUtils';
 import { evaluateAttendanceAccess, getAttendanceWeekLockKey } from '../../utils/attendanceAccessSecurity';
 import { 
   lockAttendanceWeek, 
@@ -142,7 +142,7 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
   const pendingClockInIds = useRef<Set<string>>(new Set());
 
   // Use actual today's date — never trust a stale config.serviceDate for the current session.
-  const todayIso = new Date().toISOString().split('T')[0];
+  const todayIso = getNigeriaDateISO();
   const targetSundayDate = activeWeekInfo?.sundayDate || todayIso;
   const isTargetDatePast = targetSundayDate < todayIso;
   const isTargetDateFuture = targetSundayDate > todayIso;
@@ -173,7 +173,7 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
       config,
       now: new Date()
     });
-  }, [selectedWeek, targetSundayDate, selectedQuarterNumber, config]);
+  }, [selectedWeek, targetSundayDate, selectedQuarterNumber, config, currentTimeStr]);
 
   const isClockInScheduleAllowed = sundayAccess.canClockIn;
 
@@ -307,8 +307,8 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
   useEffect(() => {
     const updateClock = () => {
       const now = new Date();
-      setCurrentTimeStr(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-      setCurrentDateStr(now.toLocaleDateString([], { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }));
+      setCurrentTimeStr(now.toLocaleTimeString([], { timeZone: 'Africa/Lagos', hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      setCurrentDateStr(now.toLocaleDateString([], { timeZone: 'Africa/Lagos', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }));
     };
     updateClock();
     const timer = setInterval(updateClock, 1000);
@@ -359,10 +359,9 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
   const evaluatePunctuality = (clockInDate: Date): { status: SundayAttendanceStatus; isLate: boolean } => {
     const lateCutoffStr = config.sundayLateCutoffTime || '08:00';
     const [cHour, cMin] = lateCutoffStr.split(':').map(Number);
-    const cutoffDate = new Date(clockInDate);
-    cutoffDate.setHours(cHour, cMin, 0, 0);
-
-    if (clockInDate > cutoffDate) {
+    const nigeriaTime = getNigeriaTimeParts(clockInDate);
+    const arrivalSeconds = (nigeriaTime.hours * 3600) + (nigeriaTime.minutes * 60) + clockInDate.getUTCSeconds();
+    if (arrivalSeconds > (cHour * 3600) + (cMin * 60)) {
       return { status: 'LATE', isLate: true };
     }
     return { status: 'PRESENT', isLate: false };
@@ -386,7 +385,7 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
       }
 
       // Always use today's actual date — never a stale config.serviceDate.
-      const todayStr = new Date().toISOString().split('T')[0];
+      const todayStr = getNigeriaDateISO();
 
       // 1. Check for Duplicate Clock-In against the full attendance pool.
       //    Use workerId as the authoritative key (name matching is a fallback).
@@ -394,20 +393,20 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
         a => a.workerId === worker.id && a.serviceDate === todayStr
       );
 
-      if (existing) {
+      if (existing && (existing.status === 'PRESENT' || existing.status === 'LATE')) {
         playAudioFeedback('duplicate');
         setDuplicateWarning({ worker, existingRecord: existing });
         return;
       }
 
       const now = new Date();
-      const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const timeStr = now.toLocaleTimeString([], { timeZone: 'Africa/Lagos', hour: '2-digit', minute: '2-digit', second: '2-digit' });
       const { status, isLate } = evaluatePunctuality(now);
 
       // 2. Build the record — stamp weekNumber and quarterNumber durably.
       //    These fields are optional on legacy records but always present on new ones.
       const newRecord: WorkerAttendanceRecord = {
-        id: `${worker.id}_${todayStr}`,
+        id: existing?.id || `${worker.id}_${todayStr}`,
         workerId: worker.id,
         workerName: worker.fullName,
         department: worker.department,
@@ -459,12 +458,15 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
         });
       }, 4500);
 
+    } catch (error) {
+      console.error(`Sunday clock-in failed for worker ${worker.id} (${worker.fullName}):`, error);
+      alert(`Clock-in was not saved for ${worker.fullName}: ${error instanceof Error ? error.message : String(error)}. Please retry.`);
     } finally {
       // Always release the guard — even if the write failed — so retry is possible.
       pendingClockInIds.current.delete(worker.id);
     }
 
-  }, [config, attendancePool, onClockIn, playAudioFeedback, isCurrentWeekLive, isTargetDatePast, isTargetDateFuture, selectedWeek, calendarCurrentWeek, targetSundayDate, selectedQuarterNumber]);
+  }, [config, attendancePool, onClockIn, playAudioFeedback, sundayAccess, isCurrentWeekLive, isTargetDatePast, isTargetDateFuture, selectedWeek, calendarCurrentWeek, targetSundayDate, selectedQuarterNumber]);
 
   const handleSaveProfileUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -598,7 +600,7 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
   // Filtered active workers (Archived excluded)
   const activeWorkersList = useMemo(() => {
     return workers
-      .filter(w => w.status === 'ACTIVE')
+      .filter(isActiveWorkerProfile)
       .sort((a, b) => a.fullName.localeCompare(b.fullName));
   }, [workers]);
 
@@ -606,12 +608,11 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
   // worker clocks in, remove them from every tappable list so the queue becomes
   // shorter and safer for the next person.
   const availableWorkersList = useMemo(() => {
-    const actualToday = new Date().toISOString().split('T')[0];
     const clockedInIds = new Set(
-      attendancePool.filter(record => record.serviceDate === actualToday).map(record => record.workerId)
+      getClockedInWorkers(attendancePool, todayIso).map(record => record.workerId)
     );
     return activeWorkersList.filter(worker => !clockedInIds.has(worker.id));
-  }, [activeWorkersList, attendancePool]);
+  }, [activeWorkersList, attendancePool, todayIso]);
 
   // Filtered workers for search / department methods
   const matchingWorkers = useMemo(() => {
@@ -636,8 +637,12 @@ export const SundayClockInKiosk: React.FC<SundayClockInKioskProps> = ({
     return Array.from(new Set(availableWorkersList.map(w => w.department)));
   }, [availableWorkersList]);
 
-  const clockedInCount = todayAttendance.length;
-  const lateCount = todayAttendance.filter(a => a.isLate).length;
+  const liveTodayAttendance = useMemo(
+    () => getClockedInWorkers(attendancePool, todayIso),
+    [attendancePool, todayIso]
+  );
+  const clockedInCount = liveTodayAttendance.length;
+  const lateCount = liveTodayAttendance.filter(record => record.status === 'LATE' || record.isLate).length;
 
   // Sunday Register calculations
   const filteredRegisterWorkers = useMemo(() => {

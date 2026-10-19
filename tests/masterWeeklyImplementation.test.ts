@@ -20,7 +20,9 @@ test('PART A & D: WhatsApp follow-up messages are warm, natural, and contain NO 
 
   // Verify personal name and warm check-in
   assert.ok(absenceMsg.includes('Brother John'));
-  assert.ok(absenceMsg.includes('missed'));
+  assert.match(absenceMsg, /did not see you|missed/i);
+  assert.match(absenceMsg, /what kept you away\?/i);
+  assert.match(absenceMsg, /please reply/i);
   assert.ok(absenceMsg.includes('Teacher Joseph'));
 
   // ABSOLUTELY NO internal metrics, scores, or percentages
@@ -53,7 +55,8 @@ test('PART A: Visitor weekly follow-up includes current lesson info, memory vers
   assert.ok(visitorMsg.includes('Sister Grace'));
   assert.ok(visitorMsg.includes('Faith in Times of Trial'));
   assert.ok(visitorMsg.includes('Hebrews 11:1'));
-  assert.ok(visitorMsg.includes('fellowship with us'));
+  assert.match(visitorMsg, /join us this Sunday\?/i);
+  assert.match(visitorMsg, /please reply/i);
   assert.ok(!visitorMsg.includes('%'));
 });
 

@@ -136,11 +136,12 @@ export function calculateAdjustedRate(
 }
 
 /**
- * Formats a rate to 1 decimal place string (e.g. 82.9%)
+ * Formats a numeric rate to exactly two decimal places. The caller owns the
+ * percent sign so this helper can also be used for points and chart labels.
  */
 export function formatRate(rate: number): string {
-  if (!Number.isFinite(rate)) return '0.0%';
-  return `${rate.toFixed(1)}%`;
+  if (!Number.isFinite(rate)) return '0.00';
+  return rate.toFixed(2);
 }
 
 /**

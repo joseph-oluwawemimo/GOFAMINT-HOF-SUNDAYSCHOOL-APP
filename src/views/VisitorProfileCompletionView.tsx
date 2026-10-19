@@ -4,8 +4,6 @@ import QRCode from 'qrcode';
 import { Member } from '../types';
 import { CameraModal } from '../components/CameraModal';
 import { compressImage } from '../utils/imageCompression';
-import { getSupabaseClient } from '../services/supabase';
-import { saveMemberToDB } from '../db/indexedDB';
 import { normalizePhoneNumber, buildWhatsAppDirectLink } from '../utils/phoneUtils';
 
 interface VisitorProfileCompletionViewProps {
@@ -52,54 +50,18 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
 
         let data: Member | null = null;
 
-        // Try API first
-        try {
-          const response = await fetch(`/api/visitor-profile/${encodeURIComponent(token)}`);
-          if (response.ok) {
-            data = await response.json();
-            const rc = typeof (data as any)?.reportCardToken === 'string'
-              ? (data as any).reportCardToken
-              : (data as any)?.reportCardToken?.token;
-            if ((data as any)?.isRegistered && rc) {
-              window.location.hash = `#report-card/${rc}`;
-              return;
-            }
-          } else if (response.status === 410) {
-            if (isMounted) setIsAlreadyUsed(true);
-            return;
-          }
-        } catch {
-          // Network / dev mode fallback to direct Supabase
+        const response = await fetch(`/api/visitor-profile/${encodeURIComponent(token)}`, { cache: 'no-store' });
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body.error || `Profile service failed (${response.status}).`);
         }
-
-        // Direct Supabase fallback
-        if (!data) {
-          const client = getSupabaseClient();
-          const { data: rows, error: sbErr } = await client.from('members').select('*');
-          if (sbErr) throw new Error(sbErr.message);
-
-          const found = rows?.find((r: any) => {
-            const mem = r.data || r;
-            return mem.oneTimeProfileToken?.token === token;
-          });
-
-          if (!found) {
-            throw new Error('Student profile link not found or invalid.');
-          }
-
-          const memData: Member = found.data || found;
-          const isRegistered = Boolean(memData.oneTimeProfileToken?.isUsed || memData.isProfileCompleted);
-          const rc = memData.reportCardToken?.token;
-          if (isRegistered && rc) {
-            window.location.hash = `#report-card/${rc}`;
-            return;
-          }
-
-          if (memData.oneTimeProfileToken?.expiresAt && new Date(memData.oneTimeProfileToken.expiresAt) < new Date()) {
-            if (isMounted) setIsAlreadyUsed(true);
-            return;
-          }
-          data = memData;
+        data = await response.json();
+        const rc = typeof (data as any)?.reportCardToken === 'string'
+          ? (data as any).reportCardToken
+          : (data as any)?.reportCardToken?.token;
+        if ((data as any)?.isRegistered && rc) {
+          window.location.hash = `#report-card/${rc}`;
+          return;
         }
 
         if (isMounted && data) {
@@ -232,8 +194,6 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
     setError(null);
 
     try {
-      const rcToken = member?.reportCardToken?.token || `rc_${Math.random().toString(36).substring(2, 10)}_${Date.now().toString(36)}`;
-      const reportCardToken = { token: rcToken, createdAt: new Date().toISOString() };
       const normalizedPhone = normalizePhoneNumber(phone.trim());
 
       const payload: Partial<Member> = {
@@ -244,69 +204,21 @@ export const VisitorProfileCompletionView: React.FC<VisitorProfileCompletionView
         gender: gender || undefined,
         ageGroup: ageGroup.trim() || undefined,
         prayerRequests: prayerRequests.trim(),
-        photoBase64,
-        reportCardToken
+        photoBase64
       };
 
-      let saveSucceeded = false;
-      let finalRcToken = rcToken;
-
-      // Try API first
-      try {
-        const response = await fetch(`/api/visitor-profile/${encodeURIComponent(token)}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-
-        if (response.ok) {
-          const resData = await response.json().catch(() => ({}));
-          if (resData.reportCardToken) {
-            finalRcToken = resData.reportCardToken;
-          }
-          saveSucceeded = true;
-        }
-      } catch {
-        // Fallback to direct client save
+      const response = await fetch(`/api/visitor-profile/${encodeURIComponent(token)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const resData = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(resData.error || `Profile save failed (${response.status}). No data was changed.`);
       }
-
-      // Direct client fallback
-      if (!saveSucceeded && member) {
-        const updatedMember: Member = {
-          ...member,
-          ...payload,
-          reportCardToken: { token: finalRcToken, createdAt: new Date().toISOString() },
-          isProfileCompleted: true,
-          oneTimeProfileToken: member.oneTimeProfileToken ? {
-            ...member.oneTimeProfileToken,
-            isUsed: true,
-            usedAt: new Date().toISOString()
-          } : undefined,
-          updatedAt: new Date().toISOString()
-        };
-
-        const client = getSupabaseClient();
-        const { error: upsertErr } = await client.from('members').upsert({
-          id: updatedMember.id,
-          class_id: updatedMember.classId,
-          data: updatedMember,
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'id' });
-
-        if (upsertErr) {
-          throw new Error(`Failed to save to database: ${upsertErr.message}`);
-        }
-
-        try {
-          await saveMemberToDB(updatedMember);
-        } catch {
-          // Non-critical local save
-        }
-        saveSucceeded = true;
-      }
-
-      if (!saveSucceeded) {
-        throw new Error('Failed to save profile. The link may have expired or been used.');
+      const finalRcToken = resData.reportCardToken;
+      if (typeof finalRcToken !== 'string' || !finalRcToken) {
+        throw new Error('Your profile was saved, but the report card link was not returned. Please reopen your original profile link.');
       }
 
       if (onProfileCompleted) onProfileCompleted();

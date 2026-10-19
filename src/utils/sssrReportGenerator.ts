@@ -138,9 +138,14 @@ export function generateSSSRReport(options: SSSRGenerateOptions): SSSRReportResu
   const regPercentage = calculateRegistrationPercentage(member);
 
   const baseUrl = appBaseUrl || (typeof window !== 'undefined' ? window.location.origin : 'https://gofamint-hof-sundayschool.web.app');
-  const tokenParam = member.reportCardToken?.token || member.oneTimeProfileToken?.token || member.id;
-  const registrationLink = `${baseUrl}/#student-profile?token=${tokenParam}&action=register`;
-  const studentProfileLink = `${baseUrl}/#student-profile?token=${tokenParam}`;
+  const reportToken = typeof member.reportCardToken === 'string' ? member.reportCardToken : member.reportCardToken?.token;
+  const profileToken = typeof member.oneTimeProfileToken === 'string' ? member.oneTimeProfileToken : member.oneTimeProfileToken?.token;
+  const tokenParam = reportToken || profileToken;
+  // Keep the token in the hash path. This route is passwordless and first
+  // opens profile completion; registered members are redirected by the public
+  // endpoint to their live report card.
+  const registrationLink = tokenParam ? `${baseUrl}/#student-profile/${encodeURIComponent(tokenParam)}` : '';
+  const studentProfileLink = registrationLink;
 
   let punctualityScore: number | undefined;
   let memoryVerseScore: number | undefined;
@@ -172,23 +177,27 @@ export function generateSSSRReport(options: SSSRGenerateOptions): SSSRReportResu
 
     // Registration link rule:
     // If 100%: only view record link. If < 100%: update registration & view score link.
-    const linkLine = regPercentage >= 100
+    const linkLine = !studentProfileLink
+      ? 'Your private profile link is being prepared. Please ask your class secretary for it.'
+      : regPercentage >= 100
       ? `You can view your Sunday School attendance and performance record here:\n${studentProfileLink}`
       : `Your registration is still pending at ${regPercentage}%, please use this link to update your record and view your score:\n${registrationLink}`;
 
     // Two-paragraph concise report (<= 10 lines)
-    const paragraph1 = `Hello ${memberName}, thanks for attending this past Sunday School. Your presence was a blessing to our class! ${punctualityFeedback} ${mvFeedback} ${partFeedback}\n${linkLine}`;
+    const paragraph1 = `Hello ${memberName}, how are you doing today? Thank you for attending Sunday School last Sunday; your presence was a blessing to our class. ${punctualityFeedback} ${mvFeedback} ${partFeedback}\n${linkLine}\nPlease reply and tell us: how has your week been, and what do you think about your live report card?`;
 
     const paragraph2 = `Keep meditating on God's Word from our lesson on "${topic}". Memory Verse: "${mv}" (${mvRef}). Your week is blessed! With love in Christ, ${className} Team · GOFAMINT House of Favour.`;
 
     message = `${paragraph1}\n\n${paragraph2}`;
   } else {
     // Absent Person Report: 2 paragraphs, warm check-in, no scores
-    const linkLine = regPercentage >= 100
+    const linkLine = !studentProfileLink
+      ? 'Your private profile link is being prepared. Please ask your class secretary for it.'
+      : regPercentage >= 100
       ? `You can view your Sunday School attendance and performance record here:\n${studentProfileLink}`
       : `Your registration is still pending at ${regPercentage}%, please use this link to update your record and view your score:\n${registrationLink}`;
 
-    const paragraph1 = `Hello ${memberName}, we missed having you in Sunday School this past Sunday and pray that all is well with you and your family. If you have any prayer requests, please let us know!\n${linkLine}`;
+    const paragraph1 = `Hello ${memberName}, how are you doing? We did not see you in Sunday School last Sunday and we want to be sure you are well. Hope there is no problem—please reply and tell us what kept you away and how we can support or pray with you.\n${linkLine}\nPlease also tell us what you think about your live report card.`;
 
     const paragraph2 = `Keep meditating on God's Word from our lesson on "${topic}". Memory Verse: "${mv}" (${mvRef}). Your week is blessed, and we look forward to seeing you this Sunday at 8:00 a.m.! With love in Christ, ${className} Team · GOFAMINT House of Favour.`;
 

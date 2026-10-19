@@ -1,20 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { VisitorReportCardView } from '../components/VisitorReportCardView';
 import { Member, WeeklyGradeRecord, ClassProfile } from '../types';
-import { getAllMembers, getAllFromStore, getClassProfile } from '../db/indexedDB';
-import { GofamintLogo } from '../components/GofamintLogo';
 import { AlertCircle, Lock } from 'lucide-react';
-import { computeClassFairnessRankings, generateMemberClusterWeeks, MemberFairnessMetrics, WeekClusterPoint } from '../utils/fairnessScoring';
+import { MemberFairnessMetrics, WeekClusterPoint } from '../utils/fairnessScoring';
 
 interface StandaloneReportCardViewProps {
   token: string;
   onBack?: () => void;
 }
 
-export const StandaloneReportCardView: React.FC<StandaloneReportCardViewProps> = ({
-  token,
-  onBack
-}) => {
+export const StandaloneReportCardView: React.FC<StandaloneReportCardViewProps> = ({ token }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [member, setMember] = useState<Member | null>(null);
@@ -23,181 +18,129 @@ export const StandaloneReportCardView: React.FC<StandaloneReportCardViewProps> =
   const [fairnessMetrics, setFairnessMetrics] = useState<MemberFairnessMetrics | null>(null);
   const [clusterWeeks, setClusterWeeks] = useState<WeekClusterPoint[]>([]);
   const [classSummary, setClassSummary] = useState<any>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const requestRef = useRef(0);
+  const mountedRef = useRef(true);
+
+  const loadReportCard = useCallback(async () => {
+    const request = ++requestRef.current;
+    try {
+      const response = await fetch(`/api/report-card/${encodeURIComponent(token)}`, { cache: 'no-store' });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || !body.success || !body.reportCard) {
+        throw new Error(body.error || `Live report service failed (${response.status}).`);
+      }
+      if (!mountedRef.current || request !== requestRef.current) return;
+      const rc = body.reportCard;
+      if (!rc.id || !Array.isArray(rc.grades)) throw new Error('Live report service returned incomplete data.');
+      setMember({
+        id: rc.id,
+        fullName: rc.fullName,
+        phone: rc.phone || '',
+        gender: rc.gender,
+        address: '',
+        occupation: '',
+        prayerRequests: '',
+        notes: '',
+        department: rc.department,
+        className: rc.className,
+        classId: rc.classId,
+        memberType: rc.memberType || 'STUDENT',
+        status: rc.status || 'ACTIVE',
+        firstLessonWeek: rc.firstLessonWeek || 1,
+        evangelismReferralCount: 0,
+        photoBase64: rc.photoBase64,
+        createdAt: '',
+        updatedAt: ''
+      });
+      setGrades(rc.grades.map((grade: any) => ({
+        ...grade,
+        memberId: rc.id,
+        weekNumber: Number(grade.weekNumber || grade.week_number || 1),
+        quarterNumber: Number(grade.quarterNumber || grade.quarter_number || 1),
+        attendance: grade.attendance || grade.attendanceMark || 'ABSENT',
+        punctuality: Number(grade.punctuality ?? 0),
+        memoryVerse: Number(grade.memoryVerse ?? 0),
+        classParticipation: Number(grade.classParticipation ?? 0)
+      })));
+      setClassProfile({
+        id: rc.classId || 'my-class',
+        className: rc.className || 'Sunday School Class',
+        department: rc.department || 'General',
+        secretaryName: rc.secretaryName || '',
+        secretaryPhone: rc.secretaryPhone || '',
+        teachers: rc.teachers || [],
+        quarterTitle: rc.quarterTitle || 'Sunday School Curriculum',
+        year: rc.year || new Date().getFullYear(),
+        currencySymbol: '₦',
+        isSetupComplete: true,
+        approvalStatus: 'APPROVED',
+        createdAt: '',
+        updatedAt: ''
+      });
+      setFairnessMetrics(rc.fairnessMetrics || null);
+      setClusterWeeks(rc.clusterWeeks || []);
+      setClassSummary(rc.classSummary || null);
+      setError(null);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      console.error('[ReportCard] Authoritative live data could not be read:', cause);
+      if (mountedRef.current && request === requestRef.current) setError(message);
+      throw cause;
+    } finally {
+      if (mountedRef.current && request === requestRef.current) setLoading(false);
+    }
+  }, [token]);
 
   useEffect(() => {
-    let isMounted = true;
-
-    async function loadReportCard() {
-      setLoading(true);
-      setError(null);
-
-      // 1. Prioritize authoritative Central Database API for live, accurate records
-      try {
-        const res = await fetch(`/api/report-card/${encodeURIComponent(token)}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.success && data.reportCard && isMounted) {
-            const rc = data.reportCard;
-            const memberRealId = rc.id || `rc_${token}`;
-            const syntheticMember: Member = {
-              id: memberRealId,
-              fullName: rc.fullName,
-              phone: rc.phone || '',
-              address: '',
-              occupation: '',
-              gender: rc.gender,
-              department: rc.department,
-              className: rc.className,
-              classId: rc.classId,
-              memberType: rc.memberType || 'STUDENT',
-              status: rc.status || 'ACTIVE',
-              firstLessonWeek: rc.firstLessonWeek || 1,
-              evangelismReferralCount: 0,
-              prayerRequests: '',
-              notes: '',
-              photoBase64: rc.photoBase64,
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString()
-            };
-
-            const normalizedGrades: WeeklyGradeRecord[] = (Array.isArray(rc.grades) ? rc.grades : []).map((g: any) => ({
-              ...g,
-              memberId: memberRealId,
-              weekNumber: Number(g.weekNumber || g.week_number || 1),
-              quarterNumber: Number(g.quarterNumber || g.quarter_number || 1),
-              attendance: g.attendance || g.attendanceMark || 'PRESENT',
-              punctuality: Number(g.punctuality ?? 0),
-              memoryVerse: Number(g.memoryVerse ?? 0),
-              classParticipation: Number(g.classParticipation ?? 0)
-            }));
-
-            setMember(syntheticMember);
-            setGrades(normalizedGrades);
-            setClassProfile({
-              id: rc.classId || 'my-class',
-              className: rc.className || 'Sunday School Class',
-              department: rc.department || 'General',
-              secretaryName: rc.secretaryName || '',
-              secretaryPhone: rc.secretaryPhone || '',
-              teachers: rc.teachers || [],
-              teacherName: rc.teacherName || 'Class Teacher',
-              quarterTitle: rc.quarterTitle || 'Quarter 1: Sunday School Curriculum',
-              year: rc.year || new Date().getFullYear(),
-              currencySymbol: '₦',
-              isSetupComplete: true,
-              approvalStatus: 'APPROVED',
-              secretaries: rc.secretaryName ? [{ name: rc.secretaryName, phone: rc.secretaryPhone || '' }] : [],
-              assignedWorkers: [],
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString()
-            } as ClassProfile);
-            setFairnessMetrics(rc.fairnessMetrics || null);
-            setClusterWeeks(rc.clusterWeeks || []);
-            setClassSummary(rc.classSummary || null);
-            setLoading(false);
-            return;
-          }
-        }
-      } catch (networkErr) {
-        console.warn('Authoritative report card fetch warning, attempting offline cache:', networkErr);
-      }
-
-      // 2. Offline fallback to local IndexedDB
-      try {
-        const allMembers = await getAllMembers();
-        const matched = allMembers.find(m =>
-          m.reportCardToken?.token === token ||
-          (m as any).reportCardToken === token ||
-          (m as any).oneTimeProfileToken === token ||
-          (m as any).oneTimeProfileToken?.token === token ||
-          m.id === token
-        );
-
-        if (matched && isMounted) {
-          setMember(matched);
-          const allGrades = await getAllFromStore<WeeklyGradeRecord>('grades');
-          const memberGrades = allGrades.filter(g => g.memberId === matched.id);
-          setGrades(memberGrades);
-
-          const profile = await getClassProfile();
-          setClassProfile(profile || {
-            id: matched.classId || 'my-class',
-            className: matched.className || 'Sunday School Class',
-            department: matched.department || 'General',
-            teacherName: 'Class Teacher',
-            secretaries: [],
-            assignedWorkers: [],
-            approvalStatus: 'APPROVED'
-          });
-
-          // Compute fairness and cluster weeks from local grades (filter out LEFT_CLASS)
-          const classMembers = allMembers.filter(m => m.classId === matched.classId && m.status !== 'LEFT_CLASS');
-          const classGrades = allGrades.filter(g => g.classId === matched.classId);
-          const fairness = computeClassFairnessRankings(
-            classMembers.length > 0 ? classMembers : [matched],
-            classGrades.length > 0 ? classGrades : memberGrades,
-            12
-          );
-          const myMetrics = fairness.memberMetrics.find(m => m.memberId === matched.id) || null;
-          setFairnessMetrics(myMetrics);
-          setClusterWeeks(generateMemberClusterWeeks(matched, memberGrades, 12));
-          setClassSummary({
-            rankings: myMetrics?.rankings,
-            classAverages: fairness.classAverages
-          });
-          setLoading(false);
-          return;
-        }
-      } catch (localErr) {
-        console.warn('Local database lookup error:', localErr);
-      }
-
-      if (isMounted) {
-        setError('Report card not found or link has expired. Please verify your student profile link.');
-        setLoading(false);
-      }
-    }
-
-    loadReportCard();
-
-    return () => {
-      isMounted = false;
+    mountedRef.current = true;
+    setLoading(true);
+    setMember(null);
+    void loadReportCard().catch(() => undefined);
+    const refreshVisible = () => {
+      if (document.visibilityState === 'visible' && navigator.onLine) void loadReportCard().catch(() => undefined);
     };
-  }, [token, refreshKey]);
+    const interval = window.setInterval(refreshVisible, 60_000);
+    window.addEventListener('online', refreshVisible);
+    document.addEventListener('visibilitychange', refreshVisible);
+    return () => {
+      mountedRef.current = false;
+      ++requestRef.current;
+      window.clearInterval(interval);
+      window.removeEventListener('online', refreshVisible);
+      document.removeEventListener('visibilitychange', refreshVisible);
+    };
+  }, [loadReportCard]);
 
-  if (loading) {
+  if (loading && !member) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center font-sans">
-        <div className="w-12 h-12 border-4 border-amber-400 border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="text-sm font-bold text-slate-300">Loading Sunday School Report Card...</p>
+      <div role="status" className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center">
+        <div className="w-10 h-10 border-4 border-amber-400 border-t-transparent rounded-full animate-spin mb-4" />
+        <p className="text-sm font-bold text-slate-300">Opening your live Sunday School report card…</p>
       </div>
     );
   }
 
-  if (error || !member) {
+  if (!member) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center font-sans">
-        <div className="max-w-md w-full bg-slate-900 border border-red-800/50 rounded-3xl p-8 shadow-2xl">
-          <div className="w-16 h-16 bg-red-500/20 text-red-400 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/30">
-            <Lock className="w-8 h-8" />
-          </div>
-          <h2 className="text-xl font-bold text-red-300 mb-2 font-['Cinzel',serif]">
-            Report Card Unavailable
-          </h2>
-          <p className="text-xs text-slate-300 leading-relaxed mb-6">
-            {error || 'The report card token is invalid or does not match any student record.'}
-          </p>
-          <div className="bg-slate-800/80 rounded-2xl p-4 text-xs text-slate-400 border border-slate-700 leading-relaxed">
-            Please verify the access link or request a new report card link from your Sunday School teacher.
-          </div>
+      <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-5">
+        <div role="alert" className="max-w-md w-full bg-slate-900 border border-red-800/50 rounded-3xl p-7 text-center">
+          <Lock className="w-10 h-10 text-red-400 mx-auto mb-4" />
+          <h1 className="text-xl font-black text-red-300">Report Card Unavailable</h1>
+          <p className="mt-3 text-sm text-slate-300">{error || 'The private report link could not be verified.'}</p>
+          <button type="button" onClick={() => void loadReportCard().catch(() => undefined)} className="mt-5 min-h-11 rounded-xl bg-amber-400 px-5 text-sm font-black text-slate-950">Retry live data</button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-100">
+    <div className="min-h-screen bg-slate-100 p-3 sm:p-6">
+      {error && (
+        <div role="alert" className="mx-auto mb-4 flex max-w-3xl items-start gap-2 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-xs text-amber-950">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <span>Live refresh failed: {error} The last successfully loaded report remains visible.</span>
+        </div>
+      )}
       <VisitorReportCardView
         memberId={member.id}
         members={[member]}
@@ -206,8 +149,7 @@ export const StandaloneReportCardView: React.FC<StandaloneReportCardViewProps> =
         fairnessMetrics={fairnessMetrics}
         clusterWeeks={clusterWeeks}
         classSummary={classSummary}
-        onBack={onBack}
-        onRefresh={() => setRefreshKey(k => k + 1)}
+        onRefresh={loadReportCard}
       />
     </div>
   );

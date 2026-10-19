@@ -9,6 +9,8 @@ import {
   getClassWeeklyVisitationCandidates,
   computeClassFollowUpSummary,
   computeFollowUpIntelligence,
+  freezeWeeklyVisitationSlate,
+  mergeVisitationAssignments,
 } from '../src/utils/visitationEngine';
 import {
   Member,
@@ -276,6 +278,101 @@ describe('Evangelism & Follow-Up — Visitation Engine', () => {
     // One-time visitor Frank and 3rd absentee Charles are excluded from the capped queue
     assert.ok(!result.candidates.some(c => c.memberId === 'm-otv'));
     assert.ok(!result.candidates.some(c => c.memberId === 'm-abs3'));
+  });
+
+  it('keeps the same weekly slate after one candidate is completed', () => {
+    const members = [
+      createMockMember('m-1', 'First'), createMockMember('m-2', 'Second'),
+      createMockMember('m-3', 'Third'), createMockMember('m-4', 'Fourth'),
+      createMockMember('m-5', 'Replacement Must Not Appear')
+    ];
+    const grades = createWeeklyGrades({ 1: members.map(m => m.id), 2: [], 3: [] });
+    const initial = getClassWeeklyVisitationCandidates(members, 3, grades, [], {}, { maxCap: 4, purePrioritySort: true });
+    const assignments: Record<string, VisitationAssignmentRecord> = {};
+    initial.candidates.forEach((candidate, index) => {
+      assignments[`slot-${index + 1}`] = {
+        id: `slot-${index + 1}`, classId: mockClassId, memberId: candidate.memberId,
+        memberName: candidate.fullName, assignedStaffName: '', weekNumber: 3,
+        selectedSlotIndex: index + 1, priority: candidate.priority,
+        status: index === 0 ? 'COMPLETED' : 'PENDING'
+      };
+    });
+    const afterCompletion = getClassWeeklyVisitationCandidates(members, 3, grades, [], assignments, { maxCap: 4 });
+    assert.deepEqual(afterCompletion.candidates.map(c => c.memberId), initial.candidates.map(c => c.memberId));
+    assert.equal(afterCompletion.candidates[0].visitStatus, 'COMPLETED');
+    assert.ok(!afterCompletion.candidates.some(c => c.memberId === 'm-5' && !initial.candidates.some(i => i.memberId === 'm-5')));
+  });
+
+  it('persists one fixed slate and progresses from 1/4 to 4/4 without refilling in either portal query', () => {
+    const members = [
+      createMockMember('absent-a', 'Absent A'), createMockMember('absent-b', 'Absent B'),
+      createMockMember('absent-c', 'Replacement'), createMockMember('consistent', 'Consistent'),
+      { ...createMockMember('new', 'New Member'), firstLessonWeek: 4 },
+    ];
+    const grades = createWeeklyGrades({ 1: ['absent-a', 'absent-b', 'absent-c', 'consistent'], 2: ['consistent'], 3: ['consistent'], 4: ['consistent', 'new'], 5: ['consistent', 'new'] });
+    const initial = getClassWeeklyVisitationCandidates(members, 5, grades).candidates;
+    assert.equal(initial.length, 4);
+    let assignments = freezeWeeklyVisitationSlate(mockClassId, 1, 5, initial, {}, '2026-10-18T08:00:00Z');
+    const frozenIds = initial.map(candidate => candidate.memberId);
+    for (let index = 0; index < 4; index++) {
+      const record = Object.values(assignments).find(item => item.memberId === frozenIds[index])!;
+      assignments = { ...assignments, [record.id]: { ...record, status: 'COMPLETED', completedAt: '2026-10-18', updatedAt: '2026-10-18T09:00:00Z' } };
+      for (const purePrioritySort of [false, true]) {
+        const result = getClassWeeklyVisitationCandidates(members, 5, grades, [], assignments, { purePrioritySort, quarterNumber: 1 });
+        assert.deepEqual(result.candidates.map(candidate => candidate.memberId), frozenIds);
+        assert.equal(result.candidates.filter(candidate => candidate.visitStatus === 'COMPLETED').length, index + 1);
+      }
+      const summary = computeClassFollowUpSummary(mockClassProfile, members, 5, 1, grades, [], assignments);
+      assert.equal(summary.membersRequiringVisitation, 4);
+      assert.equal(summary.visitationCompleted, index + 1);
+      assert.equal(summary.pendingVisitation, 3 - index);
+    }
+  });
+
+  it('retains a smaller frozen slate and unavailable members rather than introducing replacements', () => {
+    const members = [createMockMember('a', 'A'), createMockMember('b', 'B'), createMockMember('c', 'C')];
+    const grades = createWeeklyGrades({ 1: members.map(member => member.id) });
+    const candidates = getClassWeeklyVisitationCandidates(members, 3, grades).candidates;
+    const assignments = freezeWeeklyVisitationSlate(mockClassId, 1, 3, candidates.slice(0, 1), {});
+    const selectedId = candidates[0].memberId;
+    const result = getClassWeeklyVisitationCandidates(members.filter(member => member.id !== selectedId), 3, grades, [], assignments);
+    assert.deepEqual(result.candidates.map(candidate => candidate.memberId), [selectedId]);
+    assert.equal(result.candidates[0].fullName, candidates[0].fullName);
+  });
+
+  it('keeps completed records when an obsolete device snapshot is merged and preserves slot metadata', () => {
+    const base: VisitationAssignmentRecord = { id: 'visit', classId: mockClassId, memberId: 'a', assignedStaffName: 'Teacher', weekNumber: 5, status: 'COMPLETED', selectedSlotIndex: 1, completedAt: '2026-10-18', updatedAt: '2026-10-18T09:00:00Z' };
+    const stale = { ...base, status: 'PENDING' as const, assignedStaffName: '', selectedSlotIndex: undefined, completedAt: undefined, updatedAt: '2026-10-18T08:00:00Z' };
+    const merged = mergeVisitationAssignments({ visit: base }, { visit: stale });
+    assert.equal(merged.visit.status, 'COMPLETED');
+    assert.equal(merged.visit.completedAt, '2026-10-18');
+    assert.equal(merged.visit.assignedStaffName, 'Teacher');
+    assert.equal(merged.visit.selectedSlotIndex, 1);
+  });
+
+  it('does not reuse another quarter slate and never exceeds four candidates', () => {
+    const members = Array.from({ length: 7 }, (_, index) => createMockMember(`m-${index}`, `Member ${index}`));
+    const grades = createWeeklyGrades({ 1: members.map(member => member.id) });
+    const initial = getClassWeeklyVisitationCandidates(members, 3, grades, [], {}, { purePrioritySort: true, maxCap: 20 });
+    assert.equal(initial.candidates.length, 4);
+    const assignments = freezeWeeklyVisitationSlate(mockClassId, 1, 3, initial.candidates, {});
+    const nextQuarter = getClassWeeklyVisitationCandidates(members, 3, grades, [], assignments, { purePrioritySort: true, quarterNumber: 2 });
+    assert.ok(nextQuarter.candidates.every(candidate => candidate.visitStatus === 'PENDING'));
+    assert.equal(nextQuarter.candidates.length, 4);
+    assert.equal(getClassWeeklyVisitationCandidates(members, 3, grades, [], assignments, { maxCap: 0 }).candidates.length, 0);
+  });
+
+  it('counts completed members once even when both visit logs and assignments exist', () => {
+    const members = [createMockMember('a', 'A'), createMockMember('b', 'B')];
+    const grades = createWeeklyGrades({ 1: ['a', 'b'] });
+    const initial = getClassWeeklyVisitationCandidates(members, 3, grades).candidates;
+    const assignments = freezeWeeklyVisitationSlate(mockClassId, 1, 3, initial, {});
+    const first = Object.values(assignments)[0];
+    assignments[first.id] = { ...first, status: 'COMPLETED' };
+    const logs = [0, 1].map(index => ({ id: `log-${index}`, classId: mockClassId, memberId: first.memberId, weekNumber: 3, contactMethod: 'PASTORAL_VISIT' } as AbsenceLogRecord));
+    const summary = computeClassFollowUpSummary(mockClassProfile, members, 3, 1, grades, logs, assignments);
+    assert.equal(summary.visitationCompleted, 1);
+    assert.equal(summary.pendingVisitation, 1);
   });
 
   it('computes class follow up summary accurately without inventing data', () => {

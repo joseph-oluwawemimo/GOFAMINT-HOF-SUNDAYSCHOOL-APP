@@ -4,8 +4,11 @@ import {
   QuarterNumber, 
   WorkerProfile, 
   WorkerAttendanceRecord, 
-  WorkerPrepAttendanceRecord 
+  WorkerPrepAttendanceRecord,
+  SpecialWorkersEvent,
+  SpecialEventAttendanceRecord
 } from '../types';
+import { isActiveWorkerProfile } from './workerProfileUtils.js';
 import { getLessonByWeek } from './whatsappMessages.js';
 
 export interface WeekScheduleInfo {
@@ -354,7 +357,7 @@ export function computeQuarterWeeklyMetrics(
   sundayAttendance: WorkerAttendanceRecord[],
   prepAttendance: WorkerPrepAttendanceRecord[]
 ): WeeklyMetricsSummary[] {
-  const workers = activeWorkers.filter(worker => worker.status === 'ACTIVE');
+  const workers = activeWorkers.filter(isActiveWorkerProfile);
   const totalActive = workers.length;
 
   return schedule.map(item => {
@@ -444,13 +447,69 @@ export interface WorkerQuarterPerformance {
   prepOnTime: number;
   prepLate: number;
   prepPunctualityRate: number;
+  prepExpected: number;
+  prepAbsent: number;
   sunAttended: number;
   sunOnTime: number;
   sunLate: number;
   sunPunctualityRate: number;
+  sunExpected: number;
+  sunAbsent: number;
   overallPunctualityRate: number;
   isExempt: boolean;
   exemptionReason?: string;
+}
+
+export function calculatePenaltyAwarePunctuality(onTime: number, late: number, expected: number): number {
+  if (!Number.isFinite(expected) || expected <= 0) return 0;
+  const weightedPoints = (Number.isFinite(onTime) ? Math.max(0, onTime) : 0)
+    + ((Number.isFinite(late) ? Math.max(0, late) : 0) * 0.5);
+  return Math.round(Math.min(100, (weightedPoints / expected) * 100));
+}
+
+export function computeWorkerSpecialEventPerformance(
+  worker: WorkerProfile,
+  events: SpecialWorkersEvent[],
+  attendance: SpecialEventAttendanceRecord[],
+  now: Date = new Date()
+): { attendedCount: number; onTimeCount: number; lateCount: number; totalEvents: number; punctualityRate: number; attendanceRate: number } {
+  const today = getNigeriaDateISO(now);
+  const joinedDate = worker.joinedDate?.slice(0, 10) || '';
+  const expected = new Set<string>();
+  events.filter(event => event.includeInPunctualityHonors !== false).forEach(event => {
+    const dates = event.daySchedules?.length ? event.daySchedules.map(day => day.date) : [event.startDate];
+    dates.filter(date => date && date <= today && (!joinedDate || date >= joinedDate))
+      .forEach(date => expected.add(`${event.id}|${date}`));
+  });
+  const records = uniqueAttendanceBySession(
+    attendance.filter(record => record.workerId === worker.id && expected.has(`${record.eventId}|${record.date}`)),
+    record => `${record.eventId}|${record.date}`
+  );
+  const onTimeCount = records.filter(record => record.status === 'PRESENT').length;
+  const lateCount = records.filter(record => record.status === 'LATE').length;
+  const attendedCount = onTimeCount + lateCount;
+  const totalEvents = expected.size;
+  return {
+    attendedCount, onTimeCount, lateCount, totalEvents,
+    punctualityRate: calculatePenaltyAwarePunctuality(onTimeCount, lateCount, totalEvents),
+    attendanceRate: totalEvents ? Math.round((attendedCount / totalEvents) * 100) : 0
+  };
+}
+
+/** One worker can earn credit only once per scheduled session, including when
+ * older imports left duplicate rows. The latest correction is authoritative. */
+function uniqueAttendanceBySession<T extends { updatedAt?: string; createdAt?: string; timestamp?: number }>(
+  records: T[],
+  sessionKey: (record: T) => string
+): T[] {
+  const recordsBySession = new Map<string, T>();
+  const revision = (record: T) => Date.parse(record.updatedAt || record.createdAt || '') || record.timestamp || 0;
+  records.forEach(record => {
+    const key = sessionKey(record);
+    const previous = recordsBySession.get(key);
+    if (!previous || revision(record) >= revision(previous)) recordsBySession.set(key, record);
+  });
+  return [...recordsBySession.values()];
 }
 
 /**
@@ -461,21 +520,25 @@ export function computeAllWorkersQuarterPerformance(
   workers: WorkerProfile[],
   schedule: WeekScheduleInfo[],
   sundayAttendance: WorkerAttendanceRecord[],
-  prepAttendance: WorkerPrepAttendanceRecord[]
+  prepAttendance: WorkerPrepAttendanceRecord[],
+  now: Date = new Date()
 ): WorkerQuarterPerformance[] {
   const lessonWeeks = schedule.filter(s => !s.isSharingAdmonitionWeek).slice(0, 12);
-  const sundayDates = new Set(lessonWeeks.map(w => w.sundayDate));
-  const prepDates = new Set(lessonWeeks.map(w => w.prepDate));
+  const today = getNigeriaDateISO(now);
 
   return workers
-    .filter(w => w.status === 'ACTIVE')
+    .filter(isActiveWorkerProfile)
     .map(w => {
+      const joinedDate = w.joinedDate ? String(w.joinedDate).slice(0, 10) : '';
+      const eligibleSundayDates = lessonWeeks.map(week => week.sundayDate).filter(date => date <= today && (!joinedDate || date >= joinedDate));
+      const eligiblePrepDates = lessonWeeks.map(week => week.prepDate).filter(date => date <= today && (!joinedDate || date >= joinedDate));
+      const sundayDates = new Set(eligibleSundayDates);
+      const prepDates = new Set(eligiblePrepDates);
       let prepAttended = 0;
       let prepOnTime = 0;
       let prepLate = 0;
 
-      prepAttendance
-        .filter(p => p.workerId === w.id && prepDates.has(p.prepDate))
+      uniqueAttendanceBySession(prepAttendance.filter(p => p.workerId === w.id && prepDates.has(p.prepDate)), p => p.prepDate)
         .forEach(rec => {
           if (rec.status === 'PRESENT') {
             prepAttended++;
@@ -486,29 +549,34 @@ export function computeAllWorkersQuarterPerformance(
           }
         });
 
-      const prepPunctualityRate = prepAttended > 0 ? Math.round((prepOnTime / prepAttended) * 100) : 0;
+      const prepExpected = eligiblePrepDates.length;
+      const prepAbsent = Math.max(0, prepExpected - prepAttended);
+      const prepPunctualityRate = calculatePenaltyAwarePunctuality(prepOnTime, prepLate, prepExpected);
 
       let sunAttended = 0;
       let sunOnTime = 0;
       let sunLate = 0;
 
-      sundayAttendance
-        .filter(a => a.workerId === w.id && sundayDates.has(a.serviceDate))
+      uniqueAttendanceBySession(sundayAttendance.filter(a => a.workerId === w.id && sundayDates.has(a.serviceDate)), a => a.serviceDate)
         .forEach(rec => {
           if (rec.status === 'PRESENT' && !rec.isLate) {
             sunAttended++;
             sunOnTime++;
-          } else if (rec.status === 'LATE' || rec.isLate) {
+          } else if (rec.status === 'LATE' || (rec.status === 'PRESENT' && rec.isLate)) {
             sunAttended++;
             sunLate++;
           }
         });
 
-      const sunPunctualityRate = sunAttended > 0 ? Math.round((sunOnTime / sunAttended) * 100) : 0;
+      const sunExpected = eligibleSundayDates.length;
+      const sunAbsent = Math.max(0, sunExpected - sunAttended);
+      const sunPunctualityRate = calculatePenaltyAwarePunctuality(sunOnTime, sunLate, sunExpected);
 
-      const totalTurnout = prepAttended + sunAttended;
-      const totalOnTime = prepOnTime + sunOnTime;
-      const overallPunctualityRate = totalTurnout > 0 ? Math.round((totalOnTime / totalTurnout) * 100) : 0;
+      const overallPunctualityRate = calculatePenaltyAwarePunctuality(
+        prepOnTime + sunOnTime,
+        prepLate + sunLate,
+        prepExpected + sunExpected
+      );
 
       return {
         worker: w,
@@ -516,10 +584,14 @@ export function computeAllWorkersQuarterPerformance(
         prepOnTime,
         prepLate,
         prepPunctualityRate,
+        prepExpected,
+        prepAbsent,
         sunAttended,
         sunOnTime,
         sunLate,
         sunPunctualityRate,
+        sunExpected,
+        sunAbsent,
         overallPunctualityRate,
         isExempt: !!w.exemptFromHonors,
         exemptionReason: w.exemptionReason
@@ -536,38 +608,19 @@ export function computeTop3PunctualityHonors(
   activeWorkers: WorkerProfile[],
   schedule: WeekScheduleInfo[],
   sundayAttendance: WorkerAttendanceRecord[],
-  prepAttendance: WorkerPrepAttendanceRecord[]
+  prepAttendance: WorkerPrepAttendanceRecord[],
+  now: Date = new Date()
 ): {
   top3PrepClass: WorkerPunctualityHonor[];
   top3SundayService: WorkerPunctualityHonor[];
 } {
-  const lessonWeeks = schedule.filter(s => !s.isSharingAdmonitionWeek).slice(0, 12);
-  const totalWeeks = lessonWeeks.length || 12;
-  const sundayDates = new Set(lessonWeeks.map(w => w.sundayDate));
-  const prepDates = new Set(lessonWeeks.map(w => w.prepDate));
-
   // Eligible workers for rankings (exclude exempted workers e.g. Pastors)
-  const eligibleWorkers = activeWorkers.filter(w => w.status === 'ACTIVE' && !w.exemptFromHonors);
+  const performances = computeAllWorkersQuarterPerformance(activeWorkers, schedule, sundayAttendance, prepAttendance, now)
+    .filter(performance => !performance.isExempt);
 
   // 1. Calculate Preparatory Class Punctuality for each eligible active worker
-  const prepScores = eligibleWorkers.map(w => {
-    let attended = 0;
-    let onTime = 0;
-    let late = 0;
-
-    prepAttendance
-      .filter(p => p.workerId === w.id && prepDates.has(p.prepDate))
-      .forEach(rec => {
-        if (rec.status === 'PRESENT') {
-          attended++;
-          onTime++;
-        } else if (rec.status === 'LATE') {
-          attended++;
-          late++;
-        }
-      });
-
-    const punctualityRate = attended > 0 ? Math.round((onTime / attended) * 100) : 0;
+  const prepScores = performances.filter(performance => performance.prepAttended > 0).map(performance => {
+    const { worker: w, prepAttended: attended, prepOnTime: onTime, prepLate: late, prepPunctualityRate: punctualityRate } = performance;
     // Score weighted by on-time attendance and punctuality percentage
     const compositeScore = punctualityRate * 1000 + onTime * 10 + attended;
 
@@ -576,6 +629,7 @@ export function computeTop3PunctualityHonors(
       attended,
       onTime,
       late,
+      expected: performance.prepExpected,
       punctualityRate,
       compositeScore
     };
@@ -602,30 +656,14 @@ export function computeTop3PunctualityHonors(
       onTimeCount: item.onTime,
       lateCount: item.late,
       punctualityRate: item.punctualityRate,
-      totalQuarterWeeks: totalWeeks,
+      totalQuarterWeeks: item.expected,
       admonitionCitation: citation
     };
   });
 
   // 2. Calculate Sunday Service Punctuality for each eligible active worker
-  const sundayScores = eligibleWorkers.map(w => {
-    let attended = 0;
-    let onTime = 0;
-    let late = 0;
-
-    sundayAttendance
-      .filter(a => a.workerId === w.id && sundayDates.has(a.serviceDate))
-      .forEach(rec => {
-        if (rec.status === 'PRESENT' && !rec.isLate) {
-          attended++;
-          onTime++;
-        } else if (rec.status === 'LATE' || rec.isLate) {
-          attended++;
-          late++;
-        }
-      });
-
-    const punctualityRate = attended > 0 ? Math.round((onTime / attended) * 100) : 0;
+  const sundayScores = performances.filter(performance => performance.sunAttended > 0).map(performance => {
+    const { worker: w, sunAttended: attended, sunOnTime: onTime, sunLate: late, sunPunctualityRate: punctualityRate } = performance;
     const compositeScore = punctualityRate * 1000 + onTime * 10 + attended;
 
     return {
@@ -633,6 +671,7 @@ export function computeTop3PunctualityHonors(
       attended,
       onTime,
       late,
+      expected: performance.sunExpected,
       punctualityRate,
       compositeScore
     };
@@ -658,7 +697,7 @@ export function computeTop3PunctualityHonors(
       onTimeCount: item.onTime,
       lateCount: item.late,
       punctualityRate: item.punctualityRate,
-      totalQuarterWeeks: totalWeeks,
+      totalQuarterWeeks: item.expected,
       admonitionCitation: citation
     };
   });
@@ -878,7 +917,7 @@ export function getFollowUpWindowForWeek(
   now: Date = new Date()
 ): FollowUpWindowInfo {
   const currentYear = now.getFullYear();
-  const schedule = getQuarterWeeklySchedule(quarter || undefined, currentYear);
+  const schedule = quarter ? getQuarterWeeklySchedule(quarter, currentYear) : [];
   const item = schedule.find(s => s.weekNumber === weekNumber);
 
   let sundayDateStr = item?.sundayDate;
